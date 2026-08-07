@@ -14,6 +14,8 @@ pub enum SkipReason {
     BuildArtifact,
     /// Interno de una herramienta (git, cachés).
     ToolInternal,
+    /// Caché o estado de una aplicación: no es conocimiento del usuario.
+    AppData,
     /// Del sistema operativo.
     SystemPath,
     /// Junction o symlink: recorrerlo invita a ciclos.
@@ -27,6 +29,7 @@ impl SkipReason {
         match self {
             SkipReason::BuildArtifact => "artefacto de compilacion",
             SkipReason::ToolInternal => "interno de herramienta",
+            SkipReason::AppData => "cache de aplicacion",
             SkipReason::SystemPath => "ruta del sistema",
             SkipReason::Reparse => "reparse point",
             SkipReason::HiddenOrSystem => "oculto o de sistema",
@@ -50,6 +53,24 @@ const TOOL_DIRS: &[&str] = &[
     ".git", ".hg", ".svn", ".cache", ".pytest_cache", ".mypy_cache",
     ".ruff_cache", ".tox", ".idea", ".vs", ".terraform",
     ".cargo", ".rustup", ".nvm", ".npm", ".pnpm-store", ".yarn",
+];
+
+/// Datos de aplicación: cachés de navegador, perfiles, almacenes locales.
+///
+/// Descubierto al auditar el grafo de M3 con `--sample`: la mitad de las
+/// aristas del primer escaneo real enlazaban `f_000024`, `data_1`, `index` y
+/// `hyph-ka.hyb` — cachés de Chromium que las aplicaciones vuelcan **dentro de
+/// `Documentos`**. Ningún filtro por extensión los habría cogido; el patrón
+/// está en el directorio.
+///
+/// Es la demostración de por qué M3 tenía que poder auditarse: los contadores
+/// decían "4.336 aristas" y parecían un éxito.
+const APP_DATA_DIRS: &[&str] = &[
+    "Cache", "Cache_Data", "Code Cache", "GPUCache", "DawnCache", "DawnGraphiteCache",
+    "ShaderCache", "GrShaderCache", "CacheStorage", "Service Worker", "blob_storage",
+    "IndexedDB", "Local Storage", "Session Storage", "Crashpad", "component_crx_cache",
+    "extensions_crx_cache", "Safe Browsing", "WidevineCdm", "hyphen-data",
+    "Local State", "Network", "Sessions", "Storage", "logs", "Logs", "CrashReports",
 ];
 
 /// Rutas del sistema operativo. Se comparan como componente de ruta.
@@ -91,6 +112,9 @@ impl ExclusionSet {
         }
         if TOOL_DIRS.iter().any(|d| d.eq_ignore_ascii_case(name)) {
             return Some(SkipReason::ToolInternal);
+        }
+        if APP_DATA_DIRS.iter().any(|d| d.eq_ignore_ascii_case(name)) {
+            return Some(SkipReason::AppData);
         }
         if SYSTEM_DIRS.iter().any(|d| d.eq_ignore_ascii_case(name)) {
             return Some(SkipReason::SystemPath);
@@ -154,6 +178,18 @@ mod tests {
         assert_eq!(e.skip_dir("target", attr::DIRECTORY), Some(SkipReason::BuildArtifact));
         assert_eq!(e.skip_dir(".git", attr::DIRECTORY), Some(SkipReason::ToolInternal));
         assert_eq!(e.skip_dir("AppData", attr::DIRECTORY), Some(SkipReason::SystemPath));
+    }
+
+    #[test]
+    fn poda_las_caches_que_las_apps_dejan_en_documentos() {
+        let e = ExclusionSet::new();
+        for d in ["Cache", "Code Cache", "GPUCache", "Service Worker", "IndexedDB"] {
+            assert_eq!(
+                e.skip_dir(d, attr::DIRECTORY),
+                Some(SkipReason::AppData),
+                "{d} es caché de aplicación, no conocimiento"
+            );
+        }
     }
 
     #[test]

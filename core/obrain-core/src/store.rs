@@ -311,6 +311,24 @@ impl Store {
             .optional()?)
     }
 
+    /// ¿Existe ya esta aserción exacta y vigente?
+    ///
+    /// `resolve` no sirve para esto: en un predicado de cardinalidad `many`
+    /// devuelve sólo la de mayor precedencia, no todas. Los enlazadores la
+    /// necesitan para ser idempotentes.
+    pub fn has_assertion(
+        &self,
+        subject: &EntityId,
+        predicate: &str,
+        object: &Value,
+        at: TimePoint,
+    ) -> Result<bool> {
+        Ok(self
+            .query(Some(subject), Some(predicate), at)?
+            .iter()
+            .any(|a| &a.object == object))
+    }
+
     /// Ejecuta `f` dentro de una transacción. SQLite admite un solo escritor
     /// (ver `adr/0002`), así que la ingestión masiva **tiene** que agrupar.
     pub fn transaction<T>(&mut self, f: impl FnOnce(&Store) -> Result<T>) -> Result<T> {

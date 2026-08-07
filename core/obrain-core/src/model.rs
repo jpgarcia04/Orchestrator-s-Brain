@@ -84,7 +84,18 @@ impl fmt::Display for AssertionId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
 pub enum Method {
-    /// Inferido por un modelo. Confianza < 1.0. Corregible.
+    /// **No certero y corregible.** Confianza < 1.0.
+    ///
+    /// Ampliado en M3: originalmente significaba "inferido por un modelo",
+    /// pero al implementar los enlazadores deterministas apareció un tercer
+    /// caso que no encajaba en ningún sitio — la **heurística mecánica**
+    /// (`informe_v2.pdf` es versión de `informe_v1.pdf`). No interviene ningún
+    /// modelo, pero tampoco es una certeza.
+    ///
+    /// En vez de añadir un cuarto método, `Inferred` pasa a significar
+    /// "podría estar mal", y el campo `source` distingue quién lo produjo:
+    /// `heuristic:filename-version` frente a `classifier@v1`. La precedencia
+    /// es la misma en ambos casos, que es lo único que este enum decide.
     Inferred = 0,
     /// Importado de otro sistema. Fiable pero no verificado aquí.
     Imported = 1,
@@ -247,6 +258,10 @@ pub enum Facet {
     Financial,
     Process,
     Confidential,
+    /// Agrupa a otras entidades: una carpeta, una sesión de trabajo, un álbum.
+    /// Añadida en M3 — ejemplo de que el modelo de facetas admite tipos nuevos
+    /// sin migración, que era su razón de ser (§3.2).
+    Container,
 }
 
 impl Facet {
@@ -260,6 +275,7 @@ impl Facet {
             Facet::Financial => "financial",
             Facet::Process => "process",
             Facet::Confidential => "confidential",
+            Facet::Container => "container",
         }
     }
 }

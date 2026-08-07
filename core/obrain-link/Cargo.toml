@@ -1,0 +1,13 @@
+[package]
+name = "obrain-link"
+version = "0.0.1"
+description = "Enlazadores deterministas — M3 de Orchestrator's Brain. Cero IA."
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+obrain-core = { path = "../obrain-core" }
+
+[dev-dependencies]
+blake3 = "1"

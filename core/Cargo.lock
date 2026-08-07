@@ -218,6 +218,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "obrain-link"
+version = "0.0.1"
+dependencies = [
+ "blake3",
+ "obrain-core",
+]
+
+[[package]]
 name = "obrain-scan"
 version = "0.0.1"
 dependencies = [

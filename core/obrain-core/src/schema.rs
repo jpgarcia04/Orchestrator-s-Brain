@@ -145,6 +145,9 @@ pub const SEED_PREDICATES: &[(&str, &str, &str, &str, Option<&str>)] = &[
     ("modified_at", "modificado", "one", "deterministic", None),
     ("availability", "disponibilidad del contenido", "one", "deterministic", None),
     ("mime_guess", "tipo estimado", "one", "deterministic", None),
+    // ── enlazadores deterministas (M3) ──
+    ("folder_path", "ruta de carpeta", "one", "deterministic", None),
+    ("session_span", "intervalo de la sesion", "one", "deterministic", None),
     // ── temporal · determinista ──
     ("occurred_during", "ocurrio durante", "many", "deterministic", None),
     ("precedes", "precede a", "many", "deterministic", None),

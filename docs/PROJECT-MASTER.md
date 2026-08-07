@@ -352,7 +352,7 @@ Cada hito se valida contra la pregunta de la visa.
 | ✅ **M0 — Esqueleto** | Log de aserciones, esquema, facetas, predicados. Sin UI. → [`core/obrain-core`](../core/obrain-core) | **Hecho (2026-08-07).** 14 tests + doctest en verde, clippy limpio con `-D warnings`. I1 e I4 impuestos por triggers de SQLite. |
 | ✅ **M1 — Ver el disco** | Descubrimiento, identidad, triaje de placeholders, exclusiones. → [`core/obrain-scan`](../core/obrain-scan) | **Hecho (2026-08-07).** Ver informe abajo. |
 | **M2 — Leer el disco** | Extracción por formato, chunking, FTS5. | Búsqueda léxica instantánea sobre el corpus completo. |
-| **M3 — Relacionar sin IA** | Todas las aristas deterministas de §4.4. | El grafo tiene densidad real y **cero** llamadas a un modelo. |
+| ✅ **M3 — Relacionar sin IA** | Aristas deterministas de §4.4. → [`core/obrain-link`](../core/obrain-link) | **Hecho (2026-08-07).** 2.480 aristas, 0 llamadas a un modelo. Ver informe abajo. |
 | **M4 — Entender** | Embeddings locales, búsqueda semántica, fusión RRF, rerank. | Encuentra por significado, no por nombre. |
 | **M5 — La galaxia** | Lente, layout estable, navegación por foco. | Se puede explorar un `Process` y sus artefactos visualmente. |
 | **M6 — Construir conocimiento** | Extracción de entidades, detección de `Process`, enriquecimiento por atención. | La métrica de §0 es medible y positiva. |
@@ -390,6 +390,52 @@ preocupación abierta en [ADR-0001](adr/0001-log-de-aserciones-como-fuente-de-ve
   ni con rutas de más de 260 caracteres.
 - El USN Change Journal no está implementado: el recorrido es completo cada vez.
   Para M1 basta; para vigilancia continua hará falta.
+
+### Informe de M3 — enlazado real (2026-08-07)
+
+`obrain-link` sobre el corpus de 1.291 archivos. **Cero llamadas a un modelo.**
+
+| Arista | Método | Nº |
+|---|---|---|
+| `contained_by` | determinista | 1.523 |
+| `occurred_during` (sesiones) | heurística, conf 0,70 | 894 |
+| `duplicate_of` | determinista, conf 1,00 | 37 |
+| `downloaded_from` | determinista, conf 1,00 | 24 |
+| `version_of` | heurística, conf 0,75 | 2 |
+| **Total** | | **2.480** |
+
+353 nodos concentradores creados —carpetas y sesiones— que **nadie escribió**.
+Densidad: 1,92 aristas por archivo.
+
+**`downloaded_from` es el hallazgo del hito.** Reconstruye la procedencia web de
+documentos reales de trámites desde un flujo NTFS que lleva veinte años ahí y que
+casi nadie usa. Es exactamente la arista que la pregunta de la visa necesita.
+
+### Lo que enseñó auditar el grafo con `--sample`
+
+Los contadores del primer enlazado decían «4.336 aristas» y parecían un éxito.
+Mirar aristas reales destapó **tres defectos que ningún test unitario tenía**:
+
+| Defecto | Antes | Después |
+|---|---|---|
+| Fotos `IMG_0001…` encadenadas como versiones | 369 `version_of` | regla del marcador inequívoco |
+| Series numeradas (`Bloque 3` → `Bloque 5`) tratadas como versiones | 261 | regla «original + numerados» → **2** |
+| Todos los archivos de 0 bytes enlazados entre sí (mismo hash) | 127 `duplicate_of` | se excluyen → **37** |
+
+Y una cuarta, en M1: la mitad del corpus eran **cachés de Chromium y partidas
+guardadas que las aplicaciones vuelcan dentro de `Documentos`**. Ningún filtro por
+extensión las habría cogido. Se añadió `APP_DATA_DIRS` (29 directorios podados,
+2.066 → 1.298 archivos).
+
+**Conclusión metodológica:** un enlazador que no se puede inspeccionar es un
+enlazador en el que no se puede confiar. `--sample` pasa a ser parte del hito,
+no una herramienta de depuración.
+
+**Problema abierto:** la exclusión por lista fija tiene techo. Todavía entran
+`MANIFEST-000001`, `preloaded_data.pb` y listas de palabras de alguna aplicación.
+Hace falta un **clasificador de "esto es dato de aplicación"** basado en señales
+(nombres no legibles, extensiones opacas, densidad de archivos por carpeta), no
+una lista que crece para siempre.
 
 ---
 
