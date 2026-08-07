@@ -221,7 +221,7 @@ Abstraer a nivel de `chat()` / `complete()` es una abstracción que gotea: los m
 
 Cada capacidad lleva **dataset dorado** y modelo de coste. Es lo que permite afirmar con datos "el proveedor X es mejor aquí", que es la intercambiabilidad real — no un adaptador lleno de `if provider ==`.
 
-### 5.2 Política de egreso (I11)
+### 5.2 Política de egreso (I11) → [`core/obrain-guard`](../core/obrain-guard)
 
 Cada entidad tiene un nivel de sensibilidad; cada invocación declara si puede salir de la máquina. El router **rechaza** enviar una entidad `vault` a un proveedor remoto. No es una preferencia de configuración: es una comprobación aplicada en la capa de routing y verificable con tests.
 
@@ -230,6 +230,8 @@ Cada entidad tiene un nivel de sensibilidad; cada invocación declara si puede s
 | `normal` | Sí | Sí, con consentimiento | Contenido cifrado |
 | `sensitive` | Sí, local | Sólo modelos locales | Contenido cifrado |
 | `vault` | Sólo léxico local | Nunca | Sólo metadatos |
+
+**Implementada (2026-08-07)**, antes de que exista un solo vector. `gate::decide` es esta tabla como función pura; sus tests son la tabla. Falla cerrado: una entidad desconocida se trata como `vault`. La búsqueda léxica queda deliberadamente fuera de la puerta —la tabla ya se la concede a `vault`— porque BM25 es determinista, local y no deja un derivado del que se pueda reconstruir el original. Un vector sí, y por eso sí pasa. El nivel se clasifica con señales de nombre y de contenido, y vive según [ADR-0006](adr/0006-donde-vive-la-sensibilidad.md). Ver el informe abajo.
 
 ### 5.3 Migración de embeddings (I7)
 
@@ -353,7 +355,8 @@ Cada hito se valida contra la pregunta de la visa.
 | ✅ **M1 — Ver el disco** | Descubrimiento, identidad, triaje de placeholders, exclusiones. → [`core/obrain-scan`](../core/obrain-scan) | **Hecho (2026-08-07).** Ver informe abajo. |
 | ✅ **M2 — Leer el disco** | Extracción por formato, chunking versionado, FTS5. → [`core/obrain-extract`](../core/obrain-extract) | **Hecho (2026-08-07).** 5.015 fragmentos, búsqueda BM25 en 0,5–1,9 ms. Ver informe abajo. |
 | ✅ **M3 — Relacionar sin IA** | Aristas deterministas de §4.4. → [`core/obrain-link`](../core/obrain-link) | **Hecho (2026-08-07).** 2.480 aristas, 0 llamadas a un modelo. Ver informe abajo. |
-| **M4 — Entender** | Embeddings locales, búsqueda semántica, fusión RRF, rerank. | Encuentra por significado, no por nombre. |
+| 🔒 **Puerta de sensibilidad** | Clasificación `normal`/`sensitive`/`vault` y aplicación de §5.2. → [`core/obrain-guard`](../core/obrain-guard) | **Hecha (2026-08-07).** No es un hito: es el requisito previo de M4. Ver informe abajo. |
+| **M4 — Entender** | Embeddings locales, búsqueda semántica, fusión RRF, rerank. | Encuentra por significado, no por nombre. → [prompt](prompts/m4-prompt.md) |
 | **M5 — La galaxia** | Lente, layout estable, navegación por foco. | Se puede explorar un `Process` y sus artefactos visualmente. |
 | **M6 — Construir conocimiento** | Extracción de entidades, detección de `Process`, enriquecimiento por atención. | La métrica de §0 es medible y positiva. |
 | **M7 — La pregunta** | Comprensión de consulta, resolución temporal, respuesta con citas. | **Responde la pregunta de la visa.** |
@@ -485,9 +488,14 @@ midió M3.)*
 
 **Búsqueda léxica** — el criterio de "hecho" del hito: **0,5–1,9 ms** por consulta
 sobre el corpus completo. Buscar `expediente` devuelve
-`consultaExpte_Z2707152B_…pdf`: la palabra no está en el nombre del archivo, sólo
+`consultaExpte_<NIE>_…pdf`: la palabra no está en el nombre del archivo, sólo
 dentro. Es la primera vez que el sistema encuentra algo que el usuario no había
 escrito en ningún sitio.
+
+> El nombre real de ese expediente llevaba un NIE dentro y estaba citado
+> literalmente aquí y en `obrain-extract/src/search.rs`. Lo destapó la primera
+> pasada del clasificador de sensibilidad; ver el informe de la puerta más
+> abajo. Queda redactado en el árbol de trabajo, **no en el historial de git**.
 
 **Idempotencia:** segunda ejecución → 460 sin cambio, **0 archivos abiertos, 0
 aserciones escritas, 0,00 s.** El hash del archivo decide si hay que volver a
@@ -563,18 +571,181 @@ invalidar los números del informe de M1. La recomendación concreta es añadir
 - **La extracción de PDF ensucia con fuentes subconjuntadas.**
   `SanDiskSecureAccessV3.0_QSG.pdf` empieza con ``` ```````````````SIRE ```: glifos
   sin `ToUnicode` utilizable. Un archivo de cinco; no se filtra, se anota.
-- **M2 es el hito en el que el contenido sale del archivo, y la sensibilidad (I11)
-  todavía no existe.** Todas las entidades son `normal`. En el índice han entrado
-  ficheros `.env` con variables de credenciales y hay en el corpus un archivo
-  llamado `VPS password.txt`. El §5.2 permite índice **léxico local** incluso para
-  `vault`, así que no se viola nada — pero la clasificación por sensibilidad deja de
-  ser teórica a partir de aquí y debería llegar antes que cualquier egreso.
+- ~~**M2 es el hito en el que el contenido sale del archivo, y la sensibilidad (I11)
+  todavía no existe.**~~ **Cerrado (2026-08-07)** por
+  [`obrain-guard`](../core/obrain-guard) — ver el informe de la puerta más abajo.
+  Los dos archivos que este párrafo nombraba, el `.env` con credenciales y
+  `VPS password.txt`, son hoy `vault` y están fuera del índice vectorial. El
+  diagnóstico de entonces sigue siendo correcto y por eso se conserva: §5.2 permite
+  índice **léxico local** incluso para `vault`, así que M2 no violaba nada — pero
+  la clasificación tenía que llegar antes que cualquier egreso, y llegó.
 - **Sin paralelismo.** 2,68 s para 460 archivos basta; para 200.000 habrá que
   extraer en paralelo y escribir en serie (SQLite tiene un solo escritor, ADR-0002).
 - **El chunker es deliberadamente tonto.** `paragraph-pack@1` empaqueta párrafos
   hasta 1.200 bytes con 200 de solape. No entiende tablas, ni encabezados, ni
   código. Lo que importa de él en M2 es que **está versionado** (I7), no que sea
   bueno.
+
+### Informe de la puerta de sensibilidad (2026-08-07)
+
+`obrain-guard` sobre la base que dejan M1, M3 y M2, build release. **Cero llamadas
+a un modelo, cero archivos abiertos:** las señales de nombre salen del log y las de
+contenido, de la tabla `chunks` que M2 ya había escrito. El clasificador no tiene
+acceso al disco, así que no puede hidratar OneDrive ni por descuido.
+
+| | |
+|---|---|
+| Archivos mirados | 1.314 |
+| Con texto que escanear | 454 |
+| **`normal`** | **1.304** |
+| **`sensitive`** | **3** |
+| **`vault`** | **7** |
+| | 1.304 + 3 + 7 = 1.314 ✓ |
+
+| Origen de la señal | |
+|---|---|
+| Del nombre o de la carpeta | 3 |
+| Del contenido | 7 |
+| | 3 + 7 = 10 clasificados ✓ |
+
+| La puerta | |
+|---|---|
+| Entidades que M4 podrá vectorizar | 448 de 454 |
+| Fragmentos retenidos | 28 de 5.229 (**0,54 %**) |
+| Aserciones escritas | 10 |
+| Duración | 10,0 s |
+
+**Idempotencia:** segunda pasada → **0 escritas, 0 retractadas, 10 sin cambio.**
+
+**Coste real de la política: medio punto porcentual del índice.** Es el número que
+importa. Una política de egreso que dejara fuera el 30 % del corpus sería una que
+nadie mantendría encendida.
+
+#### Los diez archivos, uno a uno
+
+Un contador que diga «7 en bóveda» no permite juzgar si sobran o si faltan. Aquí
+los dos errores posibles **no son simétricos**: clasificar de más deja un archivo
+fuera del índice vectorial y se corrige con un clic; clasificar de menos manda un
+pasaporte a un modelo remoto.
+
+| Archivo | Regla | Nivel | ¿Correcto? |
+|---|---|---|---|
+| `ClipOps\.env` | `nombre:dotenv` | vault | sí |
+| `ClipOps\.env.example` | `contenido:variable-con-secreto` | vault | **sí, y sorprende** |
+| `ClipOps\.env.production.example` | `contenido:variable-con-secreto` | vault | **sí, y sorprende** |
+| `ClipOps\docker-compose.yml` | `contenido:url-con-contrasena` | vault | sí |
+| `obrain-guard\src\content.rs` | `contenido:clave-privada-pem` | vault | sí, y es su propio test |
+| `…\passwords.txt` | `nombre:secreto` | vault | **no** — es un diccionario |
+| `Vps\VPS password.txt` | `nombre:secreto` | vault | sí |
+| `MatriculaJuanPabloGarcia.pdf` | `contenido:dni-o-nie` | sensitive | sí |
+| `certificado-matricula-…pdf` | `contenido:dni-o-nie` | sensitive | sí |
+| `consultaExpte_…pdf` | `contenido:dni-o-nie` | sensitive | sí |
+
+#### El hallazgo del trabajo: el NIE estaba en este repositorio
+
+La primera pasada marcó como `sensitive` dos archivos que no son documentos
+personales: **`docs/PROJECT-MASTER.md` y `core/obrain-extract/src/search.rs`**, los
+dos por la regla `contenido:dni-o-nie`.
+
+No era un falso positivo. El informe de M2 citaba el nombre real de un expediente
+para demostrar que la búsqueda léxica encontraba algo que no estaba en el nombre
+del archivo, y ese nombre **llevaba un NIE dentro**. La misma cadena estaba copiada
+en un comentario de `search.rs` como ejemplo de consulta con guiones. Las dos
+citas están en git, en un repositorio público.
+
+Es exactamente el fallo que el producto existe para evitar, cometido por la
+documentación del producto. Y lo destapó la regla más humilde del clasificador: un
+identificador no necesita un párrafo alrededor para ser un identificador, le basta
+con estar incrustado en el nombre de un archivo.
+
+Queda **redactado en el árbol de trabajo, no en el historial de git**. Rescribir el
+historial y decidir si el número debe considerarse ya público es una decisión que
+no toma un informe.
+
+> Detalle que merece quedar escrito: la primera redacción sustituyó el NIE por
+> `X0000000T`… que también pasa el dígito de control. El clasificador volvió a
+> marcar el archivo. Un control de seguridad que caza el intento de arreglarlo es
+> la mejor prueba de que no está mirando la lista de nombres.
+
+#### Lo que enseñó auditar las clasificaciones
+
+Tres defectos, ninguno visible en los contadores.
+
+| Defecto | Cómo se vio | Antes | Después |
+|---|---|---|---|
+| Tres de los siete archivos en bóveda eran `.env.example` | la lista, no el número | 7 vault | regla de plantilla |
+| `dni` como subcadena marca `midnight.log` | test escrito al leer la tabla | — | frontera de palabra obligatoria para siglas |
+| Una entidad fantasma con contenido caducado | el veredicto no cambiaba al corregir el archivo | — | ver problema abierto |
+
+**El primero se corrigió y el arreglo se volvió contra sí mismo, para bien.** Un
+`.env.example` es por convención una plantilla sin valores reales, así que las
+reglas de nombre le ceden el paso. Al reejecutar, **dos de los tres siguieron en
+bóveda** — pero ya no por su nombre, sino porque la regla de contenido encontró
+dentro variables de credenciales que **no son marcadores de posición**. Es la
+composición que se buscaba: el nombre cede, el contenido no. Y es un aviso
+concreto sobre dos archivos reales de otro proyecto.
+
+**`passwords.txt` es un falso positivo y se deja.** Es el diccionario de
+contraseñas comunes de `ZxcvbnData`, no un secreto. Sacarlo del índice vectorial
+no cuesta nada —M2 ya lo había descartado como `wordlist`, así que no tiene ni un
+fragmento— y la alternativa era peor: hacer que un control de seguridad consultara
+una heurística de ruido para decidir. Un control no delega en una heurística.
+
+**`content.rs` en bóveda es correcto y también se deja.** Contiene
+`-----BEGIN OPENSSH PRIVATE KEY-----` en un test. La regla ha hecho su trabajo. La
+tentación de excluir el propio código fuente es exactamente el tipo de excepción
+que convierte una puerta en una puerta con un agujero.
+
+#### Problema abierto que no es de esta capa: entidades fantasma
+
+Al corregir `search.rs` y reescanear, el veredicto no cambió. La causa resultó ser
+de M1: **guardar un archivo con un editor que escribe en temporal y renombra le
+cambia el `FileID` de NTFS**, así que el escaneo lo ve como un archivo nuevo. Misma
+ruta, mismo volumen, dos entidades:
+
+```
+7838c90638c8c3fa:b6700000000055010000000000000000   ← antes de editar
+7838c90638c8c3fa:e3320200000022000000000000000000   ← después
+```
+
+El invariante I8 dice que la identidad `(volumen, FileID) + hash` sobrevive a mover,
+renombrar y desconectar discos. Sobrevive a las tres — pero **no al guardado
+atómico**, que es como guardan la mayoría de los editores modernos y las
+aplicaciones de Office. La entidad vieja se queda con la ruta, con el contenido
+caducado y con su clasificación.
+
+Para la puerta el fallo es **hacia el lado seguro**: el fantasma conserva su nivel
+antiguo y el archivo nuevo se clasifica de cero. Para M4 no lo es: son dos juegos
+de vectores del mismo documento, y la búsqueda semántica devolverá el archivo dos
+veces, uno de ellos con texto que ya no existe.
+
+La reconciliación por `(ruta + hash del contenido)` cuando el `FileID` no cuadra es
+trabajo de `obrain-scan`, y **no se ha tocado aquí a propósito** para no invalidar
+los números de M1.
+
+#### Lo que este informe NO cubre
+
+- **La bóveda etiqueta, no cifra.** §8.1 pide para `vault` una clave derivada de
+  una frase de paso que no se almacena. Eso no existe. Hoy `vault` significa
+  «fuera del índice vectorial y fuera de todo egreso», y nada más. La etiqueta
+  llega antes que la cerradura.
+- **Sólo se ha probado el lado de las negaciones.** No hay ningún proveedor remoto
+  conectado todavía, así que `NeedsConsent` y el flujo de consentimiento son
+  código sin usar. La puerta niega correctamente; que permita correctamente está
+  probado en tests y no contra un integrante real.
+- **Las 818 fotos, vídeos y binarios del corpus se clasifican sólo por el
+  nombre.** Un pasaporte escaneado como `IMG_2291.jpg` en una carpeta llamada
+  `Escritorio` es hoy `normal`. Es el hueco más grande que queda, y no se cierra
+  con más reglas de nombre: hace falta OCR, que es otro hito con otro coste.
+- **Los 14 documentos de Office deshidratados también.** Mismo motivo que en M2:
+  no se abren, así que sólo se les mira el nombre. Son justo los que más se
+  parecen a la pregunta de la visa.
+- **Un `.ini` o un `.toml` con claves en minúscula se escapa** de la regla de
+  variables con secreto, que exige `NOMBRE_EN_MAYUSCULAS=valor` para no marcar
+  cada `const token = …` de un `.ts`. Es una frontera elegida, no un descuido.
+- **No hay dataset dorado.** §5.1 dice que cada capacidad debe llevar uno. Diez
+  clasificaciones auditadas a mano no son una medición de precisión y no se
+  presentan como tal.
 
 ---
 
@@ -596,6 +767,7 @@ invalidar los números del informe de M1. La recomendación concreta es añadir
 | [0003](adr/0003-lenguaje-del-nucleo.md) | Rust para el núcleo de indexación | Aceptada |
 | [0004](adr/0004-punto-de-entrada-barra-no-galaxia.md) | La barra de comandos es el punto de entrada; el mapa es el sustrato | Aceptada |
 | [0005](adr/0005-donde-vive-el-texto-extraido.md) | El texto extraído es una proyección, no una aserción | Aceptada |
+| [0006](adr/0006-donde-vive-la-sensibilidad.md) | La sensibilidad es una columna impuesta con procedencia en el log | Aceptada |
 
 ## Documentos
 

@@ -650,6 +650,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "obrain-guard"
+version = "0.0.1"
+dependencies = [
+ "obrain-core",
+ "obrain-extract",
+]
+
+[[package]]
 name = "obrain-link"
 version = "0.0.1"
 dependencies = [

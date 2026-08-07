@@ -138,6 +138,7 @@ El proyecto está en desarrollo activo. Cada hito se valida contra la pregunta d
 | **M1** — Ver el disco | Escaneo inteligente de archivos | ✅ Completo |
 | **M2** — Leer el disco | Extracción de texto y búsqueda | ✅ Completo |
 | **M3** — Relacionar | Conexiones automáticas sin IA | ✅ Completo |
+| **Privacidad** — La puerta | Clasificación de sensibilidad y control de egreso | ✅ Completo |
 | **M4** — Entender | Búsqueda por significado con IA local | 🔜 Siguiente |
 | **M5** — La galaxia | Visualización interactiva del conocimiento | ⏳ Planificado |
 | **M6** — Construir conocimiento | Inferencia de procesos y enriquecimiento | ⏳ Planificado |
@@ -207,7 +208,8 @@ Orchestrator's-Brain/
 │   ├── obrain-core/               #   Modelo de datos y almacenamiento
 │   ├── obrain-scan/               #   Descubrimiento e identidad de archivos
 │   ├── obrain-extract/            #   Extracción de texto y búsqueda léxica
-│   └── obrain-link/               #   Relaciones automáticas entre archivos
+│   ├── obrain-link/               #   Relaciones automáticas entre archivos
+│   └── obrain-guard/              #   Sensibilidad y control de egreso
 ├── docs/                          # Documentación de diseño
 │   ├── PROJECT-MASTER.md          #   Documento maestro del proyecto
 │   ├── EXPERIENCE.md              #   Diseño de experiencia y lenguaje visual

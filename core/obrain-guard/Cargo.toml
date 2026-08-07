@@ -1,0 +1,11 @@
+[package]
+name = "obrain-guard"
+version = "0.0.1"
+description = "Clasificación de sensibilidad y puerta de egreso — invariante I11 de Orchestrator's Brain"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+obrain-core = { path = "../obrain-core" }
+obrain-extract = { path = "../obrain-extract" }

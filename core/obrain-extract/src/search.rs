@@ -24,7 +24,7 @@ pub struct Hit {
 
 /// Traduce lo que escribe una persona a una expresión MATCH de FTS5.
 ///
-/// Sin esto, buscar `consultaExpte_Z2707152B-2025` es un error de sintaxis y
+/// Sin esto, buscar `consultaExpte_X0000000X-2025` es un error de sintaxis y
 /// no una búsqueda. Cada término va entrecomillado —lo que lo convierte en
 /// frase literal, con sus guiones y puntos tokenizados por FTS5— y un `*` al
 /// final se conserva como búsqueda por prefijo.

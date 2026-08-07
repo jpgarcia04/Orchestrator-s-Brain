@@ -156,6 +156,13 @@ pub const SEED_PREDICATES: &[(&str, &str, &str, &str, Option<&str>)] = &[
     // El chunker vive en el log, no sólo en la proyección: el invariante I7
     // exige que todo vector sepa con qué chunker se produjo su fragmento.
     ("chunker", "estrategia de fragmentacion", "one", "deterministic", None),
+    // ── sensibilidad · procedencia del control de egreso (I11) ──
+    // La columna `entities.sensitivity` sigue siendo el punto de control. Este
+    // predicado es su **procedencia** y su canal de corrección: quién dijo que
+    // algo era `vault`, con qué regla y cuándo. Cardinalidad `many` a propósito:
+    // varias señales pueden apuntar al mismo archivo y todas son parte del
+    // porqué. Ver `docs/adr/0006-donde-vive-la-sensibilidad.md`.
+    ("sensitivity_level", "nivel de sensibilidad", "many", "inferred", None),
     // ── temporal · determinista ──
     ("occurred_during", "ocurrio durante", "many", "deterministic", None),
     ("precedes", "precede a", "many", "deterministic", None),

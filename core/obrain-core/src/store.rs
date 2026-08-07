@@ -111,6 +111,58 @@ impl Store {
         Ok(())
     }
 
+    /// Recalcula la columna `sensitivity` desde las aserciones `sensitivity_level`
+    /// vigentes y la escribe. Devuelve el nivel resultante.
+    ///
+    /// La columna sigue siendo **el punto de control**: ninguna comprobación de
+    /// egreso resuelve el log, lee un índice. Esta función es el único puente
+    /// entre ambos, y existe para que el control tenga procedencia (I9) y sea
+    /// corregible (I5) sin dejar de ser un `SELECT` de una columna.
+    ///
+    /// Dos reglas, en este orden:
+    ///
+    /// 1. **Si el usuario se ha pronunciado, gana** — incluso para *bajar* el
+    ///    nivel. Es incómodo escribirlo y es correcto: un clasificador
+    ///    demasiado celoso que no se puede corregir convierte la bóveda en algo
+    ///    que la gente apaga entera. La decisión queda en el log para siempre,
+    ///    que es lo que la hace auditable en vez de invisible.
+    /// 2. **Si no, gana la señal más restrictiva.** Entre "puede ser una clave"
+    ///    y "parece normal", el sistema se equivoca hacia el lado que no filtra.
+    ///
+    /// Es una **proyección reconstruible** (I1): tirar la columna y volver a
+    /// llamar aquí para cada entidad da exactamente el mismo estado.
+    pub fn reproject_sensitivity(&self, id: &EntityId, at: TimePoint) -> Result<Sensitivity> {
+        let claims = self.query(Some(id), Some("sensitivity_level"), at)?;
+        let parse = |a: &Assertion| a.object.as_text().and_then(Sensitivity::parse);
+
+        let level = match claims.iter().find(|a| a.method == Method::User) {
+            Some(u) => parse(u).unwrap_or(Sensitivity::Normal),
+            None => claims.iter().filter_map(parse).max().unwrap_or(Sensitivity::Normal),
+        };
+        self.set_sensitivity(id, level)?;
+        Ok(level)
+    }
+
+    /// Cuántas entidades hay en cada nivel. Un control de seguridad tiene que
+    /// poder mirarse de un vistazo.
+    pub fn sensitivity_census(&self) -> Result<[i64; 3]> {
+        let mut census = [0i64; 3];
+        let mut stmt = self
+            .conn
+            .prepare("SELECT sensitivity, COUNT(*) FROM entities GROUP BY sensitivity")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        for row in rows {
+            let (level, n) = row?;
+            match Sensitivity::parse(&level) {
+                Some(Sensitivity::Normal) => census[0] = n,
+                Some(Sensitivity::Sensitive) => census[1] = n,
+                Some(Sensitivity::Vault) => census[2] = n,
+                None => return Err(Error::Corrupt(format!("sensibilidad '{level}'"))),
+            }
+        }
+        Ok(census)
+    }
+
     // ──────────────────────────────────────────────────────────── predicados
 
     pub fn register_predicate(&self, def: &PredicateDef) -> Result<()> {
