@@ -281,6 +281,52 @@ impl Store {
         Ok(out)
     }
 
+    /// Busca la entidad que tiene `predicate = value` vigente.
+    ///
+    /// Es la proyección que permite reconocer un archivo ya visto: se busca
+    /// por `file_id`, no por ruta (invariante I8).
+    pub fn find_subject_by_value(
+        &self,
+        predicate: &str,
+        value: &str,
+        at: TimePoint,
+    ) -> Result<Option<EntityId>> {
+        let sql = format!(
+            "SELECT subject FROM assertions
+             WHERE predicate = :predicate AND object_text = :value AND {BITEMPORAL}
+             {PRECEDENCE} LIMIT 1"
+        );
+        Ok(self
+            .conn
+            .query_row(
+                &sql,
+                named_params! {
+                    ":predicate": predicate,
+                    ":value":     value,
+                    ":valid":     at.valid,
+                    ":known":     at.known,
+                },
+                |r| Ok(EntityId(r.get(0)?)),
+            )
+            .optional()?)
+    }
+
+    /// Ejecuta `f` dentro de una transacción. SQLite admite un solo escritor
+    /// (ver `adr/0002`), así que la ingestión masiva **tiene** que agrupar.
+    pub fn transaction<T>(&mut self, f: impl FnOnce(&Store) -> Result<T>) -> Result<T> {
+        self.conn.execute_batch("BEGIN IMMEDIATE")?;
+        match f(self) {
+            Ok(v) => {
+                self.conn.execute_batch("COMMIT")?;
+                Ok(v)
+            }
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(e)
+            }
+        }
+    }
+
     /// Número total de aserciones escritas, incluidas las retractadas.
     /// El log sólo crece.
     pub fn log_len(&self) -> Result<i64> {

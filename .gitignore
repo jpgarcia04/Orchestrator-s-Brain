@@ -1,0 +1,29 @@
+# ─── Rust ───
+target/
+**/*.rs.bk
+
+# ─── Node ───
+node_modules/
+dist/
+.vite/
+
+# ─── Bases de datos locales del propio sistema ───
+# El índice de un usuario NUNCA debe acabar en el repo: contiene su vida.
+*.obrain
+*.obrain-wal
+*.obrain-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+
+# ─── Sistema operativo ───
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ─── Editores ───
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp

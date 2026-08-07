@@ -139,6 +139,12 @@ pub const SEED_PREDICATES: &[(&str, &str, &str, &str, Option<&str>)] = &[
     ("has_hash", "hash", "one", "deterministic", None),
     ("path_observed_at", "ruta observada", "many", "deterministic", None),
     ("has_facet", "tiene faceta", "many", "deterministic", None),
+    // ── sistema de archivos · determinista (M1) ──
+    ("file_id", "identidad de archivo", "one", "deterministic", None),
+    ("file_size", "tamano", "one", "deterministic", None),
+    ("modified_at", "modificado", "one", "deterministic", None),
+    ("availability", "disponibilidad del contenido", "one", "deterministic", None),
+    ("mime_guess", "tipo estimado", "one", "deterministic", None),
     // ── temporal · determinista ──
     ("occurred_during", "ocurrio durante", "many", "deterministic", None),
     ("precedes", "precede a", "many", "deterministic", None),

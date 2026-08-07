@@ -1,0 +1,19 @@
+[package]
+name = "obrain-scan"
+version = "0.0.1"
+description = "Descubrimiento, identidad y triaje de archivos — M1 de Orchestrator's Brain"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+obrain-core = { path = "../obrain-core" }
+walkdir = "2"
+blake3 = "1"
+rayon = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+] }

@@ -350,7 +350,7 @@ Cada hito se valida contra la pregunta de la visa.
 | Hito | Contenido | Criterio de "hecho" |
 |------|-----------|---------------------|
 | ✅ **M0 — Esqueleto** | Log de aserciones, esquema, facetas, predicados. Sin UI. → [`core/obrain-core`](../core/obrain-core) | **Hecho (2026-08-07).** 14 tests + doctest en verde, clippy limpio con `-D warnings`. I1 e I4 impuestos por triggers de SQLite. |
-| **M1 — Ver el disco** | Descubrimiento, identidad, triaje de placeholders, exclusiones. | Indexa una máquina real sin hidratar OneDrive ni indexar `node_modules`. |
+| ✅ **M1 — Ver el disco** | Descubrimiento, identidad, triaje de placeholders, exclusiones. → [`core/obrain-scan`](../core/obrain-scan) | **Hecho (2026-08-07).** Ver informe abajo. |
 | **M2 — Leer el disco** | Extracción por formato, chunking, FTS5. | Búsqueda léxica instantánea sobre el corpus completo. |
 | **M3 — Relacionar sin IA** | Todas las aristas deterministas de §4.4. | El grafo tiene densidad real y **cero** llamadas a un modelo. |
 | **M4 — Entender** | Embeddings locales, búsqueda semántica, fusión RRF, rerank. | Encuentra por significado, no por nombre. |
@@ -359,6 +359,37 @@ Cada hito se valida contra la pregunta de la visa.
 | **M7 — La pregunta** | Comprensión de consulta, resolución temporal, respuesta con citas. | **Responde la pregunta de la visa.** |
 
 M3 es el hito más subestimado y probablemente el que más valor por hora de trabajo entrega. M7 es el que valida la tesis.
+
+### Informe de M1 — escaneo real (2026-08-07)
+
+`obrain-scan C:\Users\pacox\OneDrive --verify`, build release.
+
+| | |
+|---|---|
+| Archivos en disco bajo la raíz | 35.583 |
+| Bajo directorio podado (nunca enumerados) | 33.517 |
+| **Archivos vistos** | **2.066** ← la aritmética cierra exactamente |
+| Directorios podados | 12 (5 build, 6 herramienta, 1 oculto) |
+| Deshidratados de nube detectados | 14 |
+| **Hidratados por el escaneo** | **0** ✓ |
+| Leídos para hashear | 2.045 (638,7 MB) |
+| Duración del recorrido | 0,11 s |
+| Aserciones escritas | 14.913 |
+
+**Idempotencia** (segundo escaneo sobre carpeta estática): 0 entidades nuevas,
+0 aserciones escritas, 36 sin cambio. La identidad `(volumen, FileID)` reconoce
+los archivos ya vistos y el log **no se infla al reescanear** — que era la
+preocupación abierta en [ADR-0001](adr/0001-log-de-aserciones-como-fuente-de-verdad.md).
+
+**Lo que este informe NO cubre:**
+- Sólo se probó `RECALL_ON_DATA_ACCESS`. **No había ni un archivo
+  `RECALL_ON_OPEN`** en la máquina, así que esa rama —la más peligrosa, donde
+  abrir ya descarga— está implementada y cubierta por tests unitarios, pero
+  **no verificada contra el sistema real**.
+- No se ha probado sobre un volumen completo (`C:\`), ni con discos externos,
+  ni con rutas de más de 260 caracteres.
+- El USN Change Journal no está implementado: el recorrido es completo cada vez.
+  Para M1 basta; para vigilancia continua hará falta.
 
 ---
 
