@@ -1,0 +1,240 @@
+<div align="center">
+
+# 🧠 Orchestrator's Brain
+
+**Tu segundo cerebro. El que no olvida.**
+
+*Un sistema de conocimiento personal que no solo guarda tus archivos —entiende qué significan, cómo se relacionan y dónde encajan en tu vida.*
+
+---
+
+[![Estado](https://img.shields.io/badge/estado-en%20desarrollo%20activo-brightgreen?style=for-the-badge)](#-estado-actual)
+[![Licencia](https://img.shields.io/badge/licencia-MIT-blue?style=for-the-badge)](LICENSE)
+[![Rust](https://img.shields.io/badge/núcleo-Rust-orange?style=for-the-badge)](#)
+[![Local First](https://img.shields.io/badge/tus%20datos-nunca%20salen-purple?style=for-the-badge)](#-privacidad-como-principio)
+
+</div>
+
+---
+
+## 💡 La idea en una frase
+
+> *«¿Dónde estaba el documento que usé para demostrar ingresos durante mi trámite de visa?»*
+
+Esa pregunta no contiene el nombre del archivo, ni su carpeta, ni su fecha. Contiene una **relación** entre cosas que viviste: un documento, un trámite y un propósito. Ningún buscador de archivos puede responderla. **Orchestrator's Brain sí.**
+
+---
+
+## 🤔 El problema
+
+Piensa en todos los archivos que tienes en tu computadora. PDFs de trámites, fotos de viajes, documentos de trabajo, facturas, recibos, notas. Miles de archivos acumulados a lo largo de años.
+
+Ahora piensa en lo que **sabes** sobre esos archivos que ningún sistema conoce:
+
+- Ese PDF era parte de un trámite de visa
+- Esas 340 fotos son de un viaje a Barcelona en 2019
+- Ese documento Word fue la versión final de un presupuesto que pasó por 4 revisiones
+- Ese recibo lo descargaste de una página web específica para justificar un gasto
+
+**Todo ese conocimiento vive solo en tu cabeza.** Y tu cabeza olvida.
+
+Las herramientas actuales te permiten buscar por nombre de archivo, por fecha, quizás por alguna palabra dentro del documento. Pero no pueden responder preguntas sobre el **significado** de tus archivos ni las **relaciones** entre ellos.
+
+Orchestrator's Brain existe para resolver eso.
+
+---
+
+## 🌌 La visión: un mapa de tu conocimiento
+
+Imagina abrir una aplicación y ver algo parecido a una constelación: puntos de luz conectados entre sí, unos más brillantes que otros, algunos agrupados en racimos densos, otros aislados en la periferia.
+
+Cada punto es algo que el sistema conoce: un archivo, una persona, un trámite, un evento. Las conexiones entre ellos son relaciones que el sistema descubrió: este documento pertenece a ese trámite, fue escrito por esta persona, se descargó de aquella página.
+
+- **Las zonas brillantes** son donde tu vida está activa ahora mismo
+- **Las zonas tenues** son tu pasado — quieto pero intacto, listo para cuando lo necesites
+- **Las conexiones punteadas** son cosas que el sistema *cree* pero no está seguro — y tú puedes confirmar o corregir con un clic
+
+No es un salvapantallas bonito. Es un **mapa funcional de tu conocimiento** que se va haciendo más rico con el tiempo.
+
+---
+
+## ✨ Qué hace (y qué lo hace diferente)
+
+### 🔍 Encuentra lo que no recuerdas que tienes
+
+No necesitas recordar el nombre del archivo. Ni la carpeta. Ni la fecha exacta. Puedes buscar por **significado**: "el documento que usé para demostrar ingresos" es una búsqueda válida.
+
+### 🕸️ Descubre relaciones que tú no le dijiste
+
+El sistema conecta tus archivos automáticamente usando señales que ya existen en tu computadora: metadatos, fechas, contenido, estructura de carpetas, incluso la URL de donde descargaste algo. No inventa — descubre.
+
+### 🧩 Reconstruye procesos completos
+
+Un trámite de visa no es un archivo: es un conjunto de documentos, fechas, personas y pasos. Orchestrator's Brain puede identificar estos **procesos** y reconstruirlos como una historia coherente.
+
+### 🫥 Nunca inventa
+
+Si no sabe algo, dice "no lo sé" y te muestra qué buscó y por qué no encontró nada. Una respuesta inventada es peor que ninguna respuesta.
+
+### ✅ Tú siempre tienes la última palabra
+
+Si el sistema infiere algo incorrecto, lo corriges con un clic. Tu corrección queda **grabada permanentemente** y nunca será sobreescrita. Tu conocimiento manda sobre cualquier inferencia.
+
+---
+
+## 🔒 Privacidad como principio
+
+Esto no es negociable:
+
+| Principio | Lo que significa |
+|-----------|-----------------|
+| **Local primero** | Tus datos viven en tu computadora. El procesamiento ocurre en tu máquina. |
+| **Nada sale sin tu permiso** | Cada archivo tiene un nivel de sensibilidad. Los documentos sensibles nunca se envían a ningún servicio externo. |
+| **Cifrado en reposo** | Tu base de conocimiento está cifrada en tu disco. |
+| **Sin cuenta, sin nube obligatoria** | Funciona completamente offline. La sincronización entre dispositivos es opcional y cifrada de extremo a extremo. |
+
+Si vas a guardar tu pasaporte, tus contratos y tus documentos médicos en un sistema, ese sistema **no puede tener acceso a tus datos**. Esta es la razón por la que el procesamiento es local — no por dogma, sino por responsabilidad.
+
+---
+
+## 🗺️ Cómo funciona (sin tecnicismos)
+
+Orchestrator's Brain trabaja en capas, como un cerebro real:
+
+### 1. 👀 Observar — *Ver tu disco*
+El sistema recorre las carpetas que le indiques y **reconoce** cada archivo — no por su nombre o ubicación (que pueden cambiar), sino por su **contenido**. Si mueves o renombras un archivo, sigue siendo el mismo.
+
+> Inteligencia incluida: detecta archivos que están "en la nube" y no los descarga sin tu permiso. No va a llenar tu disco ni saturar tu internet.
+
+### 2. 📖 Leer — *Entender el contenido*
+Extrae el texto de cada documento (PDFs, documentos de Office, notas, código) y lo organiza para poder buscarlo.
+
+### 3. 🔗 Relacionar — *Conectar sin adivinar*
+Antes de usar cualquier inteligencia artificial, el sistema ya puede descubrir **miles de relaciones** usando solo señales que existen en tus archivos:
+
+| Lo que encuentra | Cómo lo sabe |
+|------------------|--------------|
+| Archivos duplicados | Mismo contenido, aunque tengan diferente nombre |
+| Versiones de un documento | Nombres similares con marcadores como "v2", "final", "rev" |
+| Sesiones de trabajo | Archivos modificados en la misma ventana de tiempo |
+| Origen web | La URL de donde descargaste un archivo (sí, Windows guarda eso) |
+| Estructura lógica | Las carpetas que tú mismo organizaste son una señal muy fuerte |
+
+### 4. 🧠 Entender — *Buscar por significado* *(próximamente)*
+Con modelos de inteligencia artificial **que corren en tu máquina**, el sistema podrá buscar por significado semántico: encontrar documentos relevantes aunque no contengan las palabras exactas que buscaste.
+
+### 5. 🌌 Visualizar — *El mapa* *(próximamente)*
+Todo ese conocimiento cobra vida en una visualización interactiva — tu galaxia personal de conocimiento, donde puedes explorar, navegar y descubrir conexiones que habías olvidado.
+
+---
+
+## 📈 Estado actual
+
+El proyecto está en desarrollo activo. Cada hito se valida contra la pregunta del inicio: *"¿Puede responder dónde estaba el documento de la visa?"*
+
+| Hito | Descripción | Estado |
+|------|-------------|--------|
+| **M0** — Cimientos | Modelo de datos y almacenamiento | ✅ Completo |
+| **M1** — Ver el disco | Escaneo inteligente de archivos | ✅ Completo |
+| **M2** — Leer el disco | Extracción de texto y búsqueda | ✅ Completo |
+| **M3** — Relacionar | Conexiones automáticas sin IA | ✅ Completo |
+| **M4** — Entender | Búsqueda por significado con IA local | 🔜 Siguiente |
+| **M5** — La galaxia | Visualización interactiva del conocimiento | ⏳ Planificado |
+| **M6** — Construir conocimiento | Inferencia de procesos y enriquecimiento | ⏳ Planificado |
+| **M7** — La pregunta | Responder la pregunta de la visa | 🎯 Meta final |
+
+### Números reales del último escaneo
+
+Sobre una carpeta real de OneDrive con documentos de trabajo y vida personal:
+
+- **35,583** archivos en disco → **2,066** relevantes después de filtrar basura
+- **2,480 relaciones** descubiertas — sin una sola llamada a inteligencia artificial
+- **5,015 fragmentos** de texto indexados y buscables
+- Búsqueda en **menos de 2 milisegundos**
+- **0 archivos** descargados innecesariamente de la nube
+
+---
+
+## 🌱 Cómo evoluciona con el tiempo
+
+Esta es la parte que más importa. Orchestrator's Brain no es una herramienta que instalas y funciona igual para siempre. Es un sistema que **crece contigo**:
+
+### Semana 1 — *El archipiélago*
+> Islas de archivos agrupados. Ya encuentras duplicados, versiones y sesiones de trabajo. Ya sirve.
+
+### Meses 1 a 3 — *Los puentes*
+> La inteligencia artificial empieza a conectar las islas. Aparecen los primeros procesos reconstruidos. El momento *"¿cómo supo eso?"*
+
+### Año 1 — *El relieve*
+> Se forma una topografía estable. Las zonas activas de tu vida brillan; el pasado está quieto pero accesible. Empiezas a redescubrir cosas que habías olvidado.
+
+### Año 3+ — *La memoria*
+> Más historia que presente. Patrones que se repiten, hilos que quedaron abiertos, contradicciones a lo largo de los años. Ya no es una herramienta — es una **biografía viva**.
+
+---
+
+## 🏗️ Arquitectura (para los curiosos)
+
+<details>
+<summary>Clic para expandir los detalles técnicos</summary>
+
+### Stack
+
+- **Núcleo:** Rust — rendimiento predecible, memoria controlada, sin pausa de recolector de basura. Ideal para un proceso que corre todo el día en segundo plano.
+- **Persistencia:** SQLite — un solo archivo, cero instalación. Todo índice es una proyección reconstruible desde un log maestro.
+- **Interfaz:** Tauri v2 + TypeScript — ~10 MB contra ~150 MB de Electron, usa el webview del sistema.
+- **Visualización:** PixiJS (WebGL2) — renderizado verificado a 0.6 ms para 500 nodos en GPU integrada Intel.
+
+### Modelo de datos
+
+La unidad fundamental no es el archivo ni el nodo: es la **aserción** — *alguien afirmó algo, en un momento, con una confianza, basándose en una evidencia*. Los nodos y las relaciones son vistas derivadas del log de aserciones.
+
+Esto hace que la auditoría, el deshacer, la sincronización y la detección de contradicciones salgan gratis del modelo, en vez de ser features que se parchean después.
+
+### Decisiones de diseño documentadas
+
+El repositorio contiene un registro formal de decisiones arquitectónicas (ADRs) en [`docs/adr/`](docs/adr/) que explican el *porqué* de cada elección fundamental.
+
+</details>
+
+---
+
+## 📂 Estructura del repositorio
+
+```
+Orchestrator's-Brain/
+├── core/                          # Núcleo del sistema (Rust)
+│   ├── obrain-core/               #   Modelo de datos y almacenamiento
+│   ├── obrain-scan/               #   Descubrimiento e identidad de archivos
+│   ├── obrain-extract/            #   Extracción de texto y búsqueda léxica
+│   └── obrain-link/               #   Relaciones automáticas entre archivos
+├── docs/                          # Documentación de diseño
+│   ├── PROJECT-MASTER.md          #   Documento maestro del proyecto
+│   ├── EXPERIENCE.md              #   Diseño de experiencia y lenguaje visual
+│   ├── adr/                       #   Registro de decisiones arquitectónicas
+│   └── prompts/                   #   Prompts de diseño usados durante el proceso
+└── prototypes/                    # Prototipos y pruebas de concepto
+    └── 01-graph-render/           #   Benchmark de renderizado WebGL
+```
+
+---
+
+## 🤝 Sobre el proyecto
+
+Orchestrator's Brain es un proyecto personal en desarrollo activo. Nació de una frustración concreta: tener miles de archivos acumulados durante años y no poder preguntarle a la computadora nada que no sea "¿cómo se llama?" o "¿cuándo lo modificaste?".
+
+La ambición es construir algo que funcione como un segundo cerebro real: que recuerde lo que tú olvidaste, que vea conexiones que tú no ves, que organice tu conocimiento sin pedirte que lo organices tú — y que lo haga sin que tus datos salgan de tu máquina.
+
+No es un proyecto terminado. Es un proyecto que se va a ir perfeccionando con el tiempo, hito por hito, validando cada paso contra una pregunta real: *¿puede encontrar aquel documento de la visa?*
+
+Y el día que pueda, la arquitectura habrá demostrado que funciona.
+
+---
+
+<div align="center">
+
+*Construido con la convicción de que tu computadora debería conocerte mejor — sin necesidad de contarle nada a nadie más.*
+
+**[📖 Documento Maestro](docs/PROJECT-MASTER.md)** · **[🎨 Diseño de Experiencia](docs/EXPERIENCE.md)** · **[📋 Decisiones Arquitectónicas](docs/adr/)**
+
+</div>
