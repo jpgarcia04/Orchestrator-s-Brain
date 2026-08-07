@@ -50,6 +50,11 @@ pub mod model;
 pub mod schema;
 pub mod store;
 
+/// Reexportado para que las proyecciones (índice léxico, vectorial) hablen con
+/// la **misma** versión de `rusqlite` que el log. Dos versiones distintas del
+/// mismo crate en el árbol serían dos tipos `Connection` incompatibles.
+pub use rusqlite;
+
 pub use error::{Error, Result};
 pub use model::{
     Assertion, AssertionId, Cardinality, EntityId, Facet, Method, NewAssertion, PredicateDef,

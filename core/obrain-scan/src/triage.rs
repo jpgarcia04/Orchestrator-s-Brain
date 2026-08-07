@@ -61,6 +61,22 @@ impl Availability {
             Availability::Offline => "offline",
         }
     }
+
+    /// Reconstruye la disponibilidad guardada en el log.
+    ///
+    /// Devuelve `None` ante un valor desconocido **a propósito**: quien
+    /// pregunte tiene que decidir explícitamente qué hacer, y la única
+    /// respuesta segura es no tocar el archivo. Un `unwrap_or(Local)` aquí
+    /// convertiría una etiqueta corrupta en una descarga de OneDrive.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "local" => Some(Availability::Local),
+            "cloud_dehydrated" => Some(Availability::CloudDehydrated),
+            "cloud_placeholder" => Some(Availability::CloudPlaceholder),
+            "offline" => Some(Availability::Offline),
+            _ => None,
+        }
+    }
 }
 
 /// Clasifica a partir de los atributos crudos. Función pura: no toca el disco.
@@ -122,6 +138,26 @@ mod tests {
         let a = classify(attr::RECALL_ON_OPEN | attr::RECALL_ON_DATA_ACCESS);
         assert_eq!(a, Availability::CloudPlaceholder);
         assert!(!a.may_open());
+    }
+
+    #[test]
+    fn ida_y_vuelta_por_el_log() {
+        for a in [
+            Availability::Local,
+            Availability::CloudDehydrated,
+            Availability::CloudPlaceholder,
+            Availability::Offline,
+        ] {
+            assert_eq!(Availability::parse(a.as_str()), Some(a));
+        }
+    }
+
+    /// Falla cerrado: una etiqueta que no reconocemos no puede degradarse a
+    /// "local", porque el siguiente paso sería leer los bytes.
+    #[test]
+    fn una_disponibilidad_desconocida_no_se_asume_local() {
+        assert_eq!(Availability::parse("qualquer_cosa"), None);
+        assert_eq!(Availability::parse(""), None);
     }
 
     #[test]

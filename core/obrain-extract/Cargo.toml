@@ -1,0 +1,18 @@
+[package]
+name = "obrain-extract"
+version = "0.0.1"
+description = "Extracción de texto, chunking versionado e índice léxico FTS5 — M2 de Orchestrator's Brain"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+blake3 = "1.8.6"
+ego-tree = "0.11"
+encoding_rs = "0.8.35"
+obrain-core = { path = "../obrain-core" }
+obrain-scan = { path = "../obrain-scan" }
+pdf-extract = "0.12.0"
+quick-xml = "0.41.0"
+scraper = "0.27.0"
+zip = { version = "7.2.0", default-features = false, features = ["deflate"] }

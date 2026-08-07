@@ -351,7 +351,7 @@ Cada hito se valida contra la pregunta de la visa.
 |------|-----------|---------------------|
 | ✅ **M0 — Esqueleto** | Log de aserciones, esquema, facetas, predicados. Sin UI. → [`core/obrain-core`](../core/obrain-core) | **Hecho (2026-08-07).** 14 tests + doctest en verde, clippy limpio con `-D warnings`. I1 e I4 impuestos por triggers de SQLite. |
 | ✅ **M1 — Ver el disco** | Descubrimiento, identidad, triaje de placeholders, exclusiones. → [`core/obrain-scan`](../core/obrain-scan) | **Hecho (2026-08-07).** Ver informe abajo. |
-| **M2 — Leer el disco** | Extracción por formato, chunking, FTS5. | Búsqueda léxica instantánea sobre el corpus completo. |
+| ✅ **M2 — Leer el disco** | Extracción por formato, chunking versionado, FTS5. → [`core/obrain-extract`](../core/obrain-extract) | **Hecho (2026-08-07).** 5.015 fragmentos, búsqueda BM25 en 0,5–1,9 ms. Ver informe abajo. |
 | ✅ **M3 — Relacionar sin IA** | Aristas deterministas de §4.4. → [`core/obrain-link`](../core/obrain-link) | **Hecho (2026-08-07).** 2.480 aristas, 0 llamadas a un modelo. Ver informe abajo. |
 | **M4 — Entender** | Embeddings locales, búsqueda semántica, fusión RRF, rerank. | Encuentra por significado, no por nombre. |
 | **M5 — La galaxia** | Lente, layout estable, navegación por foco. | Se puede explorar un `Process` y sus artefactos visualmente. |
@@ -437,6 +437,145 @@ Hace falta un **clasificador de "esto es dato de aplicación"** basado en señal
 (nombres no legibles, extensiones opacas, densidad de archivos por carpeta), no
 una lista que crece para siempre.
 
+### Informe de M2 — extracción real (2026-08-07)
+
+`obrain-extract` sobre la base que dejaron M1 y M3, build release.
+
+**Decidido sin abrir un solo archivo** — la etapa que hereda entera la regla de M1:
+
+| | |
+|---|---|
+| Archivos en el log | 1.292 |
+| Formato no soportado (fotos, vídeo, binarios) | 818 |
+| **No local — no se tocó** | **14** |
+| Más grandes de 32 MB | 0 |
+| **Archivos abiertos** | **460** ← 818 + 14 + 0 + 460 = 1.292 |
+
+*(1.292 y no los 1.291 del informe de M3: el propio repositorio ha ganado un
+archivo desde entonces. Los números de M2 salen de un escaneo nuevo, no del que
+midió M3.)*
+
+**De los 460 que sí se abrieron:**
+
+| | |
+|---|---|
+| Texto extraído | 432 |
+| Sin texto (vacíos o escaneados) | 6 |
+| Binario disfrazado de texto | 9 |
+| Ruido descartado (minificado / diccionario) | 13 |
+| Falló el extractor | 0 |
+| | 432 + 6 + 9 + 13 + 0 = **460** ✓ |
+
+| Índice léxico | |
+|---|---|
+| Fragmentos | 5.015 |
+| Caracteres de texto | 8.908.504 |
+| Caracteres guardados (con solape) | 9.772.967 → **9,7 % de solape** |
+| Media | 11,6 fragmentos por archivo |
+| Bytes leídos de disco | 21,0 MB |
+| Duración | 2,68 s |
+| Base de datos | 4,28 MB → 23,15 MB |
+
+| Por formato | archivos | fragmentos | caracteres |
+|---|---|---|---|
+| plaintext | 420 | 4.901 | 8.809.413 |
+| html | 35 | 77 | 67.925 |
+| pdf | 5 | 37 | 31.166 |
+| ooxml | **0** | — | — |
+
+**Búsqueda léxica** — el criterio de "hecho" del hito: **0,5–1,9 ms** por consulta
+sobre el corpus completo. Buscar `expediente` devuelve
+`consultaExpte_Z2707152B_…pdf`: la palabra no está en el nombre del archivo, sólo
+dentro. Es la primera vez que el sistema encuentra algo que el usuario no había
+escrito en ningún sitio.
+
+**Idempotencia:** segunda ejecución → 460 sin cambio, **0 archivos abiertos, 0
+aserciones escritas, 0,00 s.** El hash del archivo decide si hay que volver a
+extraer; el hash del texto, si hay que volver a fragmentar.
+
+**El log crece con lo que no se puede recalcular, y sólo con eso.** 2.620
+aserciones: 432 extracciones correctas × 6 (`extraction_status`, `text_chars`,
+`chunk_count`, `text_hash`, `chunker`, `has_facet=textual`) + 28 × 1 para vacíos,
+binarios y ruido. `unsupported` y `not_local` **no** escriben nada: se deducen de
+la ruta y de la aserción `availability` que ya escribió M1. El texto no está en el
+log — vive en `chunks`, que es una proyección ([ADR-0005](adr/0005-donde-vive-el-texto-extraido.md)).
+
+### El hallazgo del hito: los 14 archivos que no se tocaron son los 14 documentos de Office
+
+Los 14 archivos deshidratados de OneDrive que detectó M1 son **exactamente** los
+14 documentos de Office del corpus: 10 `.docx`, 2 `.xlsx`, 2 `.pptx`. Presupuestos,
+actas, revisiones de almacén, flujogramas comerciales — el material más parecido a
+la pregunta de la visa que hay en el disco.
+
+Extraer su texto exigiría descargarlos. Así que **el extractor de OOXML se escribió,
+se probó con material sintético y no ha corrido nunca contra un archivo real.**
+Mismo estado exacto que `RECALL_ON_OPEN` en M1: implementado, cubierto por tests,
+no verificado contra la realidad. Se dice aquí en vez de esconderlo en un `0` de
+la tabla.
+
+Es también la mejor demostración posible de por qué el triaje va antes de abrir:
+el caso peligroso no era hipotético, era el 100 % de los documentos ofimáticos.
+
+### Lo que enseñó auditar las extracciones
+
+Tres defectos, ninguno visible en los contadores:
+
+| Defecto | Cómo se vio | Antes | Después |
+|---|---|---|---|
+| `\0` es UTF-8 válido, así que la validación pasaba **antes** que el olfateo de binario | test unitario en rojo | todo LevelDB de Chromium indexable | olfateo primero |
+| `LOG` y `LOCK` no tienen extensión, pero el nombre entero se usaba como extensión | lista de "abiertos y sin texto" | 518 archivos abiertos | **460** |
+| 12 archivos ocupaban el **62,5 %** del índice y ninguno lo había escrito una persona | `--sample`, sección "quién ocupa el índice" | 6.412 fragmentos | **5.015** (−21,8 %) |
+
+El tercero motivó [`noise.rs`](../core/obrain-extract/src/noise.rs), la primera
+aportación al *clasificador de dato de aplicación* que M1 dejó como problema
+abierto. Dos señales, ambas de contenido y ninguna de lista fija:
+
+- **Minificado** — media de línea ≥ 400 caracteres **o** una sola línea ≥ 10.000.
+  La media sola no bastaba: `index-_Tu1Wy_w.js` promedia 241 caracteres porque
+  arrastra miles de líneas de licencias, pero su línea más larga son 77.789.
+- **Diccionario** — ≥ 200 líneas, ≥ 90 % de un solo token, media ≤ 40 caracteres.
+  Cazó exactamente los seis ficheros de `ZxcvbnData` (`passwords.txt`,
+  `english_wikipedia.txt`, `surnames.txt`…), que habrían casado con casi cualquier
+  consulta de una palabra.
+
+**Lo que sigue contaminando, cuantificado:** tras los filtros, **el 55,2 % del
+índice (2.767 de 5.015 fragmentos) sale de dos familias de directorios**:
+
+| Origen | Fragmentos | % |
+|---|---|---|
+| `Rockstar Games\Social Club\Launcher\Renderer\…` — cargas de extensiones de Chromium (`listdata.json`, `open_cookie_database.json`, `bindings_main.js`) | 1.737 | 34,6 % |
+| `WindowsPowerShell\Modules\` y `PowerShell\Modules\` — módulos de terceros instalados (`Renci.SshNet.xml`, `Posh-SSH.psm1-Help.xml`…) | 1.030 | 20,5 % |
+
+Ninguna señal de contenido los distingue de un documento legítimo: son texto real,
+bien formado y en inglés. Lo que los delata es **dónde están**: son el
+`node_modules` de PowerShell y de Chromium. Es un problema de exclusión por
+directorio, es decir de M1, y **no se ha tocado aquí a propósito** para no
+invalidar los números del informe de M1. La recomendación concreta es añadir
+`WindowsPowerShell\Modules` y `PowerShell\Modules` a las exclusiones de
+`obrain-scan`.
+
+### Lo que este informe NO cubre
+
+- **`ooxml` no ha corrido nunca contra un archivo real** (ver arriba).
+- **PDF escaneado = cero texto, y está bien.** `instructivo.pdf` son 5,4 MB, 30
+  páginas, 12 imágenes y **cero fuentes**: es un escaneo. Sale como `empty`, que es
+  la respuesta honesta. Hace falta OCR y eso es otro hito con otro coste.
+- **La extracción de PDF ensucia con fuentes subconjuntadas.**
+  `SanDiskSecureAccessV3.0_QSG.pdf` empieza con ``` ```````````````SIRE ```: glifos
+  sin `ToUnicode` utilizable. Un archivo de cinco; no se filtra, se anota.
+- **M2 es el hito en el que el contenido sale del archivo, y la sensibilidad (I11)
+  todavía no existe.** Todas las entidades son `normal`. En el índice han entrado
+  ficheros `.env` con variables de credenciales y hay en el corpus un archivo
+  llamado `VPS password.txt`. El §5.2 permite índice **léxico local** incluso para
+  `vault`, así que no se viola nada — pero la clasificación por sensibilidad deja de
+  ser teórica a partir de aquí y debería llegar antes que cualquier egreso.
+- **Sin paralelismo.** 2,68 s para 460 archivos basta; para 200.000 habrá que
+  extraer en paralelo y escribir en serie (SQLite tiene un solo escritor, ADR-0002).
+- **El chunker es deliberadamente tonto.** `paragraph-pack@1` empaqueta párrafos
+  hasta 1.200 bytes con 200 de solape. No entiende tablas, ni encabezados, ni
+  código. Lo que importa de él en M2 es que **está versionado** (I7), no que sea
+  bueno.
+
 ---
 
 ## 10. Decisiones pendientes
@@ -456,6 +595,7 @@ una lista que crece para siempre.
 | [0002](adr/0002-sustrato-de-persistencia.md) | SQLite como sustrato único de persistencia | Aceptada |
 | [0003](adr/0003-lenguaje-del-nucleo.md) | Rust para el núcleo de indexación | Aceptada |
 | [0004](adr/0004-punto-de-entrada-barra-no-galaxia.md) | La barra de comandos es el punto de entrada; el mapa es el sustrato | Aceptada |
+| [0005](adr/0005-donde-vive-el-texto-extraido.md) | El texto extraído es una proyección, no una aserción | Aceptada |
 
 ## Documentos
 

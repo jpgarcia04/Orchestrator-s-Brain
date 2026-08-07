@@ -148,6 +148,14 @@ pub const SEED_PREDICATES: &[(&str, &str, &str, &str, Option<&str>)] = &[
     // ── enlazadores deterministas (M3) ──
     ("folder_path", "ruta de carpeta", "one", "deterministic", None),
     ("session_span", "intervalo de la sesion", "one", "deterministic", None),
+    // ── extraccion de contenido (M2) ──
+    ("extraction_status", "resultado de la extraccion", "one", "deterministic", None),
+    ("text_chars", "caracteres de texto", "one", "deterministic", None),
+    ("text_hash", "hash del texto extraido", "one", "deterministic", None),
+    ("chunk_count", "numero de fragmentos", "one", "deterministic", None),
+    // El chunker vive en el log, no sólo en la proyección: el invariante I7
+    // exige que todo vector sepa con qué chunker se produjo su fragmento.
+    ("chunker", "estrategia de fragmentacion", "one", "deterministic", None),
     // ── temporal · determinista ──
     ("occurred_during", "ocurrio durante", "many", "deterministic", None),
     ("precedes", "precede a", "many", "deterministic", None),

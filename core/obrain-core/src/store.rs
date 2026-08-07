@@ -61,7 +61,12 @@ impl Store {
         Ok(())
     }
 
-    /// Acceso de sólo lectura a la conexión, para consultas ad hoc en tests.
+    /// Acceso directo a la conexión.
+    ///
+    /// Es por donde se construyen las **proyecciones** —índice léxico FTS5,
+    /// índice vectorial— que por I1 no son la verdad y viven en sus propias
+    /// tablas. El log sigue siendo intocable: sus triggers no distinguen quién
+    /// escribe.
     pub fn conn(&self) -> &Connection {
         &self.conn
     }
