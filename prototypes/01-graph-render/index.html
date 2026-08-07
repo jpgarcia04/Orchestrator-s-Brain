@@ -1,0 +1,805 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>OB · Prototipo 1 — Render de grafo</title>
+<style>
+  :root {
+    --bg: #04060c;
+    --fg: #8fa3c4;
+    --fg-dim: #4a5875;
+    --accent: #7dd3fc;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --good: #4ade80;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: var(--bg); }
+  body {
+    font: 12px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace;
+    color: var(--fg);
+  }
+  canvas { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
+
+  .panel {
+    position: fixed;
+    background: rgba(6, 10, 20, 0.82);
+    border: 1px solid rgba(125, 211, 252, 0.14);
+    border-radius: 6px;
+    backdrop-filter: blur(12px);
+    padding: 10px 12px;
+    user-select: none;
+  }
+  #hud { top: 12px; left: 12px; min-width: 208px; }
+  #hud h1 {
+    font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--fg-dim); font-weight: 500; margin-bottom: 8px;
+  }
+  .row { display: flex; justify-content: space-between; gap: 16px; }
+  .row b { font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .row.warn b { color: var(--warn); }
+  .row.bad  b { color: var(--bad); }
+  .row.good b { color: var(--good); }
+  hr { border: 0; border-top: 1px solid rgba(125,211,252,.1); margin: 8px 0; }
+
+  #ctl { top: 12px; right: 12px; width: 224px; }
+  #ctl h1 {
+    font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--fg-dim); font-weight: 500; margin-bottom: 8px;
+  }
+  label { display: flex; align-items: center; gap: 8px; padding: 2px 0; cursor: pointer; }
+  label:hover { color: var(--accent); }
+  input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
+  .k { color: var(--fg-dim); margin-left: auto; font-size: 10px; }
+  button {
+    width: 100%; margin-top: 4px; padding: 6px;
+    background: rgba(125,211,252,.08); color: var(--accent);
+    border: 1px solid rgba(125,211,252,.22); border-radius: 4px;
+    font: inherit; cursor: pointer;
+  }
+  button:hover { background: rgba(125,211,252,.16); }
+
+  #verdict { bottom: 12px; left: 12px; max-width: 460px; }
+  #verdict h1 {
+    font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--fg-dim); font-weight: 500; margin-bottom: 6px;
+  }
+  #verdict p { color: var(--fg-dim); font-size: 11px; }
+  #verdictLine { font-size: 13px; margin-bottom: 6px; }
+
+  #hint {
+    position: fixed; bottom: 12px; right: 12px;
+    color: var(--fg-dim); font-size: 11px; text-align: right;
+  }
+  .sparkline { display: block; margin-top: 6px; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div class="panel" id="hud">
+  <h1>Rendimiento</h1>
+  <div class="row"><span>fps</span><b id="fps">—</b></div>
+  <div class="row"><span>frame</span><b id="ft">—</b></div>
+  <div class="row"><span>· sim</span><b id="st">—</b></div>
+  <div class="row"><span>· render</span><b id="rt">—</b></div>
+  <canvas class="sparkline" id="spark" width="184" height="30"></canvas>
+  <hr>
+  <div class="row"><span>nodos</span><b id="nn">—</b></div>
+  <div class="row"><span>aristas</span><b id="ne">—</b></div>
+  <div class="row"><span>draw calls</span><b>2</b></div>
+  <hr>
+  <div class="row" id="restRow"><span>modo reposo</span><b id="rest">activo</b></div>
+  <div class="row"><span>layout</span><b id="lay">—</b></div>
+</div>
+
+<div class="panel" id="ctl">
+  <h1>Vocabulario de animación</h1>
+  <label><input type="checkbox" id="a1" checked> Asentamiento <span class="k">R</span></label>
+  <label><input type="checkbox" id="a2" checked> Foco <span class="k">clic</span></label>
+  <label><input type="checkbox" id="a3" checked> Expansión <span class="k">E</span></label>
+  <label><input type="checkbox" id="a4" checked> Latido</label>
+  <label><input type="checkbox" id="a5" checked> Trazo <span class="k">T</span></label>
+  <label><input type="checkbox" id="a6" checked> Sedimentación <span class="k">S</span></label>
+  <hr>
+  <label><input type="checkbox" id="reducedMotion"> prefers-reduced-motion</label>
+  <label><input type="checkbox" id="restMode" checked> modo reposo al perder foco</label>
+  <hr>
+  <button id="reseed">Re-consultar (probar estabilidad)</button>
+  <button id="stress">Estrés: ×4 nodos</button>
+</div>
+
+<div class="panel" id="verdict">
+  <h1>Criterio de fallo</h1>
+  <div id="verdictLine">midiendo…</div>
+  <p>500 nodos · seis animaciones · 60 fps sostenidos. Si no se sostiene, se recorta el capítulo 3 de EXPERIENCE.md.</p>
+</div>
+
+<div id="hint">
+  arrastrar: mover · rueda: zoom · clic en nodo: foco<br>
+  R asentamiento · E expansión · T trazo · S sedimentación
+</div>
+
+<script>
+"use strict";
+
+/* ═══════════════════════════════════════════════════════════════════
+   PROTOTIPO DESECHABLE — Orchestrator's Brain
+   Valida el prototipo 1 de docs/EXPERIENCE.md §8.
+
+   Pregunta que responde: ¿se sostienen 500 nodos con las seis
+   animaciones a 60 fps en un portátil normal?
+
+   WebGL2 crudo a propósito: mide el techo de la plataforma, no el
+   overhead de una librería. Si la plataforma no puede, PixiJS tampoco.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ─── PRNG determinista ────────────────────────────────────────────
+   Invariante: misma semilla = mismas posiciones. Es lo que hace
+   posible la memoria espacial (EXPERIENCE.md §6). */
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const SEED = 20260807;
+
+/* ─── Generación del grafo ─────────────────────────────────────────
+   Estructura de "archipiélago" (EXPERIENCE.md §6, semana 1):
+   clústeres densos con pocos puentes entre ellos. Es la forma real
+   que tendrá el grafo antes de que la inferencia conecte islas. */
+function buildGraph(nodeCount, seed) {
+  const rnd = mulberry32(seed);
+  const nodes = [];
+  const edges = [];
+
+  const CLUSTERS = Math.max(6, Math.round(nodeCount / 42));
+  const centers = [];
+  for (let c = 0; c < CLUSTERS; c++) {
+    const ang = (c / CLUSTERS) * Math.PI * 2 + rnd() * 0.4;
+    const rad = 260 + rnd() * 200;
+    centers.push({ x: Math.cos(ang) * rad, y: Math.sin(ang) * rad, hue: rnd() });
+  }
+
+  for (let i = 0; i < nodeCount; i++) {
+    const c = Math.floor(rnd() * CLUSTERS);
+    const ctr = centers[c];
+    // recencia 0..1 — controla la amplitud del latido (canal "movimiento residual")
+    const recency = Math.pow(rnd(), 2.2);
+    // confianza — controla la saturación. Los deterministas van a 1.0
+    const deterministic = rnd() < 0.62;
+    const confidence = deterministic ? 1.0 : 0.35 + rnd() * 0.5;
+
+    nodes.push({
+      id: i,
+      cluster: c,
+      hue: (ctr.hue + (rnd() - 0.5) * 0.06 + 1) % 1,
+      x: ctr.x + (rnd() - 0.5) * 190,
+      y: ctr.y + (rnd() - 0.5) * 190,
+      vx: 0, vy: 0,
+      prevX: 0, prevY: 0,     // para el Asentamiento
+      degree: 0,
+      recency,
+      confidence,
+      relevance: 1,            // repesado por el Foco
+      born: 0,                 // para la Sedimentación
+      alpha: 1,
+    });
+  }
+
+  // aristas intra-clúster (densas) — corresponden a las deterministas
+  const byCluster = new Map();
+  for (const n of nodes) {
+    if (!byCluster.has(n.cluster)) byCluster.set(n.cluster, []);
+    byCluster.get(n.cluster).push(n);
+  }
+  for (const [, group] of byCluster) {
+    for (let i = 0; i < group.length; i++) {
+      const links = 1 + Math.floor(rnd() * 3);
+      for (let k = 0; k < links; k++) {
+        const j = Math.floor(rnd() * group.length);
+        if (j === i) continue;
+        const det = rnd() < 0.75;
+        edges.push({
+          a: group[i].id, b: group[j].id,
+          deterministic: det,
+          confidence: det ? 1.0 : 0.3 + rnd() * 0.6,
+        });
+      }
+    }
+  }
+  // puentes entre clústeres (escasos) — corresponden a las inferidas
+  const bridges = Math.round(nodeCount * 0.09);
+  for (let i = 0; i < bridges; i++) {
+    const a = Math.floor(rnd() * nodes.length);
+    const b = Math.floor(rnd() * nodes.length);
+    if (nodes[a].cluster === nodes[b].cluster) continue;
+    edges.push({ a, b, deterministic: false, confidence: 0.3 + rnd() * 0.45 });
+  }
+
+  for (const e of edges) { nodes[e.a].degree++; nodes[e.b].degree++; }
+  return { nodes, edges };
+}
+
+/* ─── Simulación de fuerzas ────────────────────────────────────────
+   Converge y SE CONGELA. No corre indefinidamente: en el producto real
+   las posiciones se persisten y sólo se recalculan al cambiar la lente.
+   Por eso el coste de simulación no forma parte del estado estable. */
+class Sim {
+  constructor(graph) {
+    this.g = graph;
+    this.alpha = 1;
+    this.frozen = false;
+  }
+  reheat(a = 1) { this.alpha = a; this.frozen = false; }
+  step() {
+    if (this.frozen) return 0;
+    const t0 = performance.now();
+    const { nodes, edges } = this.g;
+    const n = nodes.length;
+    const REPULSE = 2600, SPRING = 0.0016, CENTER = 0.0009, DAMP = 0.86;
+
+    // rejilla uniforme: repulsión O(n·k) en vez de O(n²)
+    const CELL = 90;
+    const grid = new Map();
+    for (const nd of nodes) {
+      const key = ((nd.x / CELL) | 0) + "," + ((nd.y / CELL) | 0);
+      let b = grid.get(key); if (!b) { b = []; grid.set(key, b); }
+      b.push(nd);
+    }
+    for (const nd of nodes) {
+      const cx = (nd.x / CELL) | 0, cy = (nd.y / CELL) | 0;
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        const b = grid.get((cx + dx) + "," + (cy + dy));
+        if (!b) continue;
+        for (const o of b) {
+          if (o === nd) continue;
+          let ddx = nd.x - o.x, ddy = nd.y - o.y;
+          let d2 = ddx * ddx + ddy * ddy;
+          if (d2 < 1e-4) { ddx = (Math.random() - .5) * .1; ddy = (Math.random() - .5) * .1; d2 = .01; }
+          if (d2 > CELL * CELL * 4) continue;
+          const f = REPULSE / d2;
+          nd.vx += ddx * f * 0.02; nd.vy += ddy * f * 0.02;
+        }
+      }
+    }
+    for (const e of edges) {
+      const a = nodes[e.a], b = nodes[e.b];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      a.vx += dx * SPRING; a.vy += dy * SPRING;
+      b.vx -= dx * SPRING; b.vy -= dy * SPRING;
+    }
+    for (const nd of nodes) {
+      nd.vx -= nd.x * CENTER; nd.vy -= nd.y * CENTER;
+      nd.vx *= DAMP; nd.vy *= DAMP;
+      nd.x += nd.vx * this.alpha; nd.y += nd.vy * this.alpha;
+    }
+    this.alpha *= 0.978;
+    if (this.alpha < 0.006) { this.frozen = true; this.alpha = 0; }
+    return performance.now() - t0;
+  }
+}
+
+/* ─── WebGL2 ───────────────────────────────────────────────────────*/
+const canvas = document.getElementById("gl");
+const gl = canvas.getContext("webgl2", {
+  antialias: false, alpha: false, powerPreference: "high-performance",
+});
+if (!gl) {
+  document.body.innerHTML = '<div style="padding:40px;color:#f87171;font:14px monospace">' +
+    'WebGL2 no disponible. El prototipo necesita WebGL2.</div>';
+  throw new Error("no webgl2");
+}
+
+function compile(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+function program(vs, fs) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, vs));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  return p;
+}
+
+const HSL2RGB = `
+vec3 hsl2rgb(vec3 c){
+  vec3 k = clamp(abs(mod(c.x*6.0 + vec3(0.0,4.0,2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+  return c.z + c.y * (k - 0.5) * (1.0 - abs(2.0*c.z - 1.0));
+}`;
+
+/* Aristas: quad instanciado estirado entre A y B.
+   Trazo sólido = determinista, punteado = inferida (EXPERIENCE.md §1). */
+const edgeProg = program(`#version 300 es
+layout(location=0) in vec2 aCorner;
+layout(location=1) in vec4 aSeg;
+layout(location=2) in vec3 aStyle;   // width, opacity, dashed
+uniform mat3 uView;
+out float vOpacity;
+out float vDashed;
+out float vDist;
+void main(){
+  vec2 A = aSeg.xy, B = aSeg.zw;
+  vec2 d = B - A;
+  float len = max(length(d), 0.0001);
+  vec2 n = vec2(-d.y, d.x) / len;
+  vec2 world = A + d * aCorner.x + n * aStyle.x * aCorner.y;
+  vec3 p = uView * vec3(world, 1.0);
+  gl_Position = vec4(p.xy, 0.0, 1.0);
+  vOpacity = aStyle.y;
+  vDashed  = aStyle.z;
+  vDist    = aCorner.x * len;
+}`, `#version 300 es
+precision mediump float;
+in float vOpacity; in float vDashed; in float vDist;
+out vec4 frag;
+void main(){
+  if (vDashed > 0.5 && mod(vDist, 13.0) > 6.5) discard;
+  frag = vec4(vec3(0.42, 0.62, 0.86) * vOpacity, vOpacity);
+}`);
+
+/* Nodos: quad instanciado con caída radial.
+   Luminosidad = relevancia · Saturación = confianza · Latido ∝ recencia. */
+const nodeProg = program(`#version 300 es
+layout(location=0) in vec2 aCorner;
+layout(location=1) in vec2 aPos;
+layout(location=2) in float aSize;
+layout(location=3) in vec3 aHSL;
+layout(location=4) in vec3 aPulse;  // fase, amplitud, alpha
+uniform mat3 uView;
+uniform float uTime;
+out vec2 vUv; out vec3 vHSL; out float vAlpha;
+void main(){
+  float pulse = 1.0 + aPulse.y * sin(uTime * 1.35 + aPulse.x);
+  vec2 world = aPos + aCorner * aSize * pulse;
+  vec3 p = uView * vec3(world, 1.0);
+  gl_Position = vec4(p.xy, 0.0, 1.0);
+  vUv = aCorner; vHSL = aHSL; vAlpha = aPulse.z;
+}`, `#version 300 es
+precision mediump float;
+in vec2 vUv; in vec3 vHSL; in float vAlpha;
+out vec4 frag;
+${HSL2RGB}
+void main(){
+  float d = length(vUv);
+  if (d > 1.0) discard;
+  float core = smoothstep(0.42, 0.0, d);
+  float glow = pow(max(0.0, 1.0 - d), 3.2);
+  float a = (core * 0.85 + glow * 0.40) * vAlpha;
+  vec3 col = hsl2rgb(vHSL);
+  frag = vec4(col * (0.55 + core * 0.85), a);
+}`);
+
+const QUAD_EDGE = new Float32Array([0,-0.5, 1,-0.5, 1,0.5, 0,-0.5, 1,0.5, 0,0.5]);
+const QUAD_NODE = new Float32Array([-1,-1, 1,-1, 1,1, -1,-1, 1,1, -1,1]);
+
+function makeVao(quad, instanceSpecs) {
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const qb = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, qb);
+  gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+  const stride = instanceSpecs.reduce((s, x) => s + x.size, 0) * 4;
+  const ib = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, ib);
+  let off = 0;
+  for (const spec of instanceSpecs) {
+    gl.enableVertexAttribArray(spec.loc);
+    gl.vertexAttribPointer(spec.loc, spec.size, gl.FLOAT, false, stride, off);
+    gl.vertexAttribDivisor(spec.loc, 1);
+    off += spec.size * 4;
+  }
+  gl.bindVertexArray(null);
+  return { vao, buffer: ib, stride: stride / 4 };
+}
+
+const edgeVao = makeVao(QUAD_EDGE, [{ loc: 1, size: 4 }, { loc: 2, size: 3 }]);
+const nodeVao = makeVao(QUAD_NODE, [{ loc: 1, size: 2 }, { loc: 2, size: 1 }, { loc: 3, size: 3 }, { loc: 4, size: 3 }]);
+
+const uEdgeView = gl.getUniformLocation(edgeProg, "uView");
+const uNodeView = gl.getUniformLocation(nodeProg, "uView");
+const uNodeTime = gl.getUniformLocation(nodeProg, "uTime");
+
+/* ─── Estado ───────────────────────────────────────────────────────*/
+const S = {
+  nodeCount: 500,
+  graph: null, sim: null,
+  edgeData: null, nodeData: null,
+  cam: { x: 0, y: 0, zoom: 1, tx: 0, ty: 0, tzoom: 1 },
+  focus: -1,
+  settleT: 1,             // 0..1 progreso del Asentamiento
+  expandT: -1, expandFrom: -1,
+  traceT: -1, tracePath: [],
+  sediment: [],
+  time: 0,
+  resting: false,
+  anim: { a1: true, a2: true, a3: true, a4: true, a5: true, a6: true },
+  reducedMotion: false,
+  restEnabled: true,
+};
+
+function rebuild(count, seed) {
+  S.nodeCount = count;
+  S.graph = buildGraph(count, seed);
+  S.sim = new Sim(S.graph);
+  S.edgeData = new Float32Array(S.graph.edges.length * edgeVao.stride);
+  S.nodeData = new Float32Array(S.graph.nodes.length * nodeVao.stride);
+  // converger fuera de pantalla para tener un layout de partida estable
+  for (let i = 0; i < 420 && !S.sim.frozen; i++) S.sim.step();
+  for (const n of S.graph.nodes) { n.prevX = n.x; n.prevY = n.y; }
+  document.getElementById("nn").textContent = S.graph.nodes.length;
+  document.getElementById("ne").textContent = S.graph.edges.length;
+  fingerprint();
+}
+
+/* Huella del layout — dos consultas idénticas deben dar la misma.
+   Es la verificación mecánica de la estabilidad espacial. */
+function fingerprint() {
+  let h = 0;
+  for (const n of S.graph.nodes) {
+    h = (h * 31 + Math.round(n.x * 10)) | 0;
+    h = (h * 31 + Math.round(n.y * 10)) | 0;
+  }
+  const hex = (h >>> 0).toString(16).padStart(8, "0");
+  const el = document.getElementById("lay");
+  const prev = el.dataset.hash;
+  el.textContent = hex;
+  if (prev && prev !== hex) { el.parentElement.className = "row bad"; }
+  else if (prev) { el.parentElement.className = "row good"; }
+  el.dataset.hash = hex;
+}
+
+/* ─── Animaciones ──────────────────────────────────────────────────*/
+function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+
+function startSettle() {                                   // 1 · Asentamiento
+  if (!S.anim.a1 || S.reducedMotion) { S.settleT = 1; return; }
+  for (const n of S.graph.nodes) { n.prevX = n.x + (Math.random() - .5) * 240; n.prevY = n.y + (Math.random() - .5) * 240; }
+  S.settleT = 0;
+}
+
+function setFocus(id) {                                    // 2 · Foco
+  S.focus = id;
+  if (id < 0) { for (const n of S.graph.nodes) n.relevance = 1; return; }
+  if (!S.anim.a2) return;
+  const near = new Set([id]);
+  for (const e of S.graph.edges) {
+    if (e.a === id) near.add(e.b);
+    if (e.b === id) near.add(e.a);
+  }
+  const second = new Set(near);
+  for (const e of S.graph.edges) {
+    if (near.has(e.a)) second.add(e.b);
+    if (near.has(e.b)) second.add(e.a);
+  }
+  for (const n of S.graph.nodes) {
+    n.relevance = n.id === id ? 1 : near.has(n.id) ? 0.72 : second.has(n.id) ? 0.34 : 0.10;
+  }
+  const f = S.graph.nodes[id];
+  S.cam.tx = f.x; S.cam.ty = f.y; S.cam.tzoom = 1.7;
+}
+
+function startExpand(id) {                                 // 3 · Expansión
+  if (!S.anim.a3) return;
+  S.expandFrom = id; S.expandT = 0;
+}
+
+function startTrace() {                                    // 5 · Trazo
+  if (!S.anim.a5) return;
+  const start = S.focus >= 0 ? S.focus : (Math.random() * S.graph.nodes.length) | 0;
+  const path = [start];
+  let cur = start;
+  for (let hop = 0; hop < 5; hop++) {
+    const nb = [];
+    for (const e of S.graph.edges) {
+      if (e.a === cur) nb.push(e.b);
+      else if (e.b === cur) nb.push(e.a);
+    }
+    if (!nb.length) break;
+    cur = nb[(Math.random() * nb.length) | 0];
+    path.push(cur);
+  }
+  S.tracePath = path; S.traceT = 0;
+}
+
+function sediment() {                                      // 6 · Sedimentación
+  if (!S.anim.a6) return;
+  const g = S.graph;
+  const anchor = g.nodes[(Math.random() * g.nodes.length) | 0];
+  const n = {
+    id: g.nodes.length, cluster: anchor.cluster, hue: anchor.hue,
+    x: anchor.x + (Math.random() - .5) * 130, y: anchor.y + (Math.random() - .5) * 130,
+    vx: 0, vy: 0, prevX: 0, prevY: 0, degree: 1,
+    recency: 1, confidence: 0.45, relevance: 1, born: S.time, alpha: 0,
+  };
+  n.prevX = n.x; n.prevY = n.y;
+  g.nodes.push(n);
+  g.edges.push({ a: anchor.id, b: n.id, deterministic: false, confidence: 0.45 });
+  S.edgeData = new Float32Array(g.edges.length * edgeVao.stride);
+  S.nodeData = new Float32Array(g.nodes.length * nodeVao.stride);
+  S.sim.reheat(0.25);
+  document.getElementById("nn").textContent = g.nodes.length;
+  document.getElementById("ne").textContent = g.edges.length;
+}
+
+/* ─── Empaquetado de instancias ────────────────────────────────────*/
+function pack(dt) {
+  const { nodes, edges } = S.graph;
+
+  if (S.settleT < 1) S.settleT = Math.min(1, S.settleT + dt * 2.5);   // ~400ms
+  const settle = easeOutCubic(S.settleT);
+
+  if (S.expandT >= 0) { S.expandT += dt; if (S.expandT > 1.2) S.expandT = -1; }
+  if (S.traceT  >= 0) { S.traceT  += dt; if (S.traceT  > 1.6) S.traceT  = -1; }
+
+  const traceSet = new Map();
+  if (S.traceT >= 0) {
+    const prog = Math.min(1, S.traceT / 0.9) * S.tracePath.length;
+    for (let i = 0; i < S.tracePath.length; i++) {
+      if (prog > i) traceSet.set(S.tracePath[i], Math.min(1, prog - i));
+    }
+  }
+
+  // aristas
+  let eo = 0;
+  for (const e of edges) {
+    const a = nodes[e.a], b = nodes[e.b];
+    if (!a || !b) continue;
+    const ax = a.prevX + (a.x - a.prevX) * settle;
+    const ay = a.prevY + (a.y - a.prevY) * settle;
+    const bx = b.prevX + (b.x - b.prevX) * settle;
+    const by = b.prevY + (b.y - b.prevY) * settle;
+    const rel = Math.max(a.relevance, b.relevance);
+    let op = e.confidence * 0.34 * rel * Math.min(a.alpha, b.alpha);
+    if (traceSet.has(e.a) && traceSet.has(e.b)) op = Math.min(1, op + 0.75);
+    S.edgeData[eo++] = ax; S.edgeData[eo++] = ay;
+    S.edgeData[eo++] = bx; S.edgeData[eo++] = by;
+    S.edgeData[eo++] = e.deterministic ? 1.15 : 0.85;
+    S.edgeData[eo++] = op;
+    S.edgeData[eo++] = e.deterministic ? 0 : 1;
+  }
+
+  // nodos
+  let no = 0;
+  const pulseOn = S.anim.a4 && !S.reducedMotion;
+  for (const n of nodes) {
+    if (n.alpha < 1) n.alpha = Math.min(1, n.alpha + dt * 0.5);        // sedimentación ~2s
+    const x = n.prevX + (n.x - n.prevX) * settle;
+    const y = n.prevY + (n.y - n.prevY) * settle;
+
+    let size = 3.2 + Math.min(n.degree, 14) * 0.62;
+    if (S.expandT >= 0) {                                              // escalonado 20ms
+      const dx = n.x - nodes[S.expandFrom].x, dy = n.y - nodes[S.expandFrom].y;
+      const delay = Math.sqrt(dx * dx + dy * dy) / 900;
+      const t = Math.max(0, Math.min(1, (S.expandT - delay) / 0.4));
+      size *= 1 + Math.sin(t * Math.PI) * 0.85;
+    }
+    const tr = traceSet.get(n.id);
+    if (tr !== undefined) size *= 1 + tr * 0.9;
+
+    const lum = 0.20 + n.relevance * 0.44 + (tr !== undefined ? 0.24 : 0);
+    const sat = 0.18 + n.confidence * 0.62;
+
+    S.nodeData[no++] = x; S.nodeData[no++] = y;
+    S.nodeData[no++] = size;
+    S.nodeData[no++] = n.hue; S.nodeData[no++] = sat; S.nodeData[no++] = lum;
+    S.nodeData[no++] = n.id * 1.7;                                     // fase desincronizada
+    S.nodeData[no++] = pulseOn ? n.recency * 0.055 : 0;                // amplitud ∝ recencia
+    S.nodeData[no++] = n.alpha;
+  }
+  return { edgeCount: edges.length, nodeCount: nodes.length };
+}
+
+/* ─── Render ───────────────────────────────────────────────────────*/
+function viewMatrix(w, h) {
+  const c = S.cam;
+  const sx = (2 / w) * c.zoom, sy = -(2 / h) * c.zoom;
+  return new Float32Array([sx, 0, 0, 0, sy, 0, -c.x * sx, -c.y * sy, 1]);
+}
+
+function render(counts) {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = Math.round(canvas.clientWidth * dpr), h = Math.round(canvas.clientHeight * dpr);
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  gl.viewport(0, 0, w, h);
+  gl.clearColor(0.016, 0.024, 0.047, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+  const view = viewMatrix(canvas.clientWidth, canvas.clientHeight);
+
+  gl.useProgram(edgeProg);
+  gl.uniformMatrix3fv(uEdgeView, false, view);
+  gl.bindVertexArray(edgeVao.vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, edgeVao.buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, S.edgeData, gl.DYNAMIC_DRAW);
+  gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, counts.edgeCount);
+
+  gl.useProgram(nodeProg);
+  gl.uniformMatrix3fv(uNodeView, false, view);
+  gl.uniform1f(uNodeTime, S.time);
+  gl.bindVertexArray(nodeVao.vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, nodeVao.buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, S.nodeData, gl.DYNAMIC_DRAW);
+  gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, counts.nodeCount);
+
+  gl.bindVertexArray(null);
+}
+
+/* ─── HUD ──────────────────────────────────────────────────────────*/
+const spark = document.getElementById("spark").getContext("2d");
+const history = [];
+let acc = 0, frames = 0, fpsShown = 0;
+let ftAvg = 0, stAvg = 0, rtAvg = 0;
+
+function hud(dt, simMs, renderMs) {
+  ftAvg = ftAvg * 0.9 + dt * 1000 * 0.1;
+  stAvg = stAvg * 0.9 + simMs * 0.1;
+  rtAvg = rtAvg * 0.9 + renderMs * 0.1;
+  acc += dt; frames++;
+  if (acc >= 0.5) {
+    fpsShown = frames / acc; acc = 0; frames = 0;
+    history.push(fpsShown); if (history.length > 92) history.shift();
+
+    document.getElementById("fps").textContent = fpsShown.toFixed(0);
+    document.getElementById("ft").textContent = ftAvg.toFixed(2) + " ms";
+    document.getElementById("st").textContent = stAvg.toFixed(2) + " ms";
+    document.getElementById("rt").textContent = rtAvg.toFixed(2) + " ms";
+    document.getElementById("fps").parentElement.className =
+      fpsShown >= 55 ? "row good" : fpsShown >= 40 ? "row warn" : "row bad";
+
+    spark.clearRect(0, 0, 184, 30);
+    spark.strokeStyle = "rgba(125,211,252,.20)";
+    spark.beginPath(); spark.moveTo(0, 30 - 60 / 70 * 30); spark.lineTo(184, 30 - 60 / 70 * 30); spark.stroke();
+    spark.strokeStyle = "#7dd3fc"; spark.beginPath();
+    history.forEach((v, i) => {
+      const x = i / 91 * 184, y = 30 - Math.min(v, 70) / 70 * 30;
+      i ? spark.lineTo(x, y) : spark.moveTo(x, y);
+    });
+    spark.stroke();
+
+    if (history.length >= 8) {
+      const stable = history.slice(-8);
+      const min = Math.min(...stable);
+      const el = document.getElementById("verdictLine");
+      if (min >= 55) { el.style.color = "#4ade80"; el.textContent = "✓ PASA — " + min.toFixed(0) + " fps mínimos sostenidos"; }
+      else if (min >= 40) { el.style.color = "#fbbf24"; el.textContent = "⚠ MARGINAL — mínimo " + min.toFixed(0) + " fps"; }
+      else { el.style.color = "#f87171"; el.textContent = "✗ FALLA — mínimo " + min.toFixed(0) + " fps"; }
+    }
+  }
+}
+
+/* ─── Bucle ────────────────────────────────────────────────────────*/
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+  S.time += dt;
+
+  // modo reposo: sin foco, el bucle baja drásticamente (EXPERIENCE.md §2)
+  if (S.resting) {
+    requestAnimationFrame(frame);
+    if ((now | 0) % 200 > 16) return;
+  }
+
+  const c = S.cam;
+  c.x += (c.tx - c.x) * Math.min(1, dt * 6);
+  c.y += (c.ty - c.y) * Math.min(1, dt * 6);
+  c.zoom += (c.tzoom - c.zoom) * Math.min(1, dt * 6);
+
+  const simMs = S.sim.step();
+  const counts = pack(dt);
+  const t0 = performance.now();
+  render(counts);
+  gl.flush();
+  const renderMs = performance.now() - t0;
+
+  hud(dt, simMs, renderMs);
+  if (!S.resting) requestAnimationFrame(frame);
+}
+
+/* ─── Interacción ──────────────────────────────────────────────────*/
+function screenToWorld(sx, sy) {
+  const c = S.cam;
+  return {
+    x: (sx - canvas.clientWidth / 2) / c.zoom + c.x,
+    y: (sy - canvas.clientHeight / 2) / c.zoom + c.y,
+  };
+}
+function pick(sx, sy) {
+  const p = screenToWorld(sx, sy);
+  let best = -1, bestD = 400;
+  for (const n of S.graph.nodes) {
+    const d = (n.x - p.x) ** 2 + (n.y - p.y) ** 2;
+    if (d < bestD) { bestD = d; best = n.id; }
+  }
+  return best;
+}
+
+let dragging = false, dragged = false, lx = 0, ly = 0;
+canvas.addEventListener("pointerdown", e => { dragging = true; dragged = false; lx = e.clientX; ly = e.clientY; });
+canvas.addEventListener("pointermove", e => {
+  if (!dragging) return;
+  const dx = e.clientX - lx, dy = e.clientY - ly;
+  if (Math.abs(dx) + Math.abs(dy) > 3) dragged = true;
+  S.cam.tx -= dx / S.cam.zoom; S.cam.ty -= dy / S.cam.zoom;
+  S.cam.x -= dx / S.cam.zoom;  S.cam.y -= dy / S.cam.zoom;
+  lx = e.clientX; ly = e.clientY;
+});
+canvas.addEventListener("pointerup", e => {
+  dragging = false;
+  if (dragged) return;
+  const id = pick(e.clientX, e.clientY);
+  setFocus(id);
+  if (id >= 0) startExpand(id);
+});
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  S.cam.tzoom = Math.max(0.25, Math.min(6, S.cam.tzoom * (e.deltaY < 0 ? 1.14 : 0.877)));
+}, { passive: false });
+
+addEventListener("keydown", e => {
+  const k = e.key.toLowerCase();
+  if (k === "r") startSettle();
+  if (k === "e" && S.focus >= 0) startExpand(S.focus);
+  if (k === "t") startTrace();
+  if (k === "s") sediment();
+  if (k === "escape") { setFocus(-1); S.cam.tzoom = 1; S.cam.tx = 0; S.cam.ty = 0; }
+});
+
+for (const id of ["a1","a2","a3","a4","a5","a6"]) {
+  document.getElementById(id).addEventListener("change", e => { S.anim[id] = e.target.checked; });
+}
+document.getElementById("reducedMotion").addEventListener("change", e => { S.reducedMotion = e.target.checked; });
+document.getElementById("restMode").addEventListener("change", e => { S.restEnabled = e.target.checked; });
+document.getElementById("reseed").addEventListener("click", () => {
+  rebuild(S.nodeCount, SEED);   // MISMA semilla: la huella debe coincidir
+  startSettle();
+});
+document.getElementById("stress").addEventListener("click", () => {
+  rebuild(Math.min(S.nodeCount * 4, 8000), SEED);
+  document.getElementById("lay").dataset.hash = "";
+  startSettle();
+});
+
+addEventListener("blur", () => {
+  if (!S.restEnabled) return;
+  S.resting = true;
+  const el = document.getElementById("rest");
+  el.textContent = "reposo"; el.parentElement.className = "row good";
+});
+addEventListener("focus", () => {
+  S.resting = false;
+  const el = document.getElementById("rest");
+  el.textContent = "activo"; el.parentElement.className = "row";
+  last = performance.now();
+  requestAnimationFrame(frame);
+});
+
+if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  document.getElementById("reducedMotion").checked = true;
+  S.reducedMotion = true;
+}
+
+rebuild(500, SEED);
+startSettle();
+requestAnimationFrame(frame);
+
+// ciclo de demostración automático — para poder mirar sin tocar nada
+setInterval(() => { if (!S.resting && S.anim.a5) startTrace(); }, 7000);
+setInterval(() => { if (!S.resting && S.anim.a6 && S.graph.nodes.length < 620) sediment(); }, 4000);
+</script>
+</body>
+</html>
