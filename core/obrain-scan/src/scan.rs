@@ -102,8 +102,7 @@ impl Scanner {
                     return true;
                 }
                 let attrs = attributes_of(e.path());
-                let name = e.file_name().to_string_lossy();
-                match self.exclusions.skip_dir(&name, attrs) {
+                match self.exclusions.skip_dir(e.path(), attrs) {
                     Some(reason) => {
                         *pruned.borrow_mut().entry(reason.as_str()).or_insert(0) += 1;
                         false

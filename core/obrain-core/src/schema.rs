@@ -156,6 +156,12 @@ pub const SEED_PREDICATES: &[(&str, &str, &str, &str, Option<&str>)] = &[
     // El chunker vive en el log, no sólo en la proyección: el invariante I7
     // exige que todo vector sepa con qué chunker se produjo su fragmento.
     ("chunker", "estrategia de fragmentacion", "one", "deterministic", None),
+    // ── vectorizacion (M4) ──
+    // La procedencia del índice vectorial, no el índice. El vector vive en la
+    // tabla `vectors`, que es una proyección; lo que no se puede recalcular
+    // mirándola es **con qué se produjo**, y eso sí es un hecho (I7, I9).
+    ("embedded_with", "vectorizado con", "one", "deterministic", None),
+    ("vector_count", "numero de vectores", "one", "deterministic", None),
     // ── sensibilidad · procedencia del control de egreso (I11) ──
     // La columna `entities.sensitivity` sigue siendo el punto de control. Este
     // predicado es su **procedencia** y su canal de corrección: quién dijo que

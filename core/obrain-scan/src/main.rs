@@ -112,8 +112,13 @@ fn main() -> ExitCode {
         println!("\n── LOG DE ASERCIONES ──────────────────────");
         println!("  entidades nuevas        {}", ing.entities_created);
         println!("  entidades reconocidas   {}", ing.entities_recognised);
+        println!(
+            "  entidades reconciliadas {}  ← guardado atomico: cambio el FileID",
+            ing.entities_reconciled
+        );
         println!("  aserciones escritas     {}", ing.assertions_written);
         println!("  aserciones sin cambio   {}", ing.assertions_unchanged);
+        println!("  file_id retractados     {}", ing.assertions_retracted);
     }
 
     println!("\n  duracion  {:.2} s", report.elapsed.as_secs_f64());

@@ -1,0 +1,17 @@
+[package]
+name = "obrain-embed"
+version = "0.0.1"
+description = "Embeddings locales, búsqueda semántica y fusión RRF — M4 de Orchestrator's Brain"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+obrain-core = { path = "../obrain-core" }
+obrain-extract = { path = "../obrain-extract" }
+obrain-guard = { path = "../obrain-guard" }
+ort = "2.0.0-rc.13"
+thiserror = "2"
+# `fancy-regex` y no `onig`: la segunda es una librería de C y este núcleo se
+# compila sin cadena de C++ (ADR-0003, binario nativo único).
+tokenizers = { version = "0.23", default-features = false, features = ["fancy-regex"] }

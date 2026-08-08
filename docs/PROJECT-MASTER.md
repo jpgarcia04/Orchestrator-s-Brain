@@ -237,6 +237,8 @@ Cada entidad tiene un nivel de sensibilidad; cada invocación declara si puede s
 
 Todo vector guarda `(model_id, model_version, dim, chunker_version)`. Una migración es: crear el índice nuevo en paralelo, re-embeber en segundo plano con presupuesto, conmutar cuando la cobertura sea suficiente, retirar el viejo. Sin esto, cambiar de modelo de embeddings a los dos años es un evento de extinción.
 
+**Implementado (2026-08-07)** por [`core/obrain-embed`](../core/obrain-embed). Los cinco datos están **en la clave primaria** de `vectors`, que es lo que hace que «en paralelo» sea posible y no una intención: con la clave puesta en el fragmento, el segundo modelo pisaría al primero y la migración dejaría de ser gradual. Ver [ADR-0009](adr/0009-donde-viven-los-vectores.md) y el informe de M4 abajo.
+
 ---
 
 ## 6. Búsqueda y recuperación
@@ -282,7 +284,7 @@ La respuesta ingenua es "Neo4j + Elasticsearch + una BD vectorial". Es la respue
 | Log de aserciones | Tabla SQLite append-only — **la verdad** (I1) |
 | Grafo | Tablas de adyacencia + CTEs recursivas — **proyección** |
 | Texto completo | FTS5 (BM25, integrado) — **proyección** |
-| Vectores | `sqlite-vec`, componente reemplazable — **proyección** |
+| Vectores | tabla propia + recorrido lineal exacto — **proyección** ([ADR-0010](adr/0010-recorrido-lineal-frente-a-indice-ann.md)) |
 | Blobs | Almacén direccionado por hash en disco |
 | Cifrado | SQLCipher en reposo |
 
@@ -356,7 +358,7 @@ Cada hito se valida contra la pregunta de la visa.
 | ✅ **M2 — Leer el disco** | Extracción por formato, chunking versionado, FTS5. → [`core/obrain-extract`](../core/obrain-extract) | **Hecho (2026-08-07).** 5.015 fragmentos, búsqueda BM25 en 0,5–1,9 ms. Ver informe abajo. |
 | ✅ **M3 — Relacionar sin IA** | Aristas deterministas de §4.4. → [`core/obrain-link`](../core/obrain-link) | **Hecho (2026-08-07).** 2.480 aristas, 0 llamadas a un modelo. Ver informe abajo. |
 | 🔒 **Puerta de sensibilidad** | Clasificación `normal`/`sensitive`/`vault` y aplicación de §5.2. → [`core/obrain-guard`](../core/obrain-guard) | **Hecha (2026-08-07).** No es un hito: es el requisito previo de M4. Ver informe abajo. |
-| **M4 — Entender** | Embeddings locales, búsqueda semántica, fusión RRF, rerank. | Encuentra por significado, no por nombre. → [prompt](prompts/m4-prompt.md) |
+| ✅ **M4 — Entender** | Embeddings locales, búsqueda semántica, fusión RRF. → [`core/obrain-embed`](../core/obrain-embed) | **Hecho (2026-08-07).** 2.479 vectores, `universidad` encuentra un formulario de matrícula que no contiene la palabra. Rerank **diferido con la medición** ([ADR-0011](adr/0011-rerank-diferido.md)). Ver informe abajo. |
 | **M5 — La galaxia** | Lente, layout estable, navegación por foco. | Se puede explorar un `Process` y sus artefactos visualmente. |
 | **M6 — Construir conocimiento** | Extracción de entidades, detección de `Process`, enriquecimiento por atención. | La métrica de §0 es medible y positiva. |
 | **M7 — La pregunta** | Comprensión de consulta, resolución temporal, respuesta con citas. | **Responde la pregunta de la visa.** |
@@ -562,6 +564,11 @@ invalidar los números del informe de M1. La recomendación concreta es añadir
 `WindowsPowerShell\Modules` y `PowerShell\Modules` a las exclusiones de
 `obrain-scan`.
 
+> **Cerrado (2026-08-07)** como paso previo de M4, y con las dos familias, no
+> sólo con la que se recomendaba: **2.928 fragmentos retirados, el 55,5 % del
+> índice.** La segunda no se pudo resolver con una lista de nombres y obligó a
+> preguntarle al directorio. Ver «El saneamiento previo» en el informe de M4.
+
 ### Lo que este informe NO cubre
 
 - **`ooxml` no ha corrido nunca contra un archivo real** (ver arriba).
@@ -691,8 +698,8 @@ no cuesta nada —M2 ya lo había descartado como `wordlist`, así que no tiene 
 fragmento— y la alternativa era peor: hacer que un control de seguridad consultara
 una heurística de ruido para decidir. Un control no delega en una heurística.
 
-**`content.rs` en bóveda es correcto y también se deja.** Contiene
-`-----BEGIN OPENSSH PRIVATE KEY-----` en un test. La regla ha hecho su trabajo. La
+**`content.rs` en bóveda es correcto y también se deja.** Contiene la cabecera
+PEM de una clave privada OpenSSH en un test. La regla ha hecho su trabajo. La
 tentación de excluir el propio código fuente es exactamente el tipo de excepción
 que convierte una puerta en una puerta con un agujero.
 
@@ -723,6 +730,11 @@ La reconciliación por `(ruta + hash del contenido)` cuando el `FileID` no cuadr
 trabajo de `obrain-scan`, y **no se ha tocado aquí a propósito** para no invalidar
 los números de M1.
 
+> **Cerrado (2026-08-07)** como paso previo de M4 — y la regla que se
+> implementó **no** exige que el hash coincida, porque este mismo caso
+> demuestra por qué no puede exigirlo: al editar `search.rs` cambiaron a la vez
+> el `FileID` y el contenido. Ver [ADR-0007](adr/0007-identidad-tras-un-guardado-atomico.md).
+
 #### Lo que este informe NO cubre
 
 - **La bóveda etiqueta, no cifra.** §8.1 pide para `vault` una clave derivada de
@@ -747,6 +759,390 @@ los números de M1.
   clasificaciones auditadas a mano no son una medición de precisión y no se
   presentan como tal.
 
+### Informe de M4 — vectorización y búsqueda semántica (2026-08-07)
+
+`obrain-embed` sobre la base que dejan M1, M3, M2 y la puerta, build release.
+Máquina: i5-13420H, 16 GB, sin GPU — la RTX 4050 del equipo **no se usa** y no
+hizo falta ([ADR-0008](adr/0008-modelo-de-embeddings-y-runtime.md)).
+
+**174 tests en verde** (145 antes del hito), clippy limpio con `-D warnings`.
+Los números de abajo salen todos de **una misma ejecución** del pipeline
+completo sobre una base nueva, para que se puedan comprobar entre sí.
+
+#### El saneamiento previo: medir calidad semántica sobre un índice con 55 % de ruido no mide nada
+
+Los dos problemas que M2 y la puerta dejaron abiertos empeoraban justo en este
+hito, así que se cerraron **antes** de vectorizar. No es trabajo de M4; es la
+condición para que los números de M4 signifiquen algo.
+
+**1 · Las exclusiones.** Dos reglas nuevas en `obrain-scan`, y ninguna es una
+lista de nombres que crece para siempre:
+
+| Regla | Cómo decide | Por qué así |
+|---|---|---|
+| `WindowsPowerShell\Modules`, `PowerShell\Modules` | par **padre/hijo** | `Modules` a secas es una palabra que cualquiera usa para una carpeta suya. `WindowsPowerShell\Scripts` **no** se poda: ahí guarda la gente lo suyo. |
+| perfil de Chromium incrustado | **marcador dentro**: `Local State` + `First Run` | Ninguna palabra de `Rockstar Games\Social Club\Launcher\Renderer` dice «esto es un navegador». |
+
+La segunda es la respuesta al problema que M1 dejó abierto —«hace falta un
+clasificador de dato de aplicación basado en señales, no una lista que crece»—:
+un perfil de Chromium **se identifica a sí mismo**. La comprobación usa
+`symlink_metadata` y no `exists`, para que un marcador que fuera un placeholder
+de OneDrive tampoco pudiera disparar una hidratación.
+
+Los dos binarios, el anterior y el nuevo, ejecutados sobre **el mismo estado del
+disco** para que la comparación sea de verdad una comparación:
+
+| | antes | después |
+|---|---|---|
+| Archivos vistos | 1.340 | **822** |
+| Archivos en el log | 1.333 | **815** |
+| Archivos con texto | 471 | **394** |
+| **Fragmentos** | **5.435** | **2.507** (−53,9 %) |
+| Caracteres de texto | 9.317.586 | 2.914.691 (−68,7 %) |
+
+Lo retirado, por familia:
+
+| Origen | Archivos | Fragmentos | % del índice |
+|---|---|---|---|
+| Perfil de Chromium (`…\Launcher\Renderer`) | 63 | 1.870 | 34,4 % |
+| `WindowsPowerShell\Modules` | 12 | 958 | 17,6 % |
+| `PowerShell\Modules` | 2 | 100 | 1,8 % |
+| **Total** | **77** | **2.928** | **53,9 %** |
+
+Confirma el 55,2 % que M2 había medido sobre un corpus ligeramente anterior.
+
+Efecto colateral que conviene anotar: `passwords.txt`, el falso positivo que el
+informe de la puerta decidió conservar, **ha desaparecido solo**. `ZxcvbnData`
+vivía dentro de `WindowsPowerShell\Modules`.
+
+**2 · Las entidades fantasma, medidas con un experimento y no con una consulta.**
+Una base recién creada tiene cero por construcción, así que ese número no dice
+nada. Lo que mide es reescanear tras editar. Se editó **un** archivo y se
+reescaneó con los dos binarios sobre la misma base:
+
+| | código anterior | con reconciliación |
+|---|---|---|
+| Entidades nuevas | 519 (518 reintroducidas + **1 fantasma**) | **0** |
+| Reconciliadas | — | **1** |
+| `file_id` retractados | — | 1 |
+| **Rutas con más de una entidad viva** | **1** | **0** |
+
+**Una edición = un fantasma, sin techo.** La regla exige tres condiciones a la
+vez, y la tercera —que el `FileID` viejo no aparezca en ningún sitio del
+recorrido— es la que la hace determinista en vez de heurística. Deliberadamente
+**no** exige que el hash coincida: el caso que destapó el problema fue editar
+`search.rs`, donde cambiaron a la vez el contenido y el `FileID`. Razonamiento
+completo y alternativas en [ADR-0007](adr/0007-identidad-tras-un-guardado-atomico.md).
+
+**3 · Un hallazgo del propio saneamiento: el maestro se fue a la bóveda.** Al
+reejecutar la puerta sobre el corpus limpio, `PROJECT-MASTER.md` salió `vault`
+por la regla `contenido:clave-privada-pem`. El motivo: el informe de la puerta
+explicaba por qué `content.rs` está en la bóveda **citando literalmente la
+cabecera PEM**, así que el documento maestro pasó a contener el marcador. Es el
+mismo patrón exacto que el NIE — la documentación del control dispara el
+control.
+
+No se tocó la regla. Se quitó la cita literal del documento, y al reejecutar la
+puerta **retractó** la clasificación: primera vez que se ejercita esa rama, que
+en el informe anterior aparecía como «0 retractadas». El maestro queda
+`sensitive` porque el identificador de la redacción anterior sigue escrito aquí,
+y §5.2 concede a `sensitive` índice vectorial local, así que sigue dentro.
+
+#### El corpus con el que se midió
+
+| | |
+|---|---|
+| Archivos en el log | 815 |
+| Con texto extraído | 394 |
+| Fragmentos | 2.507 |
+| **Entidades que la puerta concede** | **388** |
+| Entidades retenidas (`vault`) | 6 |
+| **Fragmentos retenidos** | **28** (1,12 %) |
+
+Los 28 se desglosan exactamente: `.env` 3 + `.env.example` 2 +
+`.env.production.example` 2 + `docker-compose.yml` 2 + `content.rs` 18 +
+`VPS password.txt` 1 = **28** ✓
+
+#### Vectorización
+
+| | |
+|---|---|
+| Modelo | `multilingual-e5-small@1`, ONNX fp32, 384 dimensiones |
+| Carga del modelo | 2,50 s |
+| Fragmentos pendientes | 2.479 |
+| **Vectores escritos** | **2.479** |
+| Dentro del modelo | 275,91 s |
+| Total | 277,51 s (**4,6 min**) |
+| Ritmo | 9 fragmentos/s |
+| Índice vectorial | **3,63 MB** |
+| Base de datos completa | 14,55 MB |
+| Aserciones escritas | 776 (2 por entidad vectorizada) |
+
+**Aritmética verificada** — el CLI la imprime y marca si no cuadra:
+
+```
+388 concedidas + 6 retenidas = 394 entidades con texto   ✓
+2.507 fragmentos - 28 retenidos = 2.479 vectorizables    ✓
+vectores en el indice = 2.479                            ✓
+rechazos en la comprobacion por invocacion = 0           ✓
+```
+
+Ese último cero es el que importa. La puerta se consulta **dos veces**:
+`gate::embeddable` decide el conjunto de partida y `gate::check` se llama por
+entidad justo antes de invocar el modelo. `denied_at_call = 0` significa que las
+dos están de acuerdo; el día que no lo estén, lo dirá un número en vez de pasar
+inadvertido.
+
+**Idempotencia:** segunda pasada → **0 pendientes, 0 vectores, 0 aserciones
+escritas, 776 sin cambio.**
+
+#### El criterio de "hecho": encontrar por significado, no por nombre
+
+La prueba tiene que ser una consulta cuyas palabras **no estén** en el documento
+objetivo, y la comparación honesta contra BM25 para esa misma consulta.
+
+**Consulta: `universidad`.**
+
+```
+BM25 →  1. -7,66  core/obrain-extract/src/format/ooxml.rs
+        2. -7,52  docs/adr/0011-rerank-diferido.md
+        3. -6,84  docs/PROJECT-MASTER.md
+        (ni en el puesto 50 aparece el documento correcto)
+
+kNN  →  1. 0,850  Escritorio\MatriculaJuanPabloGarcia.pdf     ← no contiene la palabra
+        2. 0,848  Orchestrator's-Brain\README.md
+        3. 0,848  ClipOps/src/app/clips/[id]/clip-analysis.tsx
+```
+
+El documento correcto es un formulario de matrícula que dice «Titulación»,
+«Centro Docente Privado», «Año académico» y «Asignaturas», y **no dice
+"universidad" en ningún sitio**. BM25 no puede encontrarlo por definición: los
+sitios donde esa palabra está escrita son un fixture de test y —efecto
+observador— los documentos de este mismo hito, que se escribieron dentro del
+corpus que estaban midiendo. El índice vectorial lo pone primero.
+
+Es la primera vez que el sistema encuentra algo por lo que significa y no por lo
+que dice. Y la comparación es honesta en los dos sentidos: **la fusión RRF lo
+deja fuera del podio**, porque BM25 está muy seguro de sus aciertos literales y
+varios de ellos aparecen también en la rama vectorial. Es exactamente el trabajo
+que hace un rerank, y el rerank está diferido — ver abajo.
+
+#### El otro hallazgo: la primera relación semántica que ningún enlazador determinista podía ver
+
+El vecino más cercano de `MatriculaJuanPabloGarcia.pdf` es
+`certificado-matricula-JuanPabloGarciaMonsalve.pdf`, con **0,927**. Son dos
+documentos del mismo trámite, con nombres distintos, hashes distintos y sin una
+sola arista directa entre ellos: M3 sólo los relacionó por `contained_by` con la
+carpeta que comparten.
+
+Y no se materializa como arista. **I3 lo prohíbe** —la similitud semántica es
+una operación de consulta, no una arista— precisamente para que el grafo no se
+convierta en niebla. Aquí se ve por qué la regla es correcta y por qué duele:
+la relación es real y valiosa, y aun así se calcula cada vez.
+
+#### Lo que enseñó auditar el espacio vectorial
+
+Tres cosas, y **ninguna aparece en ningún contador**. La cobertura es del 100 %,
+la aritmética cierra, y las tres estaban ahí.
+
+**1 · Los hubs existen y tienen nombre y apellidos.** Si el espacio fuera sano,
+cada fragmento saldría unas 10 veces entre los 10 vecinos más cercanos de los
+demás. El peor sale **97 veces, casi 10× lo esperado**:
+
+| veces | × esperado | fragmento |
+|---|---|---|
+| 97 | 10× | `Martian-Roulette\package-lock.json` |
+| 82 | 8× | `Cheddar-Chase\package-lock.json` |
+| 79 | 8× | `losFrutosDeMaria\backend\package-lock.json` |
+| 78 | 8× | `My Games\Rocket League\TAGame\Config\TAInput.ini` |
+
+Los diez peores son **sólo dos cosas**: archivos de bloqueo de npm y la
+configuración de mandos de un juego. Y en el otro extremo, **300 fragmentos
+(12,1 %) no son vecinos de nadie**.
+
+Es la misma patología que M2 destapó con «quién ocupa el índice», un piso más
+abajo: texto escrito por una máquina para una máquina, que sobrevivió a
+`noise.rs` porque no está minificado ni es un diccionario. Cuantificado:
+
+| Familia | Archivos | Fragmentos | % del índice |
+|---|---|---|---|
+| `package-lock.json` | 4 | 165 | 6,6 % |
+| Logs del lanzador de Rockstar | 17 | 118 | 4,7 % |
+| `My Games\…\*.ini` (configuración de juegos) | 4 | 82 | 3,3 % |
+| Otros archivos de bloqueo | 1 | 55 | 2,2 % |
+| **Total** | **26** | **420** | **16,8 %** |
+
+**No se ha tocado**, por el mismo motivo por el que M2 no tocó las exclusiones:
+es trabajo del clasificador de dato de aplicación, y es la recomendación
+concreta que este informe deja escrita, igual que M2 dejó la suya.
+
+**2 · El coseno no es un umbral de relevancia, sólo un orden.** Los vecinos de
+`MatriculaJuanPabloGarcia.pdf` incluyen un `main.js` a **0,885**, por delante de
+documentos relacionados de verdad. En este corpus casi todo cae entre 0,82 y
+0,94: la banda entera son 0,12 puntos. Un umbral absoluto de similitud —«mostrar
+lo que pase de 0,85»— sería ruido puro.
+
+Esto **valida RRF por una vía distinta a la prevista**. §6 elegía fusión por
+rangos porque las escalas de BM25 y del coseno no son comparables; la medición
+añade que el propio coseno apenas es comparable consigo mismo. Sólo el orden
+sobrevive.
+
+**3 · Dónde se rompe, con ejemplos y con el puesto exacto.** Un informe que diga
+«la búsqueda semántica funciona» sin enseñar una consulta que falla es una nota
+de prensa:
+
+| Consulta | Documento correcto | Puesto en kNN | BM25 |
+|---|---|---|---|
+| `papeles de la universidad` | `MatriculaJuanPabloGarcia.pdf` | **1** (0,847) | no lo devuelve ni en el 50 |
+| `en que ano naci` | el mismo (dice «Fecha nacimiento: 01/12/2004») | **6** (0,833) | no lo devuelve |
+| `donde vivo` | el mismo (dice «Dirección: CL HÉROE DE SOSTOA…») | **37** (0,823) | no lo devuelve |
+| `contrasena de acceso a la maquina remota` | `Vps\VPS password.txt` | **fuera** — está en la bóveda, y es correcto | — |
+
+El diagnóstico está en los números: entre el puesto 1 y el 37 hay **0,04 puntos
+de coseno**. Las preguntas cortas y genéricas no separan nada, y un puñado de
+hubs a 0,85 se cuelan por delante de la respuesta correcta a 0,82. Es el mismo
+16,8 % de basura del punto 1 haciendo su trabajo.
+
+El último caso merece leerse dos veces: la respuesta correcta existe, el sistema
+la tiene indexada léxicamente, y **la puerta la deja fuera del índice vectorial a
+propósito**. Funciona como debe. Es la primera vez que se ve el coste de la
+política sobre una consulta concreta en vez de sobre un porcentaje.
+
+#### El defecto que sólo apareció ejecutando el pipeline entero
+
+Los 173 tests estaban en verde, clippy limpio, la aritmética cerrada y el corpus
+vectorizado. Entonces se editaron cinco archivos del repositorio y se volvió a
+pasar el pipeline completo:
+
+```
+▸ 815 archivos en el log
+error al extraer: sqlite: FOREIGN KEY constraint failed
+```
+
+`obrain-extract` **borra y reinserta** los fragmentos de un archivo que ha
+cambiado. La tabla `vectors` los referenciaba sin `ON DELETE CASCADE`, así que
+el borrado chocaba contra la clave ajena. Efecto: **cualquiera que editara un
+archivo ya vectorizado se quedaba sin poder reextraer nada.**
+
+Ningún test podía verlo. Los de M4 no borran fragmentos; los de M2 no conocen la
+tabla `vectors`, que se creó dos hitos después. Es la forma que toma un defecto
+cuando una proyección referencia a otra: **añadir una capa rompe la de abajo sin
+tocarla**, y la única prueba que lo detecta es ejecutar la cadena entera contra
+datos que cambian.
+
+El arreglo es `ON DELETE CASCADE`, que además es la semántica correcta —si el
+texto cambió, el vector de ese texto es basura y la cola de pendientes lo vuelve
+a recoger— y un test de regresión con el caso real. Poner al extractor a borrar
+vectores habría sido la otra salida, y habría obligado a M2 a conocer M4.
+
+#### El ensayo del test canónico
+
+> *«el documento que usé para demostrar ingresos durante mi trámite de visa»*
+
+```
+RRF →  1. docs/PROJECT-MASTER.md       [bm25#1 knn#2]
+       2. README.md                    [bm25#3 knn#1]
+          «...Puedes buscar por significado: "el documento que usé
+           para demostrar ingresos" es una búsqueda válida...»
+```
+
+El sistema devuelve **la documentación del propio proyecto**: encontró la frase
+que *describe* la pregunta, no el documento que la *responde*.
+
+Y es la respuesta correcta, porque en este disco no hay nada que responderla. Los
+14 documentos de Office —presupuestos, actas, revisiones— siguen deshidratados en
+OneDrive y sin texto extraído, y son justo el material que se parece a la
+pregunta. No cuenta como fallo de M4, tal y como estaba previsto.
+
+De la frase, M4 resuelve la mitad semántica —«documento», «demostrar
+ingresos»— y **no toca** «durante mi trámite de visa», que es resolución de
+entidad y de rango temporal, es decir M7.
+
+#### El presupuesto de latencia, medido
+
+| | | techo a 50 ms |
+|---|---|---|
+| Consulta híbrida completa (BM25 + kNN + RRF), incluido embeber la consulta | **43 ms** | |
+| kNN lineal sobre 2.479 vectores, leyendo de SQLite | 6,3 ms | ~19.700 vectores |
+| kNN lineal con la matriz ya en memoria | **0,57 ms** | ~219.000 vectores |
+
+**El 91 % del coste del kNN es deserializar, no multiplicar.** Es el hallazgo que
+decide la arquitectura del índice, porque invierte la conclusión: sin separar las
+dos cifras, el techo del recorrido lineal parece estar en ~19.700 vectores —unos
+3.000 archivos, que este corpus alcanza en cuanto crezca— y lo natural sería
+concluir «hará falta un índice aproximado pronto». Con las dos cifras, lo que
+hace falta cuando eso ocurra no es aproximar sino **dejar de deserializar**: la
+matriz residente cuesta 3,6 MB hoy y sube el techo a ~219.000 vectores sin
+renunciar a la exactitud. `sqlite-vec` no entra hasta ahí. Umbrales escritos en
+[ADR-0010](adr/0010-recorrido-lineal-frente-a-indice-ann.md).
+
+**El rerank se difiere, con la medición delante.** No se ha medido
+`bge-reranker-v2-m3` —son 2,2 GB sin descargar—, pero sí el **suelo**: 50
+secuencias largas por el modelo de 118 M que ya está cargado son **4,5 s**. Un
+cross-encoder de 568 M sobre el mismo top-50 no puede ser más rápido. La
+extrapolación por parámetros da ~21 s y está etiquetada como extrapolación, no
+como medición; el suelo de 4,5 s ya basta por sí solo frente a los 43 ms de la
+consulta entera y a los 0,5–1,9 ms que M2 fijó como «instantánea». Razonamiento y
+alternativas en [ADR-0011](adr/0011-rerank-diferido.md).
+
+#### La puerta, probada contra este pipeline y no contra sí misma
+
+`obrain-guard` ya tenía `embeddable_excluye_la_boveda`, que demuestra que la
+consulta de origen deja fuera la bóveda. Eso demuestra que la puerta funciona;
+**no demuestra que M4 la use**. Un `SELECT DISTINCT entity FROM chunks` en
+`embed_all` habría pasado aquel test y filtrado igual.
+
+Los cinco tests de `obrain-embed/tests/puerta.rs` atacan el pipeline:
+
+- una entidad `vault` con fragmentos **no acaba con un solo vector**;
+- su texto **ni siquiera se le ofrece al modelo** — el embebedor de prueba
+  registra todo lo que recibe y se comprueba que el secreto no está;
+- tampoco deja procedencia en el log;
+- reclasificar a bóveda y **reconstruir** la proyección la saca del índice;
+- lo `sensitive` **sí** se vectoriza en local, que es lo que dice §5.2 y lo que
+  evita que la política sea de las que se acaban apagando enteras.
+
+#### Lo que este informe NO cubre
+
+- **No hay dataset dorado.** §5.1 dice que cada capacidad debe llevar uno.
+  Cuatro consultas auditadas a mano no son una medida de precisión y no se
+  presentan como tal. Es la carencia más grande de este informe: sin un conjunto
+  de pares (consulta, documento esperado), «la calidad mejoró» seguirá siendo
+  una opinión — y sin él, la migración a `bge-m3` de [ADR-0008](adr/0008-modelo-de-embeddings-y-runtime.md)
+  no se podrá justificar con datos.
+- **El rerank no se ha medido, se ha acotado por abajo.** Ver arriba.
+- **`candle` no se ha comparado con `ort`.** ADR-0008 lo descarta por madurez,
+  no por una medición. Implementar las dos rutas era el hito entero.
+- **El «binario nativo único» de §7.2 ya no es exacto.** ONNX Runtime se enlaza
+  estáticamente, pero la distribución de Windows arrastra `DirectML.dll` junto
+  al ejecutable; Windows 10 1903+ la trae en `System32`, así que funciona, pero
+  es una dependencia externa nueva. Y `ort` descarga su librería nativa **en
+  tiempo de compilación** desde una CDN de terceros.
+- **La descarga del modelo no verifica firmas ni hashes.** Se apoya en TLS y en
+  el repositorio oficial, que es lo mismo que cualquier `pip install` y no es
+  suficiente.
+- **No hay presupuesto ni reanudación.** `embed_all` vectoriza todo lo pendiente
+  dentro de una sola transacción. Con 2.479 fragmentos son 4,6 minutos; con
+  200.000 sería una transacción de horas. §4.4 pide una cola diferida priorizada
+  por atención del usuario, y eso no existe.
+- **El chunker sigue siendo el de M2, y ahora importa más.** `paragraph-pack@1`
+  empaqueta párrafos hasta 1.200 bytes sin entender tablas, encabezados ni
+  código. En BM25 eso reparte términos; en un espacio vectorial produce
+  fragmentos cuyo *significado medio* no es el de nada en concreto — que es una
+  causa candidata de los hubs, y no se ha comprobado.
+- **El 17 % de fragmentos escritos por una máquina sigue dentro** (tabla arriba).
+  Es la recomendación concreta para el siguiente hito, igual que M2 dejó la suya.
+- **Reclasificar a bóveda no borra los vectores existentes.** Sólo los quita al
+  reconstruir la proyección. Hay un test que fija ese comportamiento, y una
+  ventana en la que un documento es `vault` y sus vectores siguen ahí.
+- **Sin paralelismo y sin GPU.** 9 fragmentos/s con un solo hilo de control. La
+  RTX 4050 del equipo no se ha tocado y no hizo falta; para 200.000 fragmentos
+  esa frase habrá que revisarla.
+- **Las otras dos ramas de §6 no existen.** Travesía de grafo desde entidades
+  resueltas y filtro temporal bitemporal. La forma del pipeline las admite —son
+  dos `Ranking` más en la llamada a `rrf`— pero necesitan resolución de entidad,
+  que es M7.
+
 ---
 
 ## 10. Decisiones pendientes
@@ -768,6 +1164,11 @@ los números de M1.
 | [0004](adr/0004-punto-de-entrada-barra-no-galaxia.md) | La barra de comandos es el punto de entrada; el mapa es el sustrato | Aceptada |
 | [0005](adr/0005-donde-vive-el-texto-extraido.md) | El texto extraído es una proyección, no una aserción | Aceptada |
 | [0006](adr/0006-donde-vive-la-sensibilidad.md) | La sensibilidad es una columna impuesta con procedencia en el log | Aceptada |
+| [0007](adr/0007-identidad-tras-un-guardado-atomico.md) | La identidad se reconcilia por ruta cuando el `FileID` se rompe | Aceptada |
+| [0008](adr/0008-modelo-de-embeddings-y-runtime.md) | `multilingual-e5-small` sobre ONNX Runtime | Aceptada |
+| [0009](adr/0009-donde-viven-los-vectores.md) | Los vectores son una proyección y su identidad I7 está en la clave primaria | Aceptada |
+| [0010](adr/0010-recorrido-lineal-frente-a-indice-ann.md) | Recorrido lineal en vez de `sqlite-vec`, y el umbral donde deja de valer | Aceptada |
+| [0011](adr/0011-rerank-diferido.md) | El rerank se difiere, con la medición que lo justifica | Aceptada |
 
 ## Documentos
 

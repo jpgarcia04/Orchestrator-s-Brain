@@ -120,8 +120,12 @@ Antes de usar cualquier inteligencia artificial, el sistema ya puede descubrir *
 | Origen web | La URL de donde descargaste un archivo (sí, Windows guarda eso) |
 | Estructura lógica | Las carpetas que tú mismo organizaste son una señal muy fuerte |
 
-### 4. 🧠 Entender — *Buscar por significado* *(próximamente)*
-Con modelos de inteligencia artificial **que corren en tu máquina**, el sistema podrá buscar por significado semántico: encontrar documentos relevantes aunque no contengan las palabras exactas que buscaste.
+### 4. 🧠 Entender — *Buscar por significado*
+Con un modelo de inteligencia artificial **que corre en tu máquina** —se descarga una vez y después funciona sin conexión—, el sistema busca por significado: encuentra documentos relevantes aunque no contengan las palabras exactas que buscaste.
+
+> Ejemplo real de este disco: buscar **"universidad"** devuelve un formulario de matrícula que **no contiene esa palabra** en ningún sitio. Dice "Titulación", "Centro Docente", "Año académico". La búsqueda por texto no puede encontrarlo; ésta sí.
+>
+> Y lo que marcaste como privado **no entra** en el índice de significado. Eso no es una opción de configuración: es una comprobación que el sistema aplica y que tiene tests.
 
 ### 5. 🌌 Visualizar — *El mapa* *(próximamente)*
 Todo ese conocimiento cobra vida en una visualización interactiva — tu galaxia personal de conocimiento, donde puedes explorar, navegar y descubrir conexiones que habías olvidado.
@@ -139,7 +143,7 @@ El proyecto está en desarrollo activo. Cada hito se valida contra la pregunta d
 | **M2** — Leer el disco | Extracción de texto y búsqueda | ✅ Completo |
 | **M3** — Relacionar | Conexiones automáticas sin IA | ✅ Completo |
 | **Privacidad** — La puerta | Clasificación de sensibilidad y control de egreso | ✅ Completo |
-| **M4** — Entender | Búsqueda por significado con IA local | 🔜 Siguiente |
+| **M4** — Entender | Búsqueda por significado con IA local | ✅ Completo |
 | **M5** — La galaxia | Visualización interactiva del conocimiento | ⏳ Planificado |
 | **M6** — Construir conocimiento | Inferencia de procesos y enriquecimiento | ⏳ Planificado |
 | **M7** — La pregunta | Responder la pregunta de la visa | 🎯 Meta final |
@@ -148,11 +152,14 @@ El proyecto está en desarrollo activo. Cada hito se valida contra la pregunta d
 
 Sobre una carpeta real de OneDrive con documentos de trabajo y vida personal:
 
-- **35,583** archivos en disco → **2,066** relevantes después de filtrar basura
-- **2,480 relaciones** descubiertas — sin una sola llamada a inteligencia artificial
-- **5,015 fragmentos** de texto indexados y buscables
-- Búsqueda en **menos de 2 milisegundos**
+- **35,583** archivos en disco → **815** relevantes después de filtrar basura
+- **1,699 relaciones** descubiertas — sin una sola llamada a inteligencia artificial
+- **2,507 fragmentos** de texto indexados y buscables
+- **2,479 vectores** de significado (los otros 28 son privados y se quedan fuera a propósito)
+- Búsqueda completa —texto y significado a la vez— en **43 milisegundos**
 - **0 archivos** descargados innecesariamente de la nube
+
+> El salto de 2,066 a 815 archivos no es que se haya perdido nada: es que **más de la mitad del índice lo había escrito una máquina** —módulos de PowerShell instalados y el navegador incrustado de un lanzador de juegos, ambos dentro de `Documentos`— y se retiró antes de medir nada. Un buscador que compite contra la basura del disco no es un buscador.
 
 ---
 

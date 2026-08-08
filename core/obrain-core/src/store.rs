@@ -368,6 +368,36 @@ impl Store {
             .optional()?)
     }
 
+    /// **Todas** las entidades que tienen `predicate = value` vigente.
+    ///
+    /// La versión en singular aplica precedencia y devuelve una. Ésta existe
+    /// para el caso contrario: cuando que haya más de una *es* la información
+    /// que se busca. Dos entidades vivas afirmando la misma ruta significan
+    /// que una de las dos ya no está ahí.
+    pub fn find_subjects_by_value(
+        &self,
+        predicate: &str,
+        value: &str,
+        at: TimePoint,
+    ) -> Result<Vec<EntityId>> {
+        let sql = format!(
+            "SELECT DISTINCT subject FROM assertions
+             WHERE predicate = :predicate AND object_text = :value AND {BITEMPORAL}
+             ORDER BY subject"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(
+            named_params! {
+                ":predicate": predicate,
+                ":value":     value,
+                ":valid":     at.valid,
+                ":known":     at.known,
+            },
+            |r| Ok(EntityId(r.get(0)?)),
+        )?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     /// ¿Existe ya esta aserción exacta y vigente?
     ///
     /// `resolve` no sirve para esto: en un predicado de cardinalidad `many`
@@ -388,11 +418,29 @@ impl Store {
 
     /// Ejecuta `f` dentro de una transacción. SQLite admite un solo escritor
     /// (ver `adr/0002`), así que la ingestión masiva **tiene** que agrupar.
-    pub fn transaction<T>(&mut self, f: impl FnOnce(&Store) -> Result<T>) -> Result<T> {
-        self.conn.execute_batch("BEGIN IMMEDIATE")?;
+    ///
+    /// Genérica en el error a propósito. Los crates de arriba tienen sus
+    /// propios errores —M4 tiene que poder hablar de ONNX Runtime y de
+    /// tokenizadores, que a este núcleo no le constan— y obligarles a
+    /// aplastarlos a [`Error`] para poder abrir una transacción sería cambiar
+    /// diagnóstico por una firma más corta. `E: From<Error>` es todo lo que
+    /// hace falta: la transacción sólo necesita poder informar de sus propios
+    /// fallos de SQLite.
+    pub fn transaction<T, E>(
+        &mut self,
+        f: impl FnOnce(&Store) -> std::result::Result<T, E>,
+    ) -> std::result::Result<T, E>
+    where
+        E: From<Error>,
+    {
+        self.conn
+            .execute_batch("BEGIN IMMEDIATE")
+            .map_err(|e| E::from(Error::from(e)))?;
         match f(self) {
             Ok(v) => {
-                self.conn.execute_batch("COMMIT")?;
+                self.conn
+                    .execute_batch("COMMIT")
+                    .map_err(|e| E::from(Error::from(e)))?;
                 Ok(v)
             }
             Err(e) => {
