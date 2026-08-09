@@ -1,7 +1,15 @@
 # ADR-0004 — La barra de comandos es el punto de entrada; el mapa es el sustrato
 
-- **Estado:** Aceptada
+- **Estado:** **Sustituida** por [ADR-0013](0013-el-mapa-es-la-pantalla.md) (2026-08-09)
 - **Fecha:** 2026-08-07
+
+> **Por qué se sustituyó.** Se implementó en M5a y, con la aplicación delante, no
+> se sostuvo. Sobrevive la mitad buena —el camino de teclado y que el mapa
+> reaccione mientras se escribe—; cae que el mapa fuera un fondo. Y la causa
+> resultó no ser la disposición: faltaba **agregación por escala**, así que no
+> había con qué dibujar un mapa que mereciera la pantalla. El razonamiento de
+> abajo se conserva entero porque su análisis de las dos tareas sigue siendo
+> correcto y es lo que ADR-0013 hereda.
 
 ## Contexto
 

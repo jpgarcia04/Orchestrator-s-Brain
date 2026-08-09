@@ -167,21 +167,58 @@ pub(crate) fn write_edge(
     Ok(true)
 }
 
-/// Nombre legible de una entidad: su ruta, su carpeta, o el id si no tiene.
+/// Nombre legible de una entidad: su archivo, su carpeta, su sesión, o el id.
+///
+/// Se afinó en M5a porque un mapa hace de esto un problema visible: los nodos
+/// concentradores son los más grandes de la pantalla, y `EXPERIENCE.md` §1 dice
+/// que la luz es información. Un nodo enorme llamado `<01KZHYVT>` es el
+/// contraejemplo perfecto.
 pub fn label(store: &Store, e: &EntityId, at: TimePoint) -> String {
-    for p in ["path_observed_at", "folder_path"] {
-        if let Ok(Some(a)) = store.resolve(e, p, at) {
-            if let Some(t) = a.object.as_text() {
-                return t.rsplit(['\\', '/']).next().unwrap_or(t).to_string();
-            }
+    if let Ok(Some(a)) = store.resolve(e, "path_observed_at", at) {
+        if let Some(t) = a.object.as_text() {
+            return t.rsplit(['\\', '/']).next().unwrap_or(t).to_string();
         }
     }
-    if let Ok(Some(a)) = store.resolve(e, "session_span", at) {
+    // Una carpeta se nombra con **dos** segmentos. Con uno solo, este mismo
+    // repositorio dibuja cinco nodos distintos llamados `src` y el mapa deja de
+    // poder leerse.
+    if let Ok(Some(a)) = store.resolve(e, "folder_path", at) {
+        if let Some(t) = a.object.as_text() {
+            let mut partes = t.rsplit(['\\', '/']);
+            return match (partes.next(), partes.next()) {
+                (Some(hoja), Some(padre)) if !padre.is_empty() => format!("{padre}/{hoja}"),
+                (Some(hoja), _) => hoja.to_string(),
+                _ => t.to_string(),
+            };
+        }
+    }
+    // `session_span` vive en el eje de **validez** —la sesión ocurrió entonces,
+    // no ahora— así que `resolve` con el presente no la encuentra nunca. Hay
+    // que preguntar por lo que el sistema sostiene, no por lo que es cierto hoy.
+    if let Ok(Some(a)) = store.resolve_whenever(e, "session_span", at.known) {
         if let Value::Timestamp(t) = a.object {
-            return format!("<sesion {t}>");
+            return format!("sesión {}", fecha(t));
         }
     }
     format!("<{}>", &e.as_str()[..8.min(e.as_str().len())])
+}
+
+/// `epoch ms` → `AAAA-MM-DD`.
+///
+/// A mano y sin dependencia: es lo único que este crate necesita de un
+/// calendario, y `chrono` entero para formatear una fecha en una etiqueta no
+/// se paga. Algoritmo civil-from-days de Howard Hinnant.
+fn fecha(ms: i64) -> String {
+    let dias = ms.div_euclid(86_400_000) + 719_468;
+    let era = if dias >= 0 { dias } else { dias - 146_096 } / 146_097;
+    let doe = dias - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}")
 }
 
 /// Muestra aristas reales de un predicado, para poder auditar el grafo en vez
@@ -216,4 +253,85 @@ pub fn link_all(store: &Store, files: &[FileView], at: i64) -> Result<LinkReport
     sessions::link(store, files, at, &mut report)?;
     versions::link(store, files, at, &mut report)?;
     Ok(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const T: i64 = 1_700_000_000_000;
+
+    fn nombre_de(store: &Store, e: &EntityId) -> String {
+        label(store, e, TimePoint::at(T + 1))
+    }
+
+    /// **Regresión de M5a.** Un nodo de sesión salía como `<01KZHYVT>` porque
+    /// su intervalo vive en el eje de validez y ya había pasado. Los nodos de
+    /// sesión son los más grandes del mapa; sin nombre, el canal visual más
+    /// llamativo no dice nada.
+    #[test]
+    fn una_sesion_tiene_nombre_aunque_su_intervalo_ya_haya_pasado() {
+        let store = Store::open_in_memory().unwrap();
+        let s = store.create_entity(T).unwrap();
+        store
+            .assert(
+                NewAssertion::new(
+                    s.clone(),
+                    "session_span",
+                    Value::Timestamp(1_754_524_800_000), // 2025-08-07
+                    Method::Deterministic,
+                    T,
+                )
+                .valid(Some(1_754_524_800_000), Some(1_754_528_400_000)),
+            )
+            .unwrap();
+
+        assert_eq!(nombre_de(&store, &s), "sesión 2025-08-07");
+    }
+
+    /// Cinco carpetas llamadas `src` son cinco nodos indistinguibles. Con dos
+    /// segmentos, cada una dice de quién es.
+    #[test]
+    fn una_carpeta_se_nombra_con_su_padre() {
+        let store = Store::open_in_memory().unwrap();
+        let c = store.create_entity(T).unwrap();
+        store
+            .assert(NewAssertion::new(
+                c.clone(),
+                "folder_path",
+                "C:\\repo\\core\\obrain-api\\src",
+                Method::Deterministic,
+                T,
+            ))
+            .unwrap();
+
+        assert_eq!(nombre_de(&store, &c), "obrain-api/src");
+    }
+
+    /// Un archivo se sigue nombrando con su nombre a secas: ahí el padre es
+    /// ruido, porque la ruta completa ya se enseña aparte.
+    #[test]
+    fn un_archivo_se_nombra_con_su_nombre() {
+        let store = Store::open_in_memory().unwrap();
+        let f = store.create_entity(T).unwrap();
+        store
+            .assert(NewAssertion::new(
+                f.clone(),
+                "path_observed_at",
+                "C:\\repo\\core\\obrain-api\\src\\lens.rs",
+                Method::Deterministic,
+                T,
+            ))
+            .unwrap();
+
+        assert_eq!(nombre_de(&store, &f), "lens.rs");
+    }
+
+    #[test]
+    fn la_fecha_sale_del_epoch_sin_dependencias() {
+        assert_eq!(fecha(0), "1970-01-01");
+        assert_eq!(fecha(1_754_524_800_000), "2025-08-07");
+        // Año bisiesto y frontera de siglo, que es donde fallan los cálculos a mano.
+        assert_eq!(fecha(951_782_400_000), "2000-02-29");
+    }
 }

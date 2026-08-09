@@ -1036,6 +1036,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "obrain-api"
+version = "0.0.1"
+dependencies = [
+ "obrain-core",
+ "obrain-embed",
+ "obrain-extract",
+ "obrain-guard",
+ "obrain-link",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "obrain-core"
 version = "0.0.1"
 dependencies = [

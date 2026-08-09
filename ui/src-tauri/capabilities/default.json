@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Lo mínimo para dibujar una ventana e invocar los comandos del núcleo. Sin sistema de archivos, sin red, sin shell: esta aplicación no necesita ninguno de los tres, y F1 dice que los datos no salen de la máquina.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

@@ -1,0 +1,26 @@
+[package]
+name = "obrain-api"
+version = "0.0.1"
+description = "La superficie del núcleo: buscar, mirar y recorrer — M5 de Orchestrator's Brain"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+obrain-core = { path = "../obrain-core" }
+obrain-extract = { path = "../obrain-extract" }
+obrain-embed = { path = "../obrain-embed" }
+obrain-guard = { path = "../obrain-guard" }
+# Sólo para reutilizar `label`: el nombre legible de una entidad ya se decide
+# en M3 y no puede decidirse otra vez aquí.
+obrain-link = { path = "../obrain-link" }
+thiserror = "2"
+# Los tipos de salida cruzan a TypeScript tal cual. Es la alternativa a una
+# capa de DTOs en el backend de Tauri que sería, palabra por palabra, estos
+# mismos campos otra vez.
+serde = { version = "1", features = ["derive"] }
+# Sólo para que el CLI pueda volcar **exactamente** lo que recibe la interfaz.
+# Es el mismo principio que `--sample` en M3: lo que no se puede inspeccionar no
+# se puede depurar, y un mapa que sale mal se confunde con una decisión de
+# diseño si no se puede mirar el dato que lo produjo.
+serde_json = "1"

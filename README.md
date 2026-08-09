@@ -144,7 +144,8 @@ El proyecto está en desarrollo activo. Cada hito se valida contra la pregunta d
 | **M3** — Relacionar | Conexiones automáticas sin IA | ✅ Completo |
 | **Privacidad** — La puerta | Clasificación de sensibilidad y control de egreso | ✅ Completo |
 | **M4** — Entender | Búsqueda por significado con IA local | ✅ Completo |
-| **M5** — La galaxia | Visualización interactiva del conocimiento | ⏳ Planificado |
+| **M5a** — La barra | Buscar desde una barra, con el mapa vivo detrás | ✅ Completo |
+| **M5b** — El mapa | Tecla global, panel de entidad, exploración por foco | ⏳ Planificado |
 | **M6** — Construir conocimiento | Inferencia de procesos y enriquecimiento | ⏳ Planificado |
 | **M7** — La pregunta | Responder la pregunta de la visa | 🎯 Meta final |
 
@@ -216,7 +217,12 @@ Orchestrator's-Brain/
 │   ├── obrain-scan/               #   Descubrimiento e identidad de archivos
 │   ├── obrain-extract/            #   Extracción de texto y búsqueda léxica
 │   ├── obrain-link/               #   Relaciones automáticas entre archivos
-│   └── obrain-guard/              #   Sensibilidad y control de egreso
+│   ├── obrain-guard/              #   Sensibilidad y control de egreso
+│   ├── obrain-embed/              #   Embeddings locales y búsqueda semántica
+│   └── obrain-api/                #   La superficie: buscar, mirar y recorrer
+├── ui/                            # Aplicación de escritorio (Tauri + TypeScript)
+│   ├── src/                       #   La barra y el mapa (PixiJS)
+│   └── src-tauri/                 #   El puente al núcleo
 ├── docs/                          # Documentación de diseño
 │   ├── PROJECT-MASTER.md          #   Documento maestro del proyecto
 │   ├── EXPERIENCE.md              #   Diseño de experiencia y lenguaje visual

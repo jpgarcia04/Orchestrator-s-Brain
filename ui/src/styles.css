@@ -1,0 +1,194 @@
+/*
+ * `EXPERIENCE.md` §2: oscuro, profundo y silencioso. La referencia no es el
+ * neón: es un observatorio de noche. Casi todo está tenue y quieto.
+ *
+ * Y §1, la ley de diseño: **la luz es información, no decoración.** Aquí eso
+ * se traduce en una regla incómoda y deliberada — esta hoja no tiene ni un
+ * color por relevancia, ni por confianza, ni por método. Esos cuatro canales
+ * los decide el núcleo y los pinta el mapa a partir de datos. Lo que hay aquí
+ * es el cristal: fondo, tipografía y la barra.
+ */
+
+:root {
+  --fondo: #05070c;
+  --tinta: #c8d4e4;
+  --tinta-tenue: #64748b;
+  --barra: rgba(11, 16, 26, 0.82);
+  --borde: rgba(120, 150, 200, 0.14);
+  --boveda: #b45f5f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--fondo);
+  color: var(--tinta);
+  font: 14px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  /* La ventana entera es la superficie de arrastre salvo donde se escribe. */
+  user-select: none;
+}
+
+#sustrato {
+  position: fixed;
+  inset: 0;
+  display: block;
+}
+
+/* ─────────────────────────────────────────────────────────────── la barra ── */
+
+#barra {
+  position: relative;
+  width: min(560px, calc(100vw - 64px));
+  /* Un tercio de la altura, no el centro: deja sitio a los resultados sin que
+     la lista tenga que empujar la barra hacia arriba al aparecer. Que la barra
+     salte al escribir es lo que hace que una interfaz se sienta barata. */
+  margin: min(24vh, 210px) auto 0;
+  padding: 4px;
+  background: var(--barra);
+  /* Un borde superior más claro que el inferior: es de donde viene la luz en
+     esta pantalla, y es lo que separa un panel de un rectángulo. */
+  border: 1px solid var(--borde);
+  border-top-color: rgba(150, 180, 225, 0.22);
+  border-radius: 16px;
+  backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow:
+    0 1px 0 rgba(190, 215, 255, 0.06) inset,
+    0 32px 80px -12px rgba(0, 0, 0, 0.8);
+}
+
+#consulta {
+  width: 100%;
+  padding: 13px 18px 11px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--tinta);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 300;
+  letter-spacing: 0.01em;
+  outline: none;
+  user-select: text;
+}
+
+#consulta::placeholder {
+  color: #4d5f78;
+  font-weight: 300;
+}
+
+#estado {
+  padding: 0 18px 10px;
+  min-height: 16px;
+  color: #56687f;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ──────────────────────────────────────────────────────── los resultados ── */
+
+#resultados {
+  margin: 0;
+  padding: 0;
+  max-height: min(48vh, 420px);
+  overflow-y: auto;
+  list-style: none;
+}
+
+#resultados:not(:empty) {
+  border-top: 1px solid var(--borde);
+  padding-top: 6px;
+}
+
+#resultados li {
+  padding: 9px 16px;
+  border-radius: 8px;
+  cursor: default;
+}
+
+#resultados li[aria-selected="true"] {
+  background: rgba(120, 160, 220, 0.1);
+}
+
+/* Doce archivos en fila son casi siempre tres cosas. La cabecera de grupo es
+   lo que convierte una lista en una respuesta. */
+.grupo {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px !important;
+  padding-bottom: 4px !important;
+}
+
+.grupo-nombre {
+  color: #9fc0e8;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.grupo-cuenta {
+  color: var(--tinta-tenue);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hit {
+  margin-left: 10px;
+}
+
+.nombre {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.ruta {
+  color: var(--tinta-tenue);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl; /* una ruta larga se corta por delante, no por el nombre */
+  text-align: left;
+}
+
+.fragmento {
+  margin-top: 3px;
+  color: #8fa2bb;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* La procedencia de I9, en la lista: por qué está aquí este resultado. */
+.ramas {
+  color: var(--tinta-tenue);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+/* Lo que la puerta retiene se marca. No se esconde: se marca. */
+.boveda {
+  color: var(--boveda);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+/* §3, disciplina: `prefers-reduced-motion` colapsa las animaciones y la
+   aplicación sigue siendo completamente utilizable. */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

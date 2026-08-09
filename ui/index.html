@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Orchestrator's Brain</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <!--
+      El orden del DOM es el argumento de ADR-0004: el mapa es el sustrato y
+      va debajo; la barra flota encima. No son dos pantallas.
+    -->
+    <canvas id="sustrato"></canvas>
+
+    <main id="barra">
+      <input
+        id="consulta"
+        type="text"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="¿Qué estás buscando?"
+        aria-label="Buscar"
+      />
+      <div id="estado" aria-live="polite"></div>
+      <ol id="resultados"></ol>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -10,7 +10,7 @@
 
 use crate::{write_edge, Edge, FileView, LinkReport};
 use obrain_core::{EntityId, Facet, Method, NewAssertion, Result, Store, TimePoint, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Encuentra o crea la entidad de una carpeta, identificada por su ruta.
 fn folder_entity(
@@ -76,32 +76,46 @@ pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport)
         folders.push(parent.to_string());
     }
 
-    // Encadenar carpeta → carpeta padre, para que la travesía pueda subir.
+    // Encadenar carpeta → carpeta padre **hasta la raíz del volumen**.
+    //
+    // Subir un solo nivel no basta, y el fallo no se ve en los contadores: sólo
+    // las carpetas que contienen archivos directamente entran en `folders`, así
+    // que una carpeta intermedia que sólo tiene subcarpetas —`prototypes`,
+    // `src`, un año dentro de un álbum de fotos— nunca recibía su arista hacia
+    // arriba y el árbol quedaba partido en trozos sueltos. Se vio al agregar el
+    // grafo por regiones: aparecían como raíces a profundidad 0.
     folders.sort();
     folders.dedup();
+    let mut chained: HashSet<String> = HashSet::new();
     for dir in folders {
-        let Some(i) = dir.rfind(['\\', '/']) else { continue };
-        let parent = &dir[..i];
-        // Cortar en la raíz del volumen: `C:` no es una carpeta útil.
-        if parent.is_empty() || parent.ends_with(':') {
-            continue;
-        }
-        let child = folder_entity(store, &mut cache, &dir, at, report)?;
-        let up = folder_entity(store, &mut cache, parent, at, report)?;
-        if write_edge(
-            store,
-            report,
-            Edge {
-                subject: &child,
-                predicate: "contained_by",
-                object: Value::Entity(up),
-                method: Method::Deterministic,
-                confidence: 1.0,
-                source: "linker:structure",
-            },
-            at,
-        )? {
-            report.contained_by += 1;
+        let mut cur = dir;
+        // `chained` corta en cuanto se llega a una rama ya recorrida: sin él,
+        // mil carpetas hermanas recorrerían mil veces el mismo camino a la raíz.
+        while chained.insert(cur.clone()) {
+            let Some(i) = cur.rfind(['\\', '/']) else { break };
+            let parent = cur[..i].to_string();
+            // Cortar en la raíz del volumen: `C:` no es una carpeta útil.
+            if parent.is_empty() || parent.ends_with(':') {
+                break;
+            }
+            let child = folder_entity(store, &mut cache, &cur, at, report)?;
+            let up = folder_entity(store, &mut cache, &parent, at, report)?;
+            if write_edge(
+                store,
+                report,
+                Edge {
+                    subject: &child,
+                    predicate: "contained_by",
+                    object: Value::Entity(up),
+                    method: Method::Deterministic,
+                    confidence: 1.0,
+                    source: "linker:structure",
+                },
+                at,
+            )? {
+                report.contained_by += 1;
+            }
+            cur = parent;
         }
     }
     Ok(())
@@ -147,6 +161,31 @@ mod tests {
             s.resolve(visa, "contained_by", tp).unwrap().is_some(),
             "y esa carpeta cuelga de docs"
         );
+    }
+
+    /// **Regresión.** Una carpeta que sólo contiene subcarpetas no aparecía en
+    /// la lista de padres directos, así que nunca recibía su arista hacia
+    /// arriba y el árbol se partía. No lo veía ningún contador: las aristas
+    /// seguían saliendo, sólo que el grafo eran varios trozos sueltos.
+    #[test]
+    fn una_carpeta_intermedia_sin_archivos_propios_tambien_encadena() {
+        let s = Store::open_in_memory().unwrap();
+        // Nadie guarda nada directamente en `repo\fotos` ni en `fotos\2019`.
+        let files = vec![fv(&s, r"C:\repo\fotos\2019\viaje\img.jpg")];
+        let mut r = LinkReport::default();
+        super::link(&s, &files, 2000, &mut r).unwrap();
+
+        let tp = TimePoint::at(3000);
+        let sube = |e: &EntityId| {
+            s.resolve(e, "contained_by", tp)
+                .unwrap()
+                .and_then(|a| a.object.as_entity().cloned())
+        };
+        let viaje = sube(&files[0].entity).expect("el archivo cuelga de viaje");
+        let y2019 = sube(&viaje).expect("viaje cuelga de 2019");
+        let fotos = sube(&y2019).expect("2019 cuelga de fotos");
+        let repo = sube(&fotos).expect("fotos cuelga de repo");
+        assert!(sube(&repo).is_none(), "y repo ya es la raiz: no se sube a C:");
     }
 
     #[test]

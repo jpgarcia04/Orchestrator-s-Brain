@@ -7,6 +7,10 @@ node_modules/
 dist/
 .vite/
 
+# ─── Tauri ───
+# Los esquemas de capacidades los regenera `tauri-build` en cada compilación.
+ui/src-tauri/gen/schemas/
+
 # ─── Bases de datos locales del propio sistema ───
 # El índice de un usuario NUNCA debe acabar en el repo: contiene su vida.
 *.obrain

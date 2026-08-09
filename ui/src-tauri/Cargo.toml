@@ -1,0 +1,28 @@
+[package]
+name = "obrain-app"
+version = "0.0.1"
+description = "Orchestrator's Brain — la barra sobre el sustrato"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+
+# Workspace propio: el de `core/` es una biblioteca (ADR-0003) y la aplicación
+# de escritorio no tiene por qué entrar en su árbol de compilación.
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# La única dependencia de dominio. Todo lo que sabe esta aplicación del sistema
+# entra por aquí: si algún comando de abajo tuviera lógica propia, sería lógica
+# que el contestador de M7 tendría que volver a escribir.
+obrain-api = { path = "../../core/obrain-api" }
+obrain-core = { path = "../../core/obrain-core" }
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

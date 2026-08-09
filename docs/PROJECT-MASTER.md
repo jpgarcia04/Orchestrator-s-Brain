@@ -359,11 +359,22 @@ Cada hito se valida contra la pregunta de la visa.
 | ✅ **M3 — Relacionar sin IA** | Aristas deterministas de §4.4. → [`core/obrain-link`](../core/obrain-link) | **Hecho (2026-08-07).** 2.480 aristas, 0 llamadas a un modelo. Ver informe abajo. |
 | 🔒 **Puerta de sensibilidad** | Clasificación `normal`/`sensitive`/`vault` y aplicación de §5.2. → [`core/obrain-guard`](../core/obrain-guard) | **Hecha (2026-08-07).** No es un hito: es el requisito previo de M4. Ver informe abajo. |
 | ✅ **M4 — Entender** | Embeddings locales, búsqueda semántica, fusión RRF. → [`core/obrain-embed`](../core/obrain-embed) | **Hecho (2026-08-07).** 2.479 vectores, `universidad` encuentra un formulario de matrícula que no contiene la palabra. Rerank **diferido con la medición** ([ADR-0011](adr/0011-rerank-diferido.md)). Ver informe abajo. |
-| **M5 — La galaxia** | Lente, layout estable, navegación por foco. | Se puede explorar un `Process` y sus artefactos visualmente. |
+| ✅ **M5a — La barra sobre el sustrato** | Superficie del núcleo, lente de I2, barra de ADR-0004. → [`core/obrain-api`](../core/obrain-api) + [`ui`](../ui) | **Hecho (2026-08-08).** Ver informe abajo. |
+| **M5b — El mapa de frente** | Tecla global, modos foco y deriva, panel de entidad, expansión, Trazo. | Se puede explorar un nodo concentrador y sus artefactos visualmente. |
 | **M6 — Construir conocimiento** | Extracción de entidades, detección de `Process`, enriquecimiento por atención. | La métrica de §0 es medible y positiva. |
 | **M7 — La pregunta** | Comprensión de consulta, resolución temporal, respuesta con citas. | **Responde la pregunta de la visa.** |
 
 M3 es el hito más subestimado y probablemente el que más valor por hora de trabajo entrega. M7 es el que valida la tesis.
+
+### Por qué M5 se partió en dos, y por qué su criterio ya no dice `Process`
+
+Las dos cosas se decidieron **antes** de escribir código, en 2026-08-08, y conviene que quede el porqué y no sólo el resultado.
+
+**El criterio anterior era inalcanzable por construcción.** Decía *«se puede explorar un `Process` y sus artefactos visualmente»*, y `Process` no existe: lo crea M6. Un hito cuyo criterio de hecho depende del entregable del hito siguiente no se puede cerrar nunca. La salida no es esperar a M6, porque lo que M5 tiene que demostrar —que la lente acota, que el layout es estable, que la barra responde— no necesita un `Process` para demostrarse: necesita **un nodo y sus artefactos**, y de eso hay 353 desde M3. Las carpetas y las sesiones son estructuralmente la vista de la visa sin el nombre. El modo Proceso de [`EXPERIENCE.md`](EXPERIENCE.md) §4.3 queda como forma preparada y sin datos, que es lo que es.
+
+**Y el alcance estaba subestimado.** «Lente, layout estable, navegación por foco» suena a una vista de grafo, pero M5 es el hito donde aparece la aplicación entera: el primer Tauri, el primer TypeScript, el primer PixiJS, el primer contrato contra el núcleo — y la barra, que [ADR-0004](adr/0004-punto-de-entrada-barra-no-galaxia.md) declara punto de entrada. Construir el mapa sin la barra sería construir exactamente lo que ese ADR rechaza, y además sin puerta por donde entrar. De ahí el corte: **M5a es el camino de las cuarenta veces al día**, M5b es el mapa de frente.
+
+**El orden frente a M6 no es preferencia, es dependencia.** §4.4 pide que el enriquecimiento vaya en una cola *«priorizada por atención del usuario: abierto recientemente, dentro de un foco activo, tocado por una búsqueda»*. Esas señales no existen sin interfaz. M6 antes que M5 obligaría a inventar una política de priorización sin la fuente de datos que la política necesita.
 
 ### Informe de M1 — escaneo real (2026-08-07)
 
@@ -1143,6 +1154,336 @@ Los cinco tests de `obrain-embed/tests/puerta.rs` atacan el pipeline:
   dos `Ranking` más en la llamada a `rrf`— pero necesitan resolución de entidad,
   que es M7.
 
+### Informe de M5a — la barra sobre el sustrato (2026-08-08)
+
+[`core/obrain-api`](../core/obrain-api) y [`ui`](../ui), sobre una base nueva
+construida escaneando **este mismo repositorio**. **201 tests en verde** (174
+antes del hito), clippy limpio con `-D warnings`, TypeScript limpio en modo
+estricto.
+
+Corpus pequeño a propósito: lo que M5a tiene que demostrar no es escala —eso ya
+lo midieron M1 a M4— sino que la lente acota, que el layout no baila y que la
+barra responde.
+
+| El corpus | |
+|---|---|
+| Archivos | 101 |
+| Aristas vivas | 234 — `contained_by` 133, `occurred_during` 100, `duplicate_of` 1 |
+| Nodos concentradores | 38 |
+| Fragmentos | 1.042 |
+| Puerta | 99 `normal` · 1 `sensitive` · 1 `vault` |
+
+**El criterio de "hecho", medido.** Consulta `sensibilidad`, sin modelo cargado:
+10 resultados en **10,5 ms** por la rama léxica, y el sustrato que abren son
+**21 nodos y 24 aristas de 116 alcanzados** — es decir, la lente descartó el
+82 % del vecindario y lo dijo. De esas 24 aristas, 14 salen sólidas y 10
+punteadas, y un nodo llega marcado por la puerta. Los cuatro canales visuales de
+[`EXPERIENCE.md`](EXPERIENCE.md) §1 viajan resueltos desde el núcleo
+([ADR-0012](adr/0012-el-nucleo-expone-una-superficie.md)).
+
+#### El hallazgo del hito: el cuello de botella no es el render, es el layout
+
+El prototipo [`01-graph-render`](../prototypes/01-graph-render/index.html) midió
+**0,6 ms** para 500 nodos y concluyó, con razón, que *«el render no es el cuello
+de botella, ni de lejos»*. M5a mide la otra mitad del fotograma —colocar los
+nodos— sobre WebView2, mediana de cinco pasadas en caliente:
+
+| Nodos | Redibujado completo |
+|---|---|
+| 50 | 16,3 ms |
+| **120** | **40,2 ms** |
+| 200 | 102 ms |
+| **300** (presupuesto de I2) | **196,7 ms** |
+
+Es cuadrático porque la repulsión es todos contra todos: a 300 nodos son **19,8
+millones** de comparaciones por redibujado. Y el sustrato se redibuja **en cada
+pulsación**, así que 197 ms no es un detalle de rendimiento: es la diferencia
+entre la barra de §2 y una que se arrastra.
+
+La consecuencia es una constante nueva, `SUBSTRATE_BUDGET = 120`, y la
+justificación tiene dos patas que apuntan al mismo sitio. La de diseño llegó
+primero: **el sustrato no es el modo Foco.** Lo que se ve de reojo tiene que
+decir *dónde* cae la respuesta, y para eso trescientos puntos son ruido. La
+medida lo confirmó. El presupuesto de 300 se conserva donde sí corresponde —al
+enfocar con Enter, una vez por acción explícita y no por tecla.
+
+**Lo que esto NO resuelve, y está escrito en §7.4 desde antes:** *«simulación de
+fuerzas en un worker»*. Sacar el layout del hilo principal es lo que permitiría
+volver a 300 nodos en el sustrato sin bloquear nada. Es la recomendación
+concreta que este hito deja a M5b, igual que M2 y M4 dejaron la suya.
+
+#### Lo que enseñó dibujar el grafo por primera vez
+
+Cuatro defectos. **Ninguno lo veía un test, y tres llevaban meses ahí.**
+
+| Defecto | Cómo se vio | Desde |
+|---|---|---|
+| Los nodos de sesión no tenían nombre | los tres más grandes del mapa se llamaban `<01KZHYVT>` | **M3** |
+| Cinco carpetas distintas llamadas `src` | el censo previo, antes de dibujar nada | M3 |
+| Identificadores con prefijo común caían encima | generar el icono de la aplicación | M5a |
+| La página no cargaba su propio módulo | el canvas seguía a 300×150 | M5a |
+
+**El primero es el que merece leerse.** `session_span` guarda el intervalo de
+una sesión en el **eje de validez** —la sesión ocurrió entonces, no ahora—, que
+es exactamente lo que I6 pide. Consecuencia: `resolve` con el presente **nunca**
+lo encuentra, porque `valid_to` ya pasó. No es un fallo de la bitemporalidad:
+es la bitemporalidad funcionando, chocando contra una pregunta que nadie había
+hecho todavía. Cuando el intervalo **es el dato** en vez del filtro, hace falta
+la otra consulta.
+
+De ahí sale `Store::resolve_whenever` — *qué sostiene el sistema, fuera cuando
+fuera cierto*— y no es una puerta trasera: lo retractado sigue sin aparecer. Lo
+importante es que **es la primitiva que necesita M7**: resolver *«durante mi
+trámite de visa»* exige leer el intervalo de un `Process` sin conocerlo de
+antemano, que es literalmente esta consulta. M5a la ha pagado por accidente,
+persiguiendo una etiqueta.
+
+**El tercero lo destapó un icono.** El generador dibujaba once nodos y salían
+dos. FNV-1a sin paso de remate apenas propaga los últimos bytes de la entrada:
+dos cadenas que difieren en el último carácter salen con los veinte bits altos
+idénticos. Importa porque **los ULID comparten prefijo por construcción** —los
+primeros diez caracteres son la marca de tiempo— y toda la diferencia entre dos
+entidades del mismo escaneo vive al final. Sin el finalizador de `splitmix64`,
+cuarenta entidades de una misma pasada arrancarían todas en el mismo punto.
+
+**El cuarto no es interesante y por eso se cuenta.** Faltaba el `<script>` en
+el HTML. Ni un error en consola, ni un test en rojo: la página cargaba, el CSS
+se aplicaba y no pasaba nada. Lo delató mirar el tamaño del canvas.
+
+#### El apóstrofo, que ya no es una decisión pendiente teórica
+
+§10 lleva diciendo que `Orchestrator's-Brain` *«dará guerra en scripts, CI,
+rutas y URLs»*. La primera factura llegó en el primer hito con cadena de
+herramientas de JavaScript:
+
+```text
+resource.rc(26) : error RC2135 : file not found:
+  C:\...\GitHub\Orchestrator\'s-Brain\ui\src-tauri\icons\icon.ico
+```
+
+`tauri-winres` escribe la ruta del icono pasada por su `escape_string`, que
+convierte `'` en `\'`; `RC.EXE` sólo entiende `\\` y `\"`, así que busca una
+carpeta llamada literalmente `Orchestrator\'s-Brain`. **No se arregla con un
+enlace de directorio**: `tauri-build` canonicaliza la ruta y vuelve a salir la
+real — comprobado.
+
+`ui/src-tauri/build.rs` lleva un rodeo: copia el icono a una ruta temporal sin
+comillas. Está **condicionado a que haya apóstrofo**, así que el día que la
+carpeta se renombre el parche desaparece solo. Lo que no arregla es la clase de
+problema: `npm` aguanta la ruta, `vite` la aguanta, `RC.EXE` no. El siguiente
+que no la aguante costará otro rodeo.
+
+### Corrección de M5a — el mapa pasa a ser la pantalla (2026-08-09)
+
+M5a se entregó siguiendo [ADR-0004](adr/0004-punto-de-entrada-barra-no-galaxia.md):
+barra delante, mapa de fondo. Con la aplicación funcionando el veredicto fue que
+no, y **la causa resultó no ser la disposición sino una carencia de datos**. Se
+corrigió el mismo día; el razonamiento completo está en
+[ADR-0013](adr/0013-el-mapa-es-la-pantalla.md), que sustituye al 0004.
+
+Dos carencias, las dos del núcleo y ninguna de pintura:
+
+**1 · La búsqueda devolvía archivos planos.** El sistema ya sabía agruparlos:
+M3 lleva desde el tercer hito creando concentradores y la superficie los
+ignoraba. `sky::cluster` los agrupa por la carpeta que comparten. En el corpus
+de prueba, `sensibilidad` pasa de cuatro filas a **dos sitios**.
+
+**2 · No existía con qué dibujar un cielo.** La única lente era foco + radio
+(I2), que responde *«esto y lo que tiene al lado»*. `sky::regions` añade la otra
+escala —la «agregación semántica por escala» que
+[`EXPERIENCE.md`](EXPERIENCE.md) §6 exigía diseñar *ahora*— partiendo el árbol
+de contención por la región mayor, repetidamente, como un zoom.
+
+| Sobre el corpus del repositorio | |
+|---|---|
+| Archivos | 101 |
+| **Regiones abiertas** | **12** · `ui` 21 · `docs` 16 · `obrain-extract` 14 … |
+| Cobertura | **101 / 101** — ningún archivo fuera del mapa |
+| Puentes dibujados | 18 de 41 encontrados |
+| Coste | **3,1 ms** |
+
+**Los puentes son el hallazgo de la corrección.** Una sesión de trabajo que tocó
+archivos de dos regiones no es un nodo: es una **arista entre esas dos
+regiones**, y sale de datos que M3 escribía desde hace tres hitos. Es
+exactamente la forma que §6 llama «Puentes» en el mes 1–3. La más fuerte de este
+disco une `obrain-core` con `docs`, seis sesiones — que es literalmente lo que
+pasó hoy.
+
+Y hubo que ponerles presupuesto: **41 puentes para 66 parejas posibles** es un
+ovillo que dice «todo se relaciona con todo», que es lo mismo que no decir nada.
+Se enseñan los más fuertes y se dice cuántos había, igual que hace la lente con
+los nodos.
+
+#### Dos defectos más que sólo aparecieron al agregar
+
+| Defecto | Cómo se vio | Desde |
+|---|---|---|
+| El árbol de carpetas estaba **partido en trozos** | regiones a profundidad 0, como si fueran raíces | **M3** |
+| Treinta regiones sobre cien archivos es ruido | pedir 30 y obtener 30 etiquetas sobre carpetas de tres archivos | M5a |
+
+**El primero llevaba desde M3.** `structure.rs` sólo encadenaba **un nivel**
+hacia arriba desde cada carpeta que contuviera archivos, así que una carpeta
+intermedia que sólo tiene subcarpetas —`prototypes`, `src`, un año dentro de un
+álbum de fotos— nunca recibía su arista y el grafo quedaba en pedazos. No lo
+veía ningún contador: las aristas salían, sólo que el árbol no era un árbol.
+Encadenar hasta la raíz del volumen añadió **6 aristas y 7 nodos** en este
+corpus y unió los trozos.
+
+**El segundo es una calibración.** El objetivo de regiones pasa a ser un
+**techo, no una cuota**: se abren `min(⌈√archivos⌉, objetivo)`. Cien archivos
+→ 10 regiones; diez mil → 30. Y al partir no se promueven todas las hijas de
+golpe —una carpeta de fotos con doscientos años dentro daría doscientas
+estrellas—: suben las mayores y el resto queda agregado bajo la madre.
+
+### El pase visual (2026-08-09)
+
+Con la estructura puesta, el mapa se pintó de verdad. La regla no se relajó ni
+una vez: **§1 no admite un canal visual que no codifique algo**, así que cada
+efecto tuvo que ganarse su dato antes de existir.
+
+| Lo que se ve | Lo que significa | De dónde sale |
+|---|---|---|
+| Tamaño de la estrella | archivos dentro | `Region.weight` |
+| **Temperatura** | cuándo tocaste algo ahí por última vez | `Region.recency` ← **nuevo** |
+| **Polvo** | un punto por archivo | la densidad *es* la cantidad |
+| **Latido** | recencia — lo vivo respira | `recency`, §3 #4 |
+| Luminosidad | relevancia frente a la consulta | `encendidas` |
+| Profundidad | — | parallax por capas (§7.5) |
+
+**La temperatura es la que cumple la promesa del README.** *«Las zonas
+brillantes son donde tu vida está activa ahora mismo»* dejó de ser una frase:
+`recency` viaja dentro de cada región y de cada nodo, y se mapea a un degradado
+frío→cálido **con una curva y no una recta**, porque entre *ayer* y *anteayer*
+hay una diferencia enorme y entre *hace tres años* y *hace cuatro* casi ninguna.
+En este disco, `ui` y `docs` salen al 100 % de calor y `obrain-link` a 0: es
+exactamente lo que se ha tocado hoy y lo que no.
+
+**El polvo es cartografía, no textura.** Un punto por archivo, disperso de forma
+determinista alrededor de su región. La densidad codifica la cantidad igual que
+el tamaño — es un mapa de puntos de toda la vida, no relleno decorativo.
+
+#### Lo medido
+
+Sobre WebView2, mediana de cuarenta pasadas:
+
+| | fotograma p50 | p95 |
+|---|---|---|
+| 12 regiones · 125 sprites | **0,10 ms** | 1,0 ms |
+| 30 regiones · 3.060 sprites | **0,40 ms** | 1,1 ms |
+
+Contra los 16,67 ms de 60 fps. **El latido sale gratis** — y no por suerte: los
+astros son `Sprite` con una textura de gradiente compartida, así que se agrupan
+en una sola llamada de dibujo, mientras que la versión anterior construía la
+geometría de tres círculos por nodo con `Graphics`. Se ve mucho mejor y cuesta
+menos, que es la clase de cambio que sólo aparece cuando se mide antes.
+
+Confirma por tercera vez lo que dijo el prototipo `01-graph-render` y volvió a
+decir la corrección de M5a: **el render no es el cuello de botella.** Lo es el
+layout, que sigue siendo O(n²) en el hilo principal.
+
+#### El reposo, que sigue siendo un compromiso
+
+§2 pide que el bucle caiga a cero con la ventana sin foco o el usuario inactivo.
+Se cumple literal: el ticker arranca al haber actividad, se para solo a los 25 s
+y con `prefers-reduced-motion` no arranca nunca. Y el latido tiene un techo del
+5 % de escala por la disciplina de §3 — *«si conscientemente ves los nodos latir,
+está demasiado fuerte»*.
+
+#### Tres defectos, y el primero sólo existía en la máquina de alguien
+
+**1 · El mapa se dibujaba en un tercio de la ventana.** Dos fallos encadenados
+en el tamaño del lienzo, y ninguno se veía en la máquina donde se escribió el
+código:
+
+- `resizeTo: window` de Pixi **no aplica en el arranque**: el renderizador se
+  quedaba en los 800×600 por defecto.
+- `medidas()` calculaba `renderer.width / resolution`, pero en Pixi v8 ese ancho
+  **ya viene en píxeles lógicos**. Dividirlo otra vez por la densidad de la
+  pantalla lo encogía.
+
+Con densidad 1 el segundo error es invisible —dividir por uno no hace nada—. En
+una pantalla escalada al 300 % el mapa salía a un tercio del tamaño, apretado en
+la esquina superior izquierda, con el borde del lienzo a la vista y las
+etiquetas amontonadas unas sobre otras. Es el defecto que **sólo aparece en la
+máquina de otra persona**, y lo destapó una captura de pantalla, no un test.
+
+**2 · Las etiquetas repetían el nombre del repositorio doce veces.** El núcleo
+etiqueta las carpetas con dos segmentos porque cinco carpetas llamadas `src` son
+cinco nodos indistinguibles — pero cuando el padre es común a casi todas, esos
+dos segmentos no desambiguan, sólo tapan. La regla correcta no es fija: se usa
+la hoja, y sólo se añade el padre a las que chocan entre sí. `ui`, `docs`,
+`obrain-extract` en vez de `Orchestrator's-Brain/ui`. Y cuando dos etiquetas se
+solapan, la de la región menor cede: dos nombres ilegibles informan menos que un
+nombre y un punto sin él.
+
+**3 · Si la ventana se abría sin el foco del sistema**, el asentamiento nunca
+arrancaba y el mapa se quedaba al 25 % de opacidad para siempre — porque el
+bucle que lo subía era el mismo que el reposo impedía arrancar. La disciplina de
+§3 dice que sin animación la aplicación sigue siendo completamente utilizable,
+no que se quede traslúcida.
+
+Y una decisión de encuadre: la simulación reparte sobre un disco de radio
+`min(ancho, alto)`, así que en una pantalla apaisada el mapa quedaba como una
+bola en el centro. Ahora se escala y se centra lo colocado —sin recolocar nada,
+la topología ya está decidida— hasta llenar el 80 % del ancho o el 72 % del alto,
+con tope de 2,6×: los radios de las estrellas **no** se escalan, porque
+codifican cuántos archivos hay dentro y eso no depende del tamaño de la ventana.
+
+#### Lo que la corrección NO cubre
+
+- **Las regiones son carpetas, y una carpeta no es un núcleo de una vida.** Es
+  una aproximación honesta y provisional: los núcleos de verdad son entidades
+  `Process` y eso es M6. Si M6 no llega, el cielo se queda siendo un explorador
+  de archivos bonito.
+- **El corpus con el que se ha medido es un repositorio de código**, así que las
+  «estrellas» son crates y carpetas de documentación. La dinámica de tamaños
+  real —cuatro mil fotos de un viaje frente a doce recibos— no se ha visto
+  todavía, y es justo donde el canal de tamaño se gana su sueldo.
+- **La raíz cuadrada está elegida por su curva, no medida.**
+- **El cielo depende de cómo estén organizadas las carpetas del usuario.** Para
+  quien lo tenga todo en `Descargas`, el cielo será una estrella. Es una
+  limitación real de usar contención como eje, y otra razón por la que M6
+  importa.
+- **De las seis animaciones de §3 hay dos.** Asentamiento (#1) y latido (#4).
+  Faltan foco, expansión, **trazo** —la que vende el producto, porque *es* la
+  explicación— y sedimentación.
+- **El layout sigue siendo O(n²) en el hilo principal**, y ahora es el único
+  coste que importa: 197 ms a 300 nodos frente a 0,4 ms de fotograma. Sacarlo a
+  un worker (§7.4) es lo que permitiría subir el presupuesto sin bloquear nada,
+  y es la recomendación concreta que este hito deja escrita.
+- **La temperatura se ha visto sobre un rango de dos días.** Sobre años, que es
+  para lo que está pensada la curva, no se ha comprobado.
+
+#### Lo que este informe NO cubre
+
+- **La huella de memoria no se ha medido en release.** El proceso de la
+  aplicación en build de depuración ocupa **728 MB de memoria privada**, y §7.2
+  dice sin rodeos que *«un proceso en reposo a 400 MB es un motivo de
+  desinstalación»*. Comparar una build de depuración contra una afirmación de
+  producto no es una medición, y por eso el número se da sin conclusión — pero
+  se da. Medirlo en release es lo primero de M5b.
+- **La fecha de las sesiones se calcula en UTC.** Con el reloj local a las 18:38
+  del día 8, UTC ya era día 9, y una sesión de esta tarde sale etiquetada
+  *mañana*. Arreglarlo exige una dependencia de zona horaria o FFI, y esa
+  decisión no se toma al final de un hito.
+- **La rama semántica no se ha ejercitado en la aplicación.** El modelo no está
+  descargado en esta máquina, así que lo verificado es el camino léxico y la
+  degradación honesta (`Answer::semantic = false`). Que el hilo de carga instale
+  el modelo y la barra pase a híbrida está probado en el CLI con `--modelo`, no
+  contra la ventana.
+- **La estabilidad del layout está probada del lado del núcleo, no del ojo.**
+  Que la misma consulta devuelve el mismo subgrafo con las mismas posiciones de
+  partida tiene test; que la simulación converja al mismo sitio se apoya en que
+  no hay ni una llamada a `Math.random`, y eso es un argumento, no una medición.
+- **La lente puede salirse del viewport.** Con 300 nodos la caja medida iba de
+  −138 a 971 px en horizontal sobre un lienzo de 800. Como el mapa es sustrato
+  atenuado no molesta; en el modo Foco de M5b habrá que encuadrar.
+- **Sin tecla global, sin panel de entidad, sin las seis animaciones.** Es M5b, y
+  está dicho en el roadmap y no escondido aquí.
+- **`correct` no tiene interfaz.** El comando existe y tiene test —la corrección
+  gana y no borra lo que corrige— pero nada en pantalla la dispara todavía.
+  §4.5 dice que corregir cuesta un clic; hoy cuesta una llamada.
+
 ---
 
 ## 10. Decisiones pendientes
@@ -1150,7 +1491,7 @@ Los cinco tests de `obrain-embed/tests/puerta.rs` atacan el pipeline:
 - ¿El conocimiento sobrevive al archivo que lo originó cuando ese archivo desaparece? (Postura provisional: sí — el nodo es *conocimiento sobre* el archivo, no el archivo.)
 - ¿Habrá alguna vez conocimiento compartido entre personas? No implementarlo ahora es correcto; ignorarlo en el modelo de datos, no.
 - ¿El sistema escribe alguna vez en los archivos del usuario? (Postura provisional: v1 estrictamente solo-lectura; el derecho a escribir se gana.)
-- Slug técnico: `orchestrator-brain` u `obrain`. El apóstrofo de `Orchestrator's-Brain` dará guerra en scripts, CI, rutas y URLs.
+- Slug técnico: `orchestrator-brain` u `obrain`. El apóstrofo de `Orchestrator's-Brain` dará guerra en scripts, CI, rutas y URLs. **Ya no es una previsión:** M5a fijó `obrain` para paquetes e identificadores —`obrain-ui`, `obrain-app`, `dev.obrain.app`— pero la **carpeta** sigue llevando apóstrofo y ya ha costado un rodeo en `ui/src-tauri/build.rs`. Lo que queda por decidir es sólo eso: si se renombra el directorio. Ver el informe de M5a.
 
 ---
 
@@ -1161,7 +1502,7 @@ Los cinco tests de `obrain-embed/tests/puerta.rs` atacan el pipeline:
 | [0001](adr/0001-log-de-aserciones-como-fuente-de-verdad.md) | Log de aserciones como fuente de verdad | Aceptada |
 | [0002](adr/0002-sustrato-de-persistencia.md) | SQLite como sustrato único de persistencia | Aceptada |
 | [0003](adr/0003-lenguaje-del-nucleo.md) | Rust para el núcleo de indexación | Aceptada |
-| [0004](adr/0004-punto-de-entrada-barra-no-galaxia.md) | La barra de comandos es el punto de entrada; el mapa es el sustrato | Aceptada |
+| [0004](adr/0004-punto-de-entrada-barra-no-galaxia.md) | La barra de comandos es el punto de entrada; el mapa es el sustrato | **Sustituida** por 0013 |
 | [0005](adr/0005-donde-vive-el-texto-extraido.md) | El texto extraído es una proyección, no una aserción | Aceptada |
 | [0006](adr/0006-donde-vive-la-sensibilidad.md) | La sensibilidad es una columna impuesta con procedencia en el log | Aceptada |
 | [0007](adr/0007-identidad-tras-un-guardado-atomico.md) | La identidad se reconcilia por ruta cuando el `FileID` se rompe | Aceptada |
@@ -1169,6 +1510,8 @@ Los cinco tests de `obrain-embed/tests/puerta.rs` atacan el pipeline:
 | [0009](adr/0009-donde-viven-los-vectores.md) | Los vectores son una proyección y su identidad I7 está en la clave primaria | Aceptada |
 | [0010](adr/0010-recorrido-lineal-frente-a-indice-ann.md) | Recorrido lineal en vez de `sqlite-vec`, y el umbral donde deja de valer | Aceptada |
 | [0011](adr/0011-rerank-diferido.md) | El rerank se difiere, con la medición que lo justifica | Aceptada |
+| [0012](adr/0012-el-nucleo-expone-una-superficie.md) | El núcleo expone una superficie; la aplicación de escritorio es un cliente | Aceptada |
+| [0013](adr/0013-el-mapa-es-la-pantalla.md) | El mapa es la pantalla; la barra busca dentro de él | Aceptada — sustituye a 0004 |
 
 ## Documentos
 

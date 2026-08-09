@@ -1,0 +1,22 @@
+{
+  "name": "obrain-ui",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "M5 · La barra sobre el sustrato — ADR-0004",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "tauri": "tauri",
+    "app": "tauri dev"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "pixi.js": "^8"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "typescript": "^5.6",
+    "vite": "^6"
+  }
+}

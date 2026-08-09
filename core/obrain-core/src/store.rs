@@ -183,6 +183,20 @@ impl Store {
         Ok(())
     }
 
+    /// Etiqueta legible de un predicado. El vocabulario es controlado (§3.4),
+    /// así que la traducción de `contained_by` a "contenido en" vive con la
+    /// definición y no en cada sitio que la enseñe.
+    pub fn predicate_label(&self, predicate: &str) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT label FROM predicates WHERE id = ?1",
+                [predicate],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
     pub fn cardinality(&self, predicate: &str) -> Result<Cardinality> {
         let c: String = self
             .conn
@@ -269,6 +283,37 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
+    /// Aserciones vigentes cuyo **objeto** es esta entidad.
+    ///
+    /// La contraria de [`Store::query`] con sujeto. Existe porque una arista se
+    /// almacena **una sola vez** (§3.4: `contains` y `contained_by` son el mismo
+    /// hecho), así que recorrer el grafo desde un nodo exige mirar en las dos
+    /// direcciones: lo que él afirma y lo que se afirma de él. Sin esto, la
+    /// lente de I2 sólo vería la mitad del vecindario — y sería justo la mitad
+    /// equivocada, porque los nodos concentradores que creó M3 son objeto de sus
+    /// aristas, no sujeto.
+    ///
+    /// Vive aquí y no en quien recorre el grafo por una razón concreta: el
+    /// predicado bitemporal de I6 es una sola cadena de SQL en este archivo.
+    /// Reescribirlo fuera sería tener dos definiciones de "vigente".
+    pub fn query_by_object(&self, object: &EntityId, at: TimePoint) -> Result<Vec<Assertion>> {
+        let sql = format!(
+            "SELECT {COLS} FROM assertions
+             WHERE object_entity = :object AND {BITEMPORAL}
+             {PRECEDENCE}"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(
+            named_params! {
+                ":object": object.as_str(),
+                ":valid":  at.valid,
+                ":known":  at.known,
+            },
+            row_to_assertion,
+        )?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     /// Resuelve el valor **único** de `(sujeto, predicado)` aplicando precedencia
     /// de método. Es la proyección que implementa el invariante I5: si el usuario
     /// ha afirmado algo, ninguna inferencia posterior puede desplazarlo.
@@ -292,6 +337,50 @@ impl Store {
                     ":predicate": predicate,
                     ":valid":     at.valid,
                     ":known":     at.known,
+                },
+                row_to_assertion,
+            )
+            .optional()?)
+    }
+
+    /// Resuelve `(sujeto, predicado)` **sin filtrar por el eje de validez**:
+    /// qué sostiene el sistema en `known` sobre esto, fuera cuando fuera cierto.
+    ///
+    /// No es un atajo para saltarse I6: es la otra pregunta que la
+    /// bitemporalidad permite hacer, y hace falta siempre que el intervalo de
+    /// validez sea **el dato que se busca** en vez de un filtro.
+    ///
+    /// El caso que la destapó: `session_span` guarda el intervalo de una sesión
+    /// de trabajo en el eje de validez, que es lo correcto —la sesión ocurrió
+    /// entonces, no ahora—. Consecuencia: [`Store::resolve`] con el presente
+    /// **nunca** lo encuentra, porque `valid_to` ya pasó. Desde M3, todos los
+    /// nodos de sesión se quedaron sin nombre legible y no se vio hasta que un
+    /// mapa los dibujó como los objetos más grandes de la pantalla.
+    ///
+    /// Es también la primitiva que necesita M7: *«durante mi trámite de visa»*
+    /// exige leer el intervalo de un `Process` sin conocerlo de antemano, que
+    /// es exactamente esta consulta y no la otra.
+    pub fn resolve_whenever(
+        &self,
+        subject: &EntityId,
+        predicate: &str,
+        known: i64,
+    ) -> Result<Option<Assertion>> {
+        let sql = format!(
+            "SELECT {COLS} FROM assertions
+             WHERE subject = :subject AND predicate = :predicate
+               AND asserted_at <= :known
+               AND (retracted_at IS NULL OR retracted_at > :known)
+             {PRECEDENCE} LIMIT 1"
+        );
+        Ok(self
+            .conn
+            .query_row(
+                &sql,
+                named_params! {
+                    ":subject":   subject.as_str(),
+                    ":predicate": predicate,
+                    ":known":     known,
                 },
                 row_to_assertion,
             )

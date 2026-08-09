@@ -407,3 +407,67 @@ fn la_pregunta_de_la_visa_a_nivel_de_datos() {
 
     assert_eq!(prueba_ingresos.len(), 3, "las tres nominas, y no el recibo de la luz");
 }
+
+/// Un intervalo que ya pasó **no** es cierto hoy, y por eso `resolve` con el
+/// presente no lo devuelve. Es I6 funcionando, no un fallo.
+///
+/// Pero cuando el intervalo *es* el dato que se busca, la pregunta correcta es
+/// la otra: qué sostiene el sistema ahora, fuera cuando fuera cierto.
+///
+/// Lo destapó M5a: `session_span` de M3 guarda el intervalo de una sesión de
+/// trabajo en el eje de validez, así que todos los nodos de sesión llevaban
+/// desde M3 sin nombre legible y nadie lo había visto hasta dibujarlos.
+#[test]
+fn un_intervalo_pasado_se_lee_preguntando_por_lo_sostenido_y_no_por_lo_vigente() {
+    let s = store();
+    let sesion = s.create_entity(T_HOY).unwrap();
+    s.assert(
+        NewAssertion::new(
+            sesion.clone(),
+            "session_span",
+            Value::Timestamp(T_2022),
+            Method::Deterministic,
+            T_HOY, // el sistema se entera hoy...
+        )
+        .valid(Some(T_2022), Some(T_2023_MAR)), // ...de algo que ocurrio en 2022
+    )
+    .unwrap();
+
+    // Hoy no es cierto: el intervalo se cerró en 2023.
+    assert!(
+        s.resolve(&sesion, "session_span", TimePoint::at(T_HOY))
+            .unwrap()
+            .is_none(),
+        "el eje de validez tiene que filtrarlo, que es para lo que existe"
+    );
+
+    // Pero dentro del intervalo, sí.
+    assert!(
+        s.resolve(&sesion, "session_span", TimePoint::as_known_at(T_2023_MAR - 1, T_HOY))
+            .unwrap()
+            .is_some()
+    );
+
+    // Y sin filtrar por validez, siempre: es lo que necesita quien va a
+    // *enseñar* el intervalo en vez de filtrar por él.
+    let a = s
+        .resolve_whenever(&sesion, "session_span", T_HOY)
+        .unwrap()
+        .expect("el sistema sigue sosteniendolo");
+    assert_eq!(a.object, Value::Timestamp(T_2022));
+    assert_eq!(a.valid_to, Some(T_2023_MAR));
+
+    // Lo retractado deja de aparecer también aquí: no es una puerta trasera.
+    s.retract(&a.id, T_HOY + 1).unwrap();
+    assert!(
+        s.resolve_whenever(&sesion, "session_span", T_HOY + 2)
+            .unwrap()
+            .is_none()
+    );
+    // ...y sigue estando para quien pregunte por lo que se creía antes (I4).
+    assert!(
+        s.resolve_whenever(&sesion, "session_span", T_HOY)
+            .unwrap()
+            .is_some()
+    );
+}
