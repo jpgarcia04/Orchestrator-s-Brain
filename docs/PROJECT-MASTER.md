@@ -1642,6 +1642,7 @@ de barata a instantánea.
 | [0012](adr/0012-el-nucleo-expone-una-superficie.md) | El núcleo expone una superficie; la aplicación de escritorio es un cliente | Aceptada |
 | [0013](adr/0013-el-mapa-es-la-pantalla.md) | El mapa es la pantalla; la barra busca dentro de él | Aceptada — sustituye a 0004 |
 | [0014](adr/0014-dos-vistas-un-solo-estado.md) | Dos vistas, un solo estado: la galaxia y el explorador | Aceptada — acota `EXPERIENCE.md` §4.4 |
+| [0015](adr/0015-el-cielo-reparte-por-anchura-no-por-peso.md) | El cielo reparte por anchura; el tamaño sigue siendo cuántos archivos hay | Aceptada |
 
 ## Documentos
 

@@ -233,69 +233,284 @@ enum Zoom {
 /// La alternativa —coger las N carpetas con más archivos— da siempre el mismo
 /// resultado inútil: la raíz, y dentro de ella la misma raíz otra vez, porque
 /// una carpeta que sólo tiene una hija pesa lo mismo que su hija.
+/// Lo que se sabe de una región **además** de cuántos archivos tiene.
+///
+/// Existe porque el primer corpus real (2026-08-10) dejó claro que el peso por
+/// número de archivos no es lo mismo que la importancia: la región mayor del
+/// cielo eran 229 capturas de pantalla, y la resolución del IMSS y los estados
+/// del banco —la pregunta de la visa, literalmente— caían en regiones de 12 y
+/// de 2. Antes de cambiar la regla hay que **mirar** qué señal ordena bien, y
+/// eso es lo que esto sirve.
+///
+/// No trae una puntuación agregada a propósito. Una media de cinco cosas es
+/// una opinión con aspecto de dato, y §1 prohíbe exactamente eso.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RegionAudit {
+    pub label: String,
+    /// La regla de hoy: archivos del subárbol.
+    pub files: usize,
+    /// Aserciones vivas sobre esos archivos. Cuánto **sabe** el sistema de lo
+    /// que hay aquí, que no es lo mismo que cuánto hay.
+    pub assertions: usize,
+    /// Sesiones de trabajo distintas que tocaron algo de dentro. Cuántas veces
+    /// por separado has vuelto aquí.
+    pub sessions: usize,
+    /// Días entre el archivo más viejo y el más nuevo. Distingue una carpeta
+    /// que abarca años de una que se llenó en una tarde.
+    pub span_days: i64,
+    /// Aristas hacia archivos de **otra** región. Con cuánto del resto de tu
+    /// vida se relaciona esto.
+    pub out_edges: usize,
+}
+
+/// Mide las señales candidatas sobre las mismas regiones que abre [`regions`].
+pub fn audit(store: &Store, target: usize, at: TimePoint) -> Result<Vec<RegionAudit>> {
+    let sky = regions(store, target, at)?;
+    let tree = read_tree(store, at)?;
+
+    // ── agregados por archivo, de una pasada ──
+    let mut n_assert: HashMap<String, usize> = HashMap::new();
+    {
+        let conn = store.conn();
+        let mut st = conn.prepare(
+            "SELECT subject, COUNT(*) FROM assertions WHERE retracted_at IS NULL GROUP BY subject",
+        )?;
+        let mut rows = st.query([])?;
+        while let Some(r) = rows.next()? {
+            n_assert.insert(r.get::<_, String>(0)?, r.get::<_, i64>(1)? as usize);
+        }
+    }
+
+    let mut sesiones: HashMap<EntityId, Vec<EntityId>> = HashMap::new();
+    for a in store.query(None, Some("occurred_during"), at)? {
+        if let Value::Entity(s) = a.object {
+            sesiones.entry(a.subject).or_default().push(s);
+        }
+    }
+
+    let mut fecha: HashMap<EntityId, i64> = HashMap::new();
+    for a in store.query(None, Some("modified_at"), at)? {
+        let Value::Timestamp(t) = a.object else { continue };
+        fecha.insert(a.subject, t);
+    }
+
+    // Aristas archivo→archivo. `contained_by` es el árbol mismo y
+    // `occurred_during` ya se lee como puente: ninguna de las dos dice nada
+    // nuevo aquí.
+    let mut salidas: Vec<(EntityId, EntityId)> = Vec::new();
+    for pred in ["duplicate_of", "version_of", "downloaded_from"] {
+        for a in store.query(None, Some(pred), at)? {
+            if let Value::Entity(o) = a.object {
+                salidas.push((a.subject, o));
+            }
+        }
+    }
+
+    // ── de qué región es cada archivo, según el corte que abrió el cielo ──
+    let mut de_region: HashMap<EntityId, usize> = HashMap::new();
+    let mut ficheros: Vec<Vec<EntityId>> = Vec::with_capacity(sky.regions.len());
+    for (i, reg) in sky.regions.iter().enumerate() {
+        let raiz = EntityId(reg.id.clone());
+        let mut acc = Vec::new();
+        if reg.remainder {
+            acc.extend(tree.direct.get(&raiz).into_iter().flatten().cloned());
+        } else {
+            let mut pila = vec![raiz.clone()];
+            while let Some(f) = pila.pop() {
+                acc.extend(tree.direct.get(&f).into_iter().flatten().cloned());
+                pila.extend(tree.children.get(&f).into_iter().flatten().cloned());
+            }
+        }
+        for f in &acc {
+            de_region.insert(f.clone(), i);
+        }
+        ficheros.push(acc);
+    }
+
+    let mut fuera = vec![0usize; sky.regions.len()];
+    for (a, b) in &salidas {
+        if let (Some(&ra), Some(&rb)) = (de_region.get(a), de_region.get(b)) {
+            if ra != rb {
+                fuera[ra] += 1;
+                fuera[rb] += 1;
+            }
+        }
+    }
+
+    Ok(sky
+        .regions
+        .iter()
+        .enumerate()
+        .map(|(i, reg)| {
+            let fs = &ficheros[i];
+            let mut ses: HashSet<&EntityId> = HashSet::new();
+            let (mut min, mut max) = (i64::MAX, 0i64);
+            let mut asr = 0usize;
+            for f in fs {
+                asr += n_assert.get(&f.0).copied().unwrap_or(0);
+                if let Some(v) = sesiones.get(f) {
+                    ses.extend(v.iter());
+                }
+                if let Some(&t) = fecha.get(f) {
+                    if t > 0 {
+                        min = min.min(t);
+                        max = max.max(t);
+                    }
+                }
+            }
+            RegionAudit {
+                label: reg.label.clone(),
+                files: reg.weight,
+                assertions: asr,
+                sessions: ses.len(),
+                span_days: if min == i64::MAX { 0 } else { (max - min) / 86_400_000 },
+                out_edges: fuera[i],
+            }
+        })
+        .collect())
+}
+
 ///
 /// Determinista: el desempate es por identificador, así que dos ejecuciones
 /// sobre la misma base abren exactamente el mismo cielo.
 pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
     let tree = read_tree(store, at)?;
 
-    let mut open: Vec<(EntityId, Zoom)> = tree
+    /// Una región abierta, con lo que hace falta para poder seguir abriéndola.
+    struct Abierta {
+        id: EntityId,
+        zoom: Zoom,
+        /// Cuántas veces se bajó para llegar aquí. Las raíces están a cero.
+        nivel: u32,
+        /// Hijas ya promovidas desde aquí. Sólo pasa de cero en `Remainder`,
+        /// que es literalmente «lo que queda de esta carpeta».
+        tomadas: usize,
+    }
+
+    // Hijas por peso. Se pide varias veces y el orden tiene que ser idéntico
+    // siempre: es de donde sale que dos ejecuciones abran el mismo cielo.
+    let hijas_de = |h: &EntityId| -> Vec<EntityId> {
+        let mut v: Vec<EntityId> = tree.children.get(h).into_iter().flatten().cloned().collect();
+        v.sort_by(|a, b| tree.weight.get(b).cmp(&tree.weight.get(a)).then_with(|| a.cmp(b)));
+        v
+    };
+
+    let mut open: Vec<Abierta> = tree
         .folders
         .keys()
         .filter(|f| !tree.parent.contains_key(*f))
         .cloned()
-        .map(|f| (f, Zoom::Subtree))
+        .map(|id| Abierta { id, zoom: Zoom::Subtree, nivel: 0, tomadas: 0 })
         .collect();
-    open.sort_by(|a, b| a.0.cmp(&b.0));
+    open.sort_by(|a, b| a.id.cmp(&b.id));
 
-    let peso = |h: &EntityId, z: Zoom| match z {
-        Zoom::Subtree => tree.weight.get(h).copied().unwrap_or(0),
-        Zoom::Remainder => tree.direct.get(h).map_or(0, Vec::len),
+    let peso = |a: &Abierta| -> usize {
+        match a.zoom {
+            Zoom::Subtree => tree.weight.get(&a.id).copied().unwrap_or(0),
+            // Un resto pesa lo suyo **más lo que todavía no ha soltado**. Sin
+            // esa segunda mitad, las hijas que no cupieron en el primer paso
+            // quedarían enterradas para siempre y el cielo se quedaría corto:
+            // pasó, y el test de los 100 archivos lo cazó — 4 regiones donde
+            // tenían que salir 10.
+            Zoom::Remainder => {
+                tree.direct.get(&a.id).map_or(0, Vec::len)
+                    + hijas_de(&a.id)
+                        .iter()
+                        .skip(a.tomadas)
+                        .map(|c| tree.weight.get(c).copied().unwrap_or(0))
+                        .sum::<usize>()
+            }
+        }
     };
 
     let cuantas = effective(target, tree.files);
+    // Techo de hijas por paso. √regiones: la misma curva que `effective` usa
+    // para el total, y por el mismo motivo — crece, pero cada vez menos.
+    let tope = ((cuantas as f64).sqrt().ceil() as usize).max(2);
     while open.len() < cuantas {
-        // La mayor que todavía se pueda abrir.
+        // La mayor que todavía se pueda abrir, **con rendimientos
+        // decrecientes al bajar**.
+        //
+        // Elegir por peso a secas parte una y otra vez la misma rama, y un
+        // árbol de código gana ese concurso siempre: es hondo, ancho y
+        // uniforme. El primer corpus real (2026-08-10) lo enseñó sin lugar a
+        // dudas — un único `whisper.cpp` de terceros se llevó **21 de las 30
+        // regiones**, mientras `OneDrive`, donde estaba la vida entera del
+        // usuario, se quedaba en un solo grumo sin abrir.
+        //
+        // Así que el peso se divide por el nivel: bajar otra vez por donde ya
+        // bajaste exige el doble de peso, luego el triple. Una rama honda
+        // sigue pudiendo abrirse mucho —si de verdad pesa— pero deja de
+        // hacerlo *gratis*, y el cielo vuelve a enseñar la anchura de una vida
+        // antes que el detalle de un rincón.
+        //
+        // Se compara en cruz en vez de dividir: exacto, sin redondeo, y sin
+        // que el orden dependa de en qué punto se pierde la precisión.
         let Some(i) = open
             .iter()
             .enumerate()
-            .filter(|(_, (h, z))| {
-                *z == Zoom::Subtree && tree.children.get(h).is_some_and(|c| !c.is_empty())
-            })
-            .max_by(|(_, (a, za)), (_, (b, zb))| {
-                peso(a, *za).cmp(&peso(b, *zb)).then_with(|| b.cmp(a))
+            .filter(|(_, a)| hijas_de(&a.id).len() > a.tomadas)
+            .max_by(|(_, a), (_, b)| {
+                let ia = peso(a) as u64 * (1 + b.nivel as u64);
+                let ib = peso(b) as u64 * (1 + a.nivel as u64);
+                ia.cmp(&ib).then_with(|| b.id.cmp(&a.id))
             })
             .map(|(i, _)| i)
         else {
             break;
         };
 
-        let (h, _) = open.remove(i);
-        let mut hijas: Vec<&EntityId> = tree.children.get(&h).into_iter().flatten().collect();
-        hijas.sort_by(|a, b| {
-            tree.weight
-                .get(*b)
-                .cmp(&tree.weight.get(*a))
-                .then_with(|| a.cmp(b))
-        });
+        let madre = open.remove(i);
+        let hijas = hijas_de(&madre.id);
+        let pendientes = hijas.len() - madre.tomadas;
 
         // **No se promueven todas.** Una carpeta de fotos con doscientos años
         // dentro convertiría un solo paso en doscientas estrellas. Se ascienden
         // las mayores hasta llenar el techo y el resto se queda agregado bajo la
         // madre, que es lo que hace un mapa al alejarse: unas cuantas ciudades
         // con nombre y el campo alrededor.
+        // El techo era «las que quepan», y al principio caben casi todas: por
+        // ahí se coló que un único repositorio de terceros se llevara 19 de las
+        // 30 regiones **en un solo paso**. El comentario de arriba describía la
+        // intención correcta y la implementación no la cumplía.
+        //
+        // El tope por paso es √regiones — la misma curva que `effective` usa
+        // para el total, y por el mismo motivo: crece, pero cada vez menos. Una
+        // carpeta con veinte hijas aporta un puñado de estrellas con nombre y
+        // el resto queda agregado bajo la madre, esperando su turno. Si de
+        // verdad pesa, lo gana en la siguiente vuelta; pero lo gana compitiendo,
+        // no por llegar antes.
         let sitio = cuantas.saturating_sub(open.len());
-        let todas = hijas.len() <= sitio;
-        let promovidas = if todas { hijas.len() } else { sitio.saturating_sub(1) };
-
-        for c in hijas.iter().take(promovidas) {
-            open.push(((*c).clone(), Zoom::Subtree));
+        let margen = sitio.min(tope);
+        let todas = pendientes <= margen;
+        let promovidas = if todas { pendientes } else { margen.saturating_sub(1) };
+        if promovidas == 0 {
+            open.push(madre);       // no cabe ni una más: el reparto terminó
+            break;
         }
-        // Lo que no subió —archivos propios de la madre y las hijas que no
-        // cupieron— sigue existiendo y no puede quedarse sin sitio.
-        let queda = !todas || tree.direct.get(&h).is_some_and(|d| !d.is_empty());
+
+        for c in hijas.iter().skip(madre.tomadas).take(promovidas) {
+            open.push(Abierta {
+                id: c.clone(),
+                zoom: Zoom::Subtree,
+                nivel: madre.nivel + 1,
+                tomadas: 0,
+            });
+        }
+        // Lo que no subió —archivos propios de la madre y las hijas que aún no
+        // han salido— sigue existiendo y no puede quedarse sin sitio. Y a
+        // diferencia de antes, **puede volver a competir**: el resto sigue
+        // siendo abrible mientras le queden hijas dentro.
+        let tomadas = madre.tomadas + promovidas;
+        let queda =
+            tomadas < hijas.len() || tree.direct.get(&madre.id).is_some_and(|d| !d.is_empty());
         if queda {
-            open.push((h, Zoom::Remainder));
+            open.push(Abierta {
+                id: madre.id,
+                zoom: Zoom::Remainder,
+                nivel: madre.nivel,
+                tomadas,
+            });
         }
     }
 
@@ -306,7 +521,7 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
     // discrepar: con dos cálculos —uno para el tamaño y otro para el reparto—
     // llegaría el día en que una estrella se dibuja grande y al abrirla no hay
     // nada dentro.
-    let abiertas: HashSet<EntityId> = open.iter().map(|(h, _)| h.clone()).collect();
+    let abiertas: HashSet<EntityId> = open.iter().map(|a| a.id.clone()).collect();
     let de_quien = assign(&tree, &abiertas);
 
     let mut cuenta: HashMap<&EntityId, usize> = HashMap::new();
@@ -332,7 +547,7 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
     }
 
     let mut regions: Vec<Region> = Vec::with_capacity(open.len());
-    for (h, z) in &open {
+    for Abierta { id: h, zoom: z, .. } in &open {
         let w = cuenta.get(h).copied().unwrap_or(0);
         if w == 0 {
             continue;

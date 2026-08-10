@@ -82,6 +82,48 @@ fn main() -> ExitCode {
             .unwrap_or(0),
     );
 
+    // ── auditar el dimensionado: qué señal ordena bien las regiones ──
+    //
+    // Como `--sample` en M2, M3 y M4: no es una herramienta de depuración, es
+    // la parte del trabajo donde se mira si el contador dice la verdad.
+    if flag("--pesos") {
+        let objetivo = numero("--regiones", sky::REGIONS);
+        let at = obrain_core::TimePoint::at(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0),
+        );
+        match sky::audit(brain.store(), objetivo, at) {
+            Ok(a) => {
+                type Señal = (&'static str, fn(&sky::RegionAudit) -> i64);
+                let señales: [Señal; 6] = [
+                    ("archivos   (regla de hoy)", |r| r.files as i64),
+                    ("aserciones (cuánto sabe)", |r| r.assertions as i64),
+                    ("sesiones   (cuántas veces volviste)", |r| r.sessions as i64),
+                    ("lapso/días (cuánta vida abarca)", |r| r.span_days),
+                    ("aristas    (con qué se relaciona)", |r| r.out_edges as i64),
+                    // Derivada: no cuánto hay, sino cuánto sabe el sistema de
+                    // cada cosa. Un estado de cuenta extraído y vectorizado
+                    // deja muchas más aserciones que una captura de pantalla.
+                    ("aserciones POR archivo (riqueza)", |r| {
+                        r.assertions.checked_div(r.files).unwrap_or(0) as i64
+                    }),
+                ];
+                for (titulo, f) in señales {
+                    let mut v: Vec<&sky::RegionAudit> = a.iter().collect();
+                    v.sort_by_key(|r| -f(r));
+                    println!("\n── por {titulo} ──");
+                    for r in v.iter().take(8) {
+                        println!("  {:>7}  {}", f(r), r.label);
+                    }
+                }
+            }
+            Err(e) => eprintln!("pesos: {e}"),
+        }
+        return ExitCode::SUCCESS;
+    }
+
     // ── el cielo: el grafo entero a poca escala ──
     if flag("--cielo") {
         let objetivo = numero("--regiones", sky::REGIONS);

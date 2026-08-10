@@ -111,7 +111,14 @@ No implementes ningún conector. Antes de tocar código en esa dirección:
 
 </details>
 
-### 5. Las regiones se dimensionan por número de archivos, y eso no es la importancia — NUEVO, y es del núcleo
+### 5. El dimensionado de regiones — RESUELTO (2026-08-10), ver [ADR-0015](../adr/0015-el-cielo-reparte-por-anchura-no-por-peso.md)
+
+**Se midió con `obrain-api --pesos` y la conclusión fue que había dos problemas, no uno.** El del *reparto* era un fallo real y está arreglado: `OneDrive` pasó de un grumo sin abrir de 851 archivos a cuatro regiones, y la primera región del cielo es ahora `OneDrive/Documentos` —donde vive el trámite de visa— en vez de un directorio de fuentes de terceros. El del *tamaño* no era un fallo: ninguna señal medible codifica importancia, y fabricar una puntuación sería lo que §1 prohíbe. El tamaño sigue siendo el número de archivos, a sabiendas, hasta M6.
+
+**No lo reabras sin leer el ADR.** Y si vas a tocar el dimensionado, `--pesos` está en el núcleo para que midas antes de opinar.
+
+<details>
+<summary>El planteamiento original, cuando esto estaba abierto</summary>
 
 Con el corpus real, la región mayor del cielo son **229 capturas de pantalla**. Las resoluciones del IMSS y los estados de cuenta del banco —o sea, la pregunta de la visa— viven en regiones de 12 y de 2 archivos.
 
@@ -120,6 +127,8 @@ Antes de descartar `whisper.cpp` era todavía más claro: **21 de las 30 regione
 **Por qué esto no es un umbral que retocar.** `EXPERIENCE.md` §1 ya legisló este canal visual para los nodos: *«Tamaño de nodo = densidad de conexiones. Nunca "importancia" arbitraria: eso sería una opinión disfrazada de dato»*. Las regiones usan otra regla para el mismo canal. Es una incoherencia dentro del lenguaje visual, y hay que resolverla con criterio —no subiendo un número hasta que el cielo se vea bonito con este corpus concreto, que sería repetir el error del que este documento venía advirtiendo.
 
 Nota que la ley de §1 no te da la respuesta hecha: «densidad de conexiones» aplicada a una región tampoco es obviamente lo correcto. Piénsalo y **argúmentalo en un ADR**, porque cambia cómo se lee la primera pantalla del producto.
+
+</details>
 
 ### 6. El boilerplate de los PDF contamina los vectores y la procedencia — NUEVO, y es del núcleo
 
