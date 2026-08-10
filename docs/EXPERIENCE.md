@@ -1,6 +1,6 @@
 # Orchestrator's Brain — Diseño de Experiencia
 
-**Estado:** Fase 3 · **Última revisión:** 2026-08-07 · **Documento vivo**
+**Estado:** Fase 3 · **Última revisión:** 2026-08-10 · **Documento vivo**
 
 Complementa a [PROJECT-MASTER.md](PROJECT-MASTER.md). Todo lo de aquí está restringido por los invariantes de §2 del maestro — en particular I2 (el grafo es una lente), I9 (nunca respuesta sin procedencia) e I10 (la animación jamás en el camino crítico).
 
@@ -84,6 +84,8 @@ tecla global → barra → resultado → previsualización → nodo en el mapa �
 
 Cada escalón es **una tecla**. Y se puede parar en cualquiera. La mayoría de los días paras en el segundo — y eso es el diseño funcionando, no fallando.
 
+La escalera cubre el camino de quien **busca**. Atravesándola hay un segundo eje, para quien ya sabe qué quiere y sólo necesita bajar hasta ello: el **conmutador de vista** (§4.7), que también es una tecla y está disponible en cualquier escalón.
+
 ### 4.2 La barra flota sobre el mapa, no lo sustituye
 
 Aquí se resuelve la tensión que planteé en Fase 1 (la galaxia como obstáculo hermoso).
@@ -109,6 +111,8 @@ Eso hace tres cosas a la vez: te enseña que el mapa existe sin exigirte usarlo,
 
 Al seleccionar un nodo se abre un panel lateral que **no destruye el mapa** (nunca un modal: perder el contexto espacial es perder el producto).
 
+> **Alcance de esta prohibición** ([ADR-0014](adr/0014-dos-vistas-un-solo-estado.md)). Lo que se prohíbe es que **tocar un nodo** haga aparecer una superposición que tape el mapa: eso es contexto que el sistema te quita sin pedirlo. No se prohíbe una vista que el usuario **invoca a propósito** — ver §4.7. Se ven parecidas en pantalla y son opuestas para quien las usa. La regla, dicha con precisión: **nada tapa el mapa como consecuencia de tocar algo del mapa.**
+
 Contiene, en este orden:
 
 1. **Qué es** — facetas, no un "tipo" rígido.
@@ -129,6 +133,31 @@ El usuario tiene que **ver físicamente su autoridad sobre el sistema.** Si un r
 Cuando no hay respuesta, el sistema no puede quedarse en blanco ni inventar (I9). Muestra **qué miró**: el rango temporal que consideró, las entidades que resolvió, los candidatos que descartó y por qué.
 
 Un "no lo sé" que enseña su razonamiento genera más confianza que un acierto sin explicación.
+
+### 4.7 El conmutador: galaxia y explorador
+
+Decidido en [ADR-0014](adr/0014-dos-vistas-un-solo-estado.md). Existe porque la escalera de §4.1 sirve al que busca, y hay un segundo usuario que es el mismo en otro momento: el que **ya sabe qué quiere** y sólo necesita bajar hasta ello.
+
+Son dos intenciones distintas, no dos estéticas:
+
+| Intención | Vista |
+|---|---|
+| «no sé qué busco, enséñame el paisaje» | **Galaxia** |
+| «sé exactamente qué quiero, déjame bajar por la jerarquía» | **Explorador** |
+
+Forzar una sola metáfora sobre las dos es cómo un usuario acaba peleándose con su propia herramienta.
+
+**Cómo se comporta**
+
+- **La galaxia es el estado base.** El explorador se pide siempre: un conmutador visible en un sitio fijo, y un atajo de teclado. **Nunca aparece solo.** En el momento en que apareciera por tocar algo, sería el modal que §4.4 prohíbe.
+- **Al entrar, la galaxia se congela y se difumina detrás.** Un fotograma, desenfocado, con el bucle de render parado. Es una fotografía tras un cristal, no una escena viva — se ve igual y no cuesta batería (§2, modo reposo).
+- **El conmutador cambia la lente, no el destino.** Si estabas mirando `Trámites/Visa` en la galaxia, el explorador abre **ahí**, con esa ruta ya en las migas de pan. Al volver, la cámara queda donde el explorador te dejó. Esto es requisito, no acabado: una vista que te devuelve al inicio no es una vista, es otra aplicación.
+- **Se navega el grafo, no el disco.** Se baja por carpetas, y también por *entidad → dónde aparece → documentos que la mencionan*. Ésta es la diferencia que sostiene el proyecto entero: si el explorador sólo enseña carpetas, es el explorador del sistema con pasos de más.
+- **Enseña lo que un gestor de archivos no puede.** Las facetas de §4.4, el bloque inferido con su «¿por qué?», la corrección de §4.5 y los puentes entre regiones. La ley de §1 sigue vigente aquí: en las filas del explorador, la saturación sigue significando confianza.
+
+**Lo que no entra en la primera versión:** arrastrar y redimensionar libremente. Se entrega centrado, grande, con tamaños preestablecidos. El valor está en poder llegar a cualquier nodo sin escribir; mover la ventana es acabado y cuesta un tiempo desproporcionado.
+
+**El riesgo, dicho de frente:** si el explorador resulta ser lo cómodo y la galaxia lo bonito, el usuario vivirá en el explorador y esto habrá sido un gestor de archivos con salvapantallas — el fallo que [ADR-0013](adr/0013-el-mapa-es-la-pantalla.md) ya se había señalado a sí mismo. La respuesta no es mutilar el explorador: es que la galaxia se gane su uso, y observar honestamente cuál se abre. Si a los tres meses la galaxia no se abre, el problema es la galaxia.
 
 ---
 

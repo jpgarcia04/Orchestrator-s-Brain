@@ -2,7 +2,7 @@
 
 > Las aplicaciones actuales almacenan información. Orchestrator's Brain construye conocimiento.
 
-**Estado:** Fase 2 — Arquitectura · **Última revisión:** 2026-08-07 · **Documento vivo**
+**Estado:** Fase 2 — Arquitectura · **Última revisión:** 2026-08-10 · **Documento vivo**
 
 Este documento refleja siempre el estado *actual* del diseño. Se edita libremente.
 El *porqué* de las decisiones contestadas vive en [`adr/`](adr/) y no se edita nunca.
@@ -1491,6 +1491,9 @@ codifican cuántos archivos hay dentro y eso no depende del tamaño de la ventan
 - ¿El conocimiento sobrevive al archivo que lo originó cuando ese archivo desaparece? (Postura provisional: sí — el nodo es *conocimiento sobre* el archivo, no el archivo.)
 - ¿Habrá alguna vez conocimiento compartido entre personas? No implementarlo ahora es correcto; ignorarlo en el modelo de datos, no.
 - ¿El sistema escribe alguna vez en los archivos del usuario? (Postura provisional: v1 estrictamente solo-lectura; el derecho a escribir se gana.)
+- **¿Se indexa la papelera de reciclaje?** Hoy no: `$Recycle.Bin` está en `SYSTEM_DIRS` de [`obrain-scan/src/exclude.rs`](../core/obrain-scan/src/exclude.rs) y además cae por el atributo oculto/sistema. El usuario ha pedido amplitud de escaneo *«desde mis descargas hasta mi papelera de reciclaje»* (2026-08-10), así que deja de ser una exclusión obvia y pasa a ser una decisión. A favor: es exactamente donde vive lo que no recuerdas que tienes, que es la cuña F3. En contra: contenido que el usuario decidió borrar reapareciendo en las respuestas, con una tensión incómoda con I4 (nada se borra, se retracta) — I4 habla del grafo, y la papelera es el usuario ejerciendo lo contrario sobre sus archivos. Si se decide que sí, necesita ser opt-in explícito y visiblemente marcado en los resultados, no una exclusión menos en una lista.
+
+- ¿El escaneo debería distinguir *«no lo indexé»* de *«no existe»* de cara al usuario? Hoy un archivo podado por `exclude.rs` es indistinguible de uno que nunca estuvo, y con el explorador de [ADR-0014](adr/0014-dos-vistas-un-solo-estado.md) esa diferencia pasa a ser visible: el usuario podrá bajar hasta una carpeta y ver que falta algo.
 - Slug técnico: `orchestrator-brain` u `obrain`. El apóstrofo de `Orchestrator's-Brain` dará guerra en scripts, CI, rutas y URLs. **Ya no es una previsión:** M5a fijó `obrain` para paquetes e identificadores —`obrain-ui`, `obrain-app`, `dev.obrain.app`— pero la **carpeta** sigue llevando apóstrofo y ya ha costado un rodeo en `ui/src-tauri/build.rs`. Lo que queda por decidir es sólo eso: si se renombra el directorio. Ver el informe de M5a.
 
 ---
@@ -1512,6 +1515,7 @@ codifican cuántos archivos hay dentro y eso no depende del tamaño de la ventan
 | [0011](adr/0011-rerank-diferido.md) | El rerank se difiere, con la medición que lo justifica | Aceptada |
 | [0012](adr/0012-el-nucleo-expone-una-superficie.md) | El núcleo expone una superficie; la aplicación de escritorio es un cliente | Aceptada |
 | [0013](adr/0013-el-mapa-es-la-pantalla.md) | El mapa es la pantalla; la barra busca dentro de él | Aceptada — sustituye a 0004 |
+| [0014](adr/0014-dos-vistas-un-solo-estado.md) | Dos vistas, un solo estado: la galaxia y el explorador | Aceptada — acota `EXPERIENCE.md` §4.4 |
 
 ## Documentos
 
