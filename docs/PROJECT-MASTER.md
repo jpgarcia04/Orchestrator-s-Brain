@@ -360,7 +360,8 @@ Cada hito se valida contra la pregunta de la visa.
 | 🔒 **Puerta de sensibilidad** | Clasificación `normal`/`sensitive`/`vault` y aplicación de §5.2. → [`core/obrain-guard`](../core/obrain-guard) | **Hecha (2026-08-07).** No es un hito: es el requisito previo de M4. Ver informe abajo. |
 | ✅ **M4 — Entender** | Embeddings locales, búsqueda semántica, fusión RRF. → [`core/obrain-embed`](../core/obrain-embed) | **Hecho (2026-08-07).** 2.479 vectores, `universidad` encuentra un formulario de matrícula que no contiene la palabra. Rerank **diferido con la medición** ([ADR-0011](adr/0011-rerank-diferido.md)). Ver informe abajo. |
 | ✅ **M5a — La barra sobre el sustrato** | Superficie del núcleo, lente de I2, barra de ADR-0004. → [`core/obrain-api`](../core/obrain-api) + [`ui`](../ui) | **Hecho (2026-08-08).** Ver informe abajo. |
-| **M5b — El mapa de frente** | Tecla global, modos foco y deriva, panel de entidad, expansión, Trazo. | Se puede explorar un nodo concentrador y sus artefactos visualmente. |
+| **M5b — El mapa de frente** | Tecla global, modos foco y deriva, panel de entidad, expansión, Trazo, y el conmutador galaxia/explorador de [ADR-0014](adr/0014-dos-vistas-un-solo-estado.md). | Se puede explorar un nodo concentrador y sus artefactos visualmente. |
+| **M5c — Enterarse** | Vigilancia continua: USN Change Journal para el volumen, `ReadDirectoryChangesW` para carpetas concretas (§4.1). El demonio de [ADR-0003](adr/0003-lenguaje-del-nucleo.md). | Se deja un archivo nuevo en una carpeta vigilada y **aparece en el mapa sin que nadie lance nada**. |
 | **M6 — Construir conocimiento** | Extracción de entidades, detección de `Process`, enriquecimiento por atención. | La métrica de §0 es medible y positiva. |
 | **M7 — La pregunta** | Comprensión de consulta, resolución temporal, respuesta con citas. | **Responde la pregunta de la visa.** |
 
@@ -375,6 +376,14 @@ Las dos cosas se decidieron **antes** de escribir código, en 2026-08-08, y conv
 **Y el alcance estaba subestimado.** «Lente, layout estable, navegación por foco» suena a una vista de grafo, pero M5 es el hito donde aparece la aplicación entera: el primer Tauri, el primer TypeScript, el primer PixiJS, el primer contrato contra el núcleo — y la barra, que [ADR-0004](adr/0004-punto-de-entrada-barra-no-galaxia.md) declara punto de entrada. Construir el mapa sin la barra sería construir exactamente lo que ese ADR rechaza, y además sin puerta por donde entrar. De ahí el corte: **M5a es el camino de las cuarenta veces al día**, M5b es el mapa de frente.
 
 **El orden frente a M6 no es preferencia, es dependencia.** §4.4 pide que el enriquecimiento vaya en una cola *«priorizada por atención del usuario: abierto recientemente, dentro de un foco activo, tocado por una búsqueda»*. Esas señales no existen sin interfaz. M6 antes que M5 obligaría a inventar una política de priorización sin la fuente de datos que la política necesita.
+
+### Por qué M5c existe, y por qué va justo detrás de M5b
+
+La vigilancia continua estaba **diseñada desde §4.1 y programada en ninguna parte**: tecnología elegida, citada en dos ADRs, y sin ser el criterio de «hecho» de ningún hito. Así es como una pieza se cae de un proyecto — no por olvidada, por no programada. El usuario lo señaló el 2026-08-10 con la frase que lo resume: *las cosas van a seguir llegando a la máquina aunque el programa ya esté terminado.*
+
+**Y tiene una dependencia real que la obliga a existir, no sólo una justificación de producto.** [`EXPERIENCE.md`](EXPERIENCE.md) §3 define seis animaciones, y la sexta —**Sedimentación**— dice: *«El conocimiento nuevo creado en segundo plano aparece con un fundido lento en la periferia»*. Sin vigilancia continua no hay segundo plano, así que esa animación no tiene fuente de datos: M5b puede dibujarla, pero no puede demostrarla. M5c es lo que convierte la sexta animación en algo que se puede ver ocurrir en vez de simular.
+
+Va **detrás** de M5b y no delante porque hasta que el mapa no esté de frente no hay dónde ver aparecer nada, y porque el coste de esperar es bajo: reescanear el perfil entero cuesta 0,60 s, así que mientras tanto un temporizador cubre el hueco sin deuda arquitectónica.
 
 ### Informe de M1 — escaneo real (2026-08-07)
 
@@ -1483,6 +1492,117 @@ codifican cuántos archivos hay dentro y eso no depende del tamaño de la ventan
 - **`correct` no tiene interfaz.** El comando existe y tiene test —la corrección
   gana y no borra lo que corrige— pero nada en pantalla la dispara todavía.
   §4.5 dice que corregir cuesta un clic; hoy cuesta una llamada.
+
+### Informe del primer corpus real (2026-08-10)
+
+Hasta aquí, todo lo medido se había medido contra **este repositorio**: 101
+archivos de Rust y Markdown. El informe de M5a ya lo llamó por su nombre —una
+muestra de humo— y el prompt de M5b lo puso como el primer problema a resolver.
+Esto es lo que salió al ejecutar el pipeline entero contra el disco del usuario.
+
+#### El 86 % de lo indexable era estado de herramientas
+
+Un escaneo en seco del perfil devolvió **25.665 archivos**. Al desglosarlo,
+~22.000 estaban en `.codex`, `.vscode`, `.gemini`, `.antigravity` y `.m2`.
+`TOOL_DIRS` ya tenía `.cargo` y `.rustup`; sencillamente se escribió antes de que
+existieran las herramientas de IA.
+
+**La corrección no fue alargar la lista, y el motivo importa.** Alargarla arregla
+hoy y vuelve a romperse con la herramienta del mes que viene, que es exactamente
+el techo que M1 dejó anotado. Se añadió una **señal**: *un directorio con punto
+que cuelga directamente de la raíz del perfil es estado de un programa, no
+contenido del usuario*. Nadie guarda sus fotos en `C:\Users\x\.vacaciones`. Está
+acotada a la raíz a propósito — más adentro, `.borradores` sí puede ser del
+usuario, y el criterio del módulo es que ante la duda se indexa.
+
+Aparte, los directorios de credenciales (`.ssh`, `.gnupg`, `.aws`, `.azure`,
+`.kube`, `.docker`) pasaron a la lista fija y no a la señal: no se indexan estén
+donde estén. La puerta de sensibilidad es la última línea, no la primera.
+
+| | Antes | Después |
+|---|---:|---:|
+| Archivos indexables en el perfil | 25.665 | **3.655** |
+| Directorios recorridos | 6.311 | 582 |
+| Duración del recorrido | 3,95 s | 0,60 s |
+
+#### El corpus, y lo que el cielo enseñó
+
+Descartados un checkout de `whisper.cpp` (1.885 archivos de terceros: es
+`node_modules` a otra escala) y las partidas guardadas, quedaron **1.042 archivos
+enteramente del usuario**: 4.026 vectores, 2.394 aristas, 276 concentradores, 44
+duplicados, 28 entidades `sensitive` y 14 `vault`. Densidad 2,30 aristas por
+archivo, frente a 1,65 con el ruido dentro.
+
+**La pregunta de la visa, contestada sobre papeles reales.** La consulta
+«comprobante de ingresos» —cuyas palabras no aparecen en ningún punto del
+corpus, BM25 devolvió cero— recuperó por pura semántica, en 21,8 ms y sin red:
+estados de cuenta bancarios, `Estados_de_Cuenta_Abuelo_Visa.pdf`,
+`Documentos_Identidad_Respaldo_Visa.pdf` y la línea de captura de un apostillado.
+Es el §0 funcionando fuera del laboratorio.
+
+**Los puentes aparecieron solos.** 45 de 48 sesiones cruzaron dos regiones:
+`Downloads ↔ Capturas de pantalla`, `Orchestrator's-Brain/core ↔ GitHub/…`. Es la
+era «Puentes» de [`EXPERIENCE.md`](EXPERIENCE.md) §6 emergiendo con mil archivos,
+sin inventar una sola arista.
+
+#### Tres hallazgos que no son visuales, y por eso importan
+
+Estaba asumido, tras M5a, que **el problema estaba en la capa visual y la
+arquitectura de debajo se daba por buena**. El corpus real matiza esa frase: dos
+de estos tres son del núcleo.
+
+**1 · Las regiones se dimensionan por número de archivos, y eso no es la
+importancia.** La región mayor del cielo son **229 capturas de pantalla**. Las
+resoluciones del IMSS y los estados de BBVA —o sea, la pregunta de la visa— viven
+en regiones de 12 y de 2. Antes de descartar `whisper.cpp` era aún más claro: **21
+de las 30 regiones eran subcarpetas de un único repositorio de terceros**, porque
+[`sky::regions`](../core/obrain-api/src/sky.rs) parte repetidamente la región
+mayor por peso de subárbol, y un árbol de código es profundo, ancho y uniforme.
+
+Lo llamativo es que [`EXPERIENCE.md`](EXPERIENCE.md) §1 ya legisló este canal para
+los nodos: *«Tamaño de nodo = densidad de conexiones. Nunca "importancia"
+arbitraria: eso sería una opinión disfrazada de dato»*. Las regiones usan otra
+regla para el mismo canal visual. No es un umbral que retocar: es una
+incoherencia entre dos partes del lenguaje visual, y hay que resolverla en M5b.
+
+Es también la consecuencia que [ADR-0013](adr/0013-el-mapa-es-la-pantalla.md)
+dejó escrita sin poder medirla — *«la calidad del cielo depende por completo de
+cómo tenga el usuario organizadas sus carpetas»*—. Medida, el fallo es más agudo
+de lo que sonaba: no es que un usuario desordenado vea una estrella, es que **un
+solo repositorio bien ordenado le roba el cielo a la vida entera**.
+
+**2 · El boilerplate de los PDF contamina los vectores y la procedencia.** Los
+cinco primeros resultados de «comprobante de ingresos» puntuaron 0.870, 0.870,
+0.870, 0.870 y 0.869: empatados a la milésima. El sistema acierta la *clase* de
+documento y dentro de la clase no discrimina. El motivo se ve en el fragmento que
+enseña como prueba — un **sello digital del SAT en base64**, y para dos resultados
+distintos el mismo texto legal de relleno sobre la inflación, palabra por palabra.
+
+El relleno común a todos los estados de cuenta se trocea y se vectoriza como si
+fuera contenido, y al ser el texto más «documental» del archivo, gana la
+similitud. Esto choca de frente con **I9** (ninguna respuesta sin procedencia) y
+con §4.4, que exige que el «¿por qué?» resalte el fragmento exacto del origen: si
+ese fragmento es un sello en base64, la procedencia no explica nada y en pantalla
+se leerá como que el programa está roto — justo en el gesto que más confianza
+tiene que generar.
+
+Es el mismo patrón que M2 y M3 ya vivieron con las cachés de Chromium: los
+contadores decían éxito y auditar el contenido decía otra cosa.
+
+**3 · La vigilancia continua no tenía hito.** Está diseñada en §4.1 con la
+tecnología elegida (USN Change Journal + `ReadDirectoryChangesW`), es la razón por
+la que [ADR-0003](adr/0003-lenguaje-del-nucleo.md) eligió Rust para *«un demonio
+que corre todo el día»*, y [ADR-0007](adr/0007-identidad-tras-un-guardado-atomico.md)
+la cita como la solución correcta a largo plazo. No estaba en el roadmap. Se
+añade ahora como **M5c**.
+
+Lo que sí funciona hoy, comprobado y no supuesto: reescanear la misma carpeta dio
+*0 entidades nuevas, 851 reconocidas, 0 aserciones escritas, 4.697 sin cambio, en
+0,04 s*. La parte difícil —que la identidad aguante y que el log no crezca— está
+hecha y con tests. Lo que falta es sólo **cómo se entera**: hoy vuelve a recorrer
+en vez de que el sistema operativo le avise. Y recorrer el perfil entero cuesta
+0,60 s, así que la vigilancia ya es viable con un temporizador; el journal la pasa
+de barata a instantánea.
 
 ---
 

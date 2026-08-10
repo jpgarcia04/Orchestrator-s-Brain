@@ -6,7 +6,7 @@
 //! Nunca se excluye algo que pueda ser contenido del usuario. Ante la duda,
 //! se indexa: un falso negativo es contenido perdido, y eso es peor que ruido.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkipReason {
@@ -57,10 +57,22 @@ const BUILD_DIRS: &[&str] = &[
 /// Internos de herramientas. `.git` se excluye **como directorio**: el
 /// historial es valioso, pero se leerá con una librería de git en M3, no
 /// indexando objetos comprimidos uno a uno.
+///
+/// Esta lista vale para los que aparecen **a cualquier profundidad** —un
+/// `.git` o un `.vscode` dentro de un proyecto—. Los que cuelgan del perfil
+/// del usuario los coge una señal, no esta lista: ver
+/// [`ExclusionSet::profile_root`].
+///
+/// Los directorios de credenciales (`.ssh`, `.gnupg`, `.aws`, `.azure`,
+/// `.kube`, `.docker`) están aquí y no en la señal **a propósito**: no se
+/// indexan estén donde estén. Una clave privada no es conocimiento del
+/// usuario, y la puerta de sensibilidad (M3½) es la última línea, no la
+/// primera.
 const TOOL_DIRS: &[&str] = &[
     ".git", ".hg", ".svn", ".cache", ".pytest_cache", ".mypy_cache",
-    ".ruff_cache", ".tox", ".idea", ".vs", ".terraform",
-    ".cargo", ".rustup", ".nvm", ".npm", ".pnpm-store", ".yarn",
+    ".ruff_cache", ".tox", ".idea", ".vs", ".vscode", ".terraform",
+    ".cargo", ".rustup", ".nvm", ".npm", ".pnpm-store", ".yarn", ".m2",
+    ".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker",
 ];
 
 /// Datos de aplicación: cachés de navegador, perfiles, almacenes locales.
@@ -127,11 +139,22 @@ pub struct ExclusionSet {
     pub skip_hidden: bool,
     /// Nombres de directorio adicionales indicados por el usuario.
     pub extra_dirs: Vec<String>,
+    /// Raíz del perfil del usuario (`%USERPROFILE%`), si se conoce.
+    ///
+    /// Sostiene la regla de [`ExclusionSet::dotdir_del_perfil`]. Es un campo
+    /// y no una constante para que los tests no dependan del entorno.
+    pub profile_root: Option<PathBuf>,
 }
 
 impl Default for ExclusionSet {
     fn default() -> Self {
-        ExclusionSet { skip_hidden: true, extra_dirs: Vec::new() }
+        ExclusionSet {
+            skip_hidden: true,
+            extra_dirs: Vec::new(),
+            profile_root: std::env::var_os("USERPROFILE")
+                .or_else(|| std::env::var_os("HOME"))
+                .map(PathBuf::from),
+        }
     }
 }
 
@@ -166,6 +189,9 @@ impl ExclusionSet {
         if TOOL_DIRS.iter().any(|d| d.eq_ignore_ascii_case(name)) {
             return Some(SkipReason::ToolInternal);
         }
+        if self.dotdir_del_perfil(path, name) {
+            return Some(SkipReason::ToolInternal);
+        }
         if APP_DATA_DIRS.iter().any(|d| d.eq_ignore_ascii_case(name)) {
             return Some(SkipReason::AppData);
         }
@@ -193,6 +219,35 @@ impl ExclusionSet {
             return Some(SkipReason::HiddenOrSystem);
         }
         None
+    }
+
+    /// Un directorio con punto que cuelga **directamente** del perfil del
+    /// usuario es estado de una herramienta, no contenido.
+    ///
+    /// Ésta es la señal que la lista fija no podía dar. Un escaneo en seco del
+    /// perfil real (2026-08-10) devolvió 25.665 archivos, y **~22.000 de ellos
+    /// —el 86 %— eran `.codex`, `.vscode`, `.gemini`, `.antigravity` y `.m2`**.
+    /// `TOOL_DIRS` ya tenía `.cargo` y `.rustup`; simplemente se escribió antes
+    /// de que existieran los otros. Añadirlos a la lista habría arreglado hoy y
+    /// vuelto a fallar con la herramienta del mes que viene — que es
+    /// exactamente el techo que M1 dejó anotado.
+    ///
+    /// La convención en la que se apoya es sólida y anterior a este proyecto:
+    /// el punto inicial significa «esto no es tuyo, es de un programa», y en la
+    /// raíz del perfil no hay más que eso. Nadie guarda sus fotos en
+    /// `C:\Users\x\.vacaciones`.
+    ///
+    /// **Se limita a la raíz a propósito.** Más adentro, una carpeta con punto
+    /// sí puede ser del usuario, y el criterio de este módulo es que ante la
+    /// duda se indexa: un falso negativo es contenido perdido.
+    fn dotdir_del_perfil(&self, path: &Path, name: &str) -> bool {
+        if !name.starts_with('.') {
+            return false;
+        }
+        match (&self.profile_root, path.parent()) {
+            (Some(raiz), Some(padre)) => misma_ruta(padre, raiz),
+            _ => false,
+        }
     }
 
     /// Asimetría deliberada respecto a [`Self::skip_dir`]: aquí se excluye por
@@ -234,6 +289,32 @@ impl ExclusionSet {
     }
 }
 
+/// Igualdad de rutas como la entiende Windows: sin distinguir mayúsculas y
+/// sin que importe si el separador vino como `\` o como `/`.
+///
+/// `PathBuf::eq` compara componente a componente —lo cual ya resuelve el
+/// separador— pero **distingue mayúsculas**, y aquí un lado sale de
+/// `%USERPROFILE%` y el otro de la ruta que escribió quien lanzó el escaneo.
+/// `C:\Users\pacox` y `C:\USERS\pacox` son el mismo sitio.
+fn misma_ruta(a: &Path, b: &Path) -> bool {
+    let (mut ca, mut cb) = (a.components(), b.components());
+    loop {
+        match (ca.next(), cb.next()) {
+            (None, None) => return true,
+            (Some(x), Some(y)) => {
+                if !x
+                    .as_os_str()
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(&y.as_os_str().to_string_lossy())
+                {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+}
+
 /// ¿Es este directorio el perfil de un Chromium incrustado?
 ///
 /// Se pregunta al directorio, no a una lista. Un `Local State` junto a un
@@ -260,6 +341,87 @@ mod tests {
     /// de archivos cuando las reglas de nombre y de par ya han fallado.
     fn d(p: &str) -> PathBuf {
         PathBuf::from(p)
+    }
+
+    /// Perfil fijo: los tests de la señal no pueden depender de en qué máquina
+    /// corren.
+    fn con_perfil(raiz: &str) -> ExclusionSet {
+        ExclusionSet { profile_root: Some(PathBuf::from(raiz)), ..Default::default() }
+    }
+
+    /// El hallazgo del 2026-08-10. Un escaneo en seco del perfil real devolvió
+    /// 25.665 archivos y ~22.000 eran esto: estado de herramientas de IA y de
+    /// desarrollo que `TOOL_DIRS` no cubría porque se escribió antes de que
+    /// existieran.
+    ///
+    /// El caso que justifica la señal es el último: **una herramienta que aún
+    /// no existe**. Con una lista fija, ese assert es imposible.
+    #[test]
+    fn poda_el_estado_de_herramientas_que_cuelga_del_perfil() {
+        let e = con_perfil("C:/Users/x");
+        for name in [".codex", ".gemini", ".antigravity", ".claude", ".m2", ".loquesalgaelmesqueviene"] {
+            assert_eq!(
+                e.skip_dir(&d(&format!("C:/Users/x/{name}")), attr::DIRECTORY),
+                Some(SkipReason::ToolInternal),
+                "{name} cuelga del perfil y empieza por punto"
+            );
+        }
+    }
+
+    /// La otra mitad de la regla, y el motivo de que esté acotada a la raíz:
+    /// más adentro, una carpeta con punto puede ser del usuario. Perderla sería
+    /// el error caro de este módulo.
+    #[test]
+    fn una_carpeta_con_punto_mas_adentro_es_del_usuario() {
+        let e = con_perfil("C:/Users/x");
+        assert_eq!(e.skip_dir(&d("C:/Users/x/Documentos/.borradores"), attr::DIRECTORY), None);
+        assert_eq!(e.skip_dir(&d("C:/Users/x/OneDrive/.notas de la visa"), attr::DIRECTORY), None);
+    }
+
+    /// Y la señal no puede llevarse por delante el perfil entero.
+    #[test]
+    fn la_regla_del_perfil_no_toca_las_carpetas_normales() {
+        let e = con_perfil("C:/Users/x");
+        for name in ["Documentos", "Downloads", "OneDrive", "Imágenes", "Escritorio"] {
+            assert_eq!(
+                e.skip_dir(&d(&format!("C:/Users/x/{name}")), attr::DIRECTORY),
+                None,
+                "{name} es donde vive lo que hay que indexar"
+            );
+        }
+    }
+
+    /// Las credenciales están en la lista y no en la señal: no se indexan
+    /// estén donde estén. La puerta de sensibilidad es la última línea, no la
+    /// primera.
+    #[test]
+    fn las_credenciales_se_podan_a_cualquier_profundidad() {
+        let e = con_perfil("C:/Users/x");
+        for name in [".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker"] {
+            assert_eq!(
+                e.skip_dir(&d(&format!("C:/Users/x/Proyectos/servidor/{name}")), attr::DIRECTORY),
+                Some(SkipReason::ToolInternal),
+                "{name} no es conocimiento del usuario"
+            );
+        }
+    }
+
+    /// `%USERPROFILE%` y la ruta que escribe una persona no tienen por qué
+    /// coincidir ni en mayúsculas ni en separador.
+    #[test]
+    fn la_raiz_del_perfil_se_compara_como_lo_hace_windows() {
+        let e = con_perfil("C:\\Users\\Pacox");
+        assert_eq!(
+            e.skip_dir(&d("c:/users/pacox/.codex"), attr::DIRECTORY),
+            Some(SkipReason::ToolInternal)
+        );
+    }
+
+    /// Sin perfil conocido, la señal se apaga entera en vez de adivinar.
+    #[test]
+    fn sin_perfil_la_senal_no_poda_nada() {
+        let e = ExclusionSet { profile_root: None, ..Default::default() };
+        assert_eq!(e.skip_dir(&d("C:/Users/x/.codex"), attr::DIRECTORY), None);
     }
 
     #[test]
