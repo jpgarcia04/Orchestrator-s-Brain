@@ -44,7 +44,7 @@ Es decir: **la arquitectura y la lógica se dan por buenas.** Lo que falla es la
 
 ## Los problemas, en el orden en que hay que atacarlos
 
-> **Estado al 2026-08-10.** El **#1** está **resuelto** — hay corpus real, ver abajo. El **#3** se cerró con decisión escrita, [ADR-0014](../adr/0014-dos-vistas-un-solo-estado.md), y lo que queda es construirlo. El **#4** lo aplazó el usuario. Queda abierto el **#2** (el pase visual) y aparecieron **dos problemas nuevos, #5 y #6, que son del núcleo y no de la capa visual**. Léelos antes de tocar píxeles: uno de los dos invalida el supuesto de que aquí sólo había que arreglar lo que se ve.
+> **Estado al 2026-08-10.** El **#1** está **resuelto** — hay corpus real, ver abajo. El **#3** se cerró con decisión escrita, [ADR-0014](../adr/0014-dos-vistas-un-solo-estado.md), y lo que queda es construirlo. El **#4** lo aplazó el usuario. Queda abierto el **#2** (el pase visual, con prototipos ya construidos — ver abajo) y aparecieron **tres problemas nuevos: #5, #6 y #7**. Ninguno es de la capa visual. Léelos antes de tocar píxeles: invalidan el supuesto de que aquí sólo había que arreglar lo que se ve.
 
 ### 1. El corpus de prueba no es representativo — RESUELTO (2026-08-10)
 
@@ -72,6 +72,12 @@ Lo que hace falta:
 Ya se intentó una vez quedarse en Pixi con un pase de shaders propio (halos, polvo, temperatura). El usuario lo vio y no le pareció profesional. **No repitas la misma apuesta por inercia.** Evalúa en serio las alternativas — three.js con post-procesado, WebGL2 a mano, Sigma.js, deck.gl, Cosmos, lo que sea — sin más restricción que la que ya está medida y escrita en el informe de M5a: el render no es el cuello de botella (0,1–1 ms de fotograma con Pixi), el layout si lo es (O(n²), 197 ms a 300 nodos en el hilo principal). Cualquier herramienta que elijas hereda ese presupuesto, no la implementación concreta.
 
 **Antes de integrar nada en la aplicación real**, construye dos o tres prototipos visuales pequeños y aislados — capturas o una página suelta, no la app entera — y enséñaselos al usuario para que elija dirección. Ya se le enseñó una vez un resultado terminado y no le convenció; iterar dentro del ciclo completo de Tauri es lento y cuesta caro en tiempo de los dos. Prototipa barato primero, la app cara después.
+
+> **Hecho el 2026-08-10 → [`prototypes/02-direcciones`](../../prototypes/02-direcciones/index.html).** Tres direcciones (Observatorio, Cartografía, Instrumento) sobre las regiones reales del corpus, con encendido por consulta, zoom, arrastre, entrada por clic con despliegue de subregiones y migas de pan. **La elección del usuario sigue pendiente.**
+>
+> Dos conclusiones ya firmes:
+> - **La pregunta de la herramienta estaba mal planteada.** 20.800 nodos a 141 fps **en Canvas 2D**. No hizo falta three.js, deck.gl, Sigma ni WebGL. Lo que hacía falta era dejar de repintar lo que no cambia: el cielo en reposo se pinta una vez a un lienzo aparte, y mientras la cámara se mueve se **transforma** esa capa en vez de repintarla. Si el layout O(n²) aprieta —que es el cuello real medido— se saca del hilo principal; no se cambia de librería.
+> - **El tamaño del nodo no puede escalar con el zoom.** Se probó y acercarse convertía el cielo en una mancha. Amortiguado (`z^0.34`), acercarse revela estructura, y de paso el tamaño sigue significando densidad de conexiones y no distancia de cámara, que es lo que exige §1.
 
 ### 3. El patrón de interacción — YA DECIDIDO (2026-08-10), no lo reabras
 
@@ -124,6 +130,18 @@ El motivo está en el fragmento que enseña como prueba: un **sello digital del 
 **Esto te va a explotar en la cara en M5b y por eso está aquí y no en M6.** I9 dice que no hay respuesta sin procedencia, y §4.4 exige que el «¿por qué?» resalte el fragmento exacto del origen. El panel de entidad y la animación de Trazo —*la animación que vende el producto*, según §3— se apoyan las dos en enseñar ese fragmento. Si lo que aparece es un sello en base64, el gesto que más confianza tiene que generar es justo el que va a parecer roto.
 
 No lo arregles a ciegas ni lo silencies filtrando por longitud o por entropía sin medir. Es el mismo patrón que M2 y M3 ya vivieron con las cachés de Chromium: los contadores decían éxito y **auditar el contenido** decía otra cosa. Audita primero.
+
+### 7. El panel de entidad tiene que enseñar el archivo, y eso toca el criterio de M1
+
+`EXPERIENCE.md` §4.1 lleva **previsualización** como escalón propio de la escalera desde el principio, y §4.4 describe el panel sin decir nunca qué se ve del archivo en sí. El usuario lo planteó sin rodeos el 2026-08-10: *«si no puedo ver los archivos, no va a tener mucho chiste la app»*. Tiene razón, y sin esto el explorador de [ADR-0014](../adr/0014-dos-vistas-un-solo-estado.md) es una lista de nombres.
+
+Media infraestructura existe: `EntityView` ya lleva `path`, y el texto extraído de M2 está guardado como proyección. Lo que no existe es nada que lo enseñe.
+
+**La trampa, y es de las que se pagan caras.** Un archivo `cloud_dehydrated` es un puntero: **tocarlo lo descarga**. M1 se definió entero por no hidratar ni uno, y una miniatura generada al vuelo —o peor, una previsualización al pasar el ratón sobre un nodo— lo violaría en silencio y a escala, que es como se pierde la confianza de golpe en un producto que promete no tocar tu nube.
+
+La regla se deriva sola y no es negociable: **previsualiza sólo lo ya extraído y lo local; hidratar nunca como efecto secundario, sólo como acto explícito y dicho con todas las letras.** El `Availability` que M1 ya calcula es la señal; úsala, no la recalcules.
+
+Las tres cosas son decisiones distintas y están sin tomar (ver §10 del maestro): previsualizar dentro, abrir en la app del sistema, revelar en el explorador. La segunda merece un aviso: obrain sigue siendo solo-lectura, pero el programa que abra el archivo no tiene por qué serlo.
 
 ## Qué NO hacer
 

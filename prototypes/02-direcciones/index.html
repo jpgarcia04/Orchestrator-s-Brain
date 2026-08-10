@@ -1,0 +1,832 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Orchestrator's Brain — tres direcciones visuales</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden;
+    font: 13px/1.45 "Segoe UI", system-ui, sans-serif; }
+  body { background: #05070f; color: #cdd6e4; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+
+  /* ── el conmutador: visible, en un sitio fijo, y con tecla ── */
+  #barra { position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 2px; padding: 3px; z-index: 10;
+    background: rgba(10,14,24,.72); backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,.09); border-radius: 11px; }
+  #barra button { all: unset; padding: 7px 15px; border-radius: 8px; cursor: pointer;
+    font-size: 12px; letter-spacing: .035em; color: #7d8ba3; transition: .18s; }
+  #barra button:hover { color: #cdd6e4; }
+  #barra button[aria-selected="true"] { background: rgba(255,255,255,.1); color: #fff; }
+  #barra button b { font-weight: 600; }
+  #barra button i { font-style: normal; opacity: .5; margin-right: 7px; font-size: 11px; }
+
+  /* ── la barra de búsqueda: flota sobre el mapa, no lo sustituye ── */
+  #buscar { position: fixed; bottom: 34px; left: 50%; transform: translateX(-50%);
+    width: min(520px, 84vw); z-index: 10; }
+  #buscar input { width: 100%; padding: 13px 17px; border-radius: 12px;
+    background: rgba(10,14,24,.8); backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,.11); color: #e8eef8; font-size: 14px;
+    outline: none; transition: .2s; }
+  #buscar input:focus { border-color: rgba(150,190,255,.42);
+    box-shadow: 0 0 0 3px rgba(90,140,220,.13); }
+  #buscar input::placeholder { color: #5d6a80; }
+  #pistas { margin-top: 9px; display: flex; gap: 7px; justify-content: center; flex-wrap: wrap; }
+  #pistas span { padding: 4px 10px; border-radius: 7px; cursor: pointer; font-size: 11px;
+    background: rgba(255,255,255,.05); color: #7d8ba3; transition: .15s; }
+  #pistas span:hover { background: rgba(255,255,255,.1); color: #cdd6e4; }
+
+  /* ── lectura de estado, esquina inferior izquierda ── */
+  #hud { position: fixed; left: 22px; bottom: 26px; z-index: 10; pointer-events: none;
+    font-variant-numeric: tabular-nums; font-size: 11px; color: #5d6a80; line-height: 1.7; }
+  #hud b { color: #9fb0c8; font-weight: 500; }
+
+  #densidad { position: fixed; right: 22px; bottom: 26px; z-index: 10;
+    display: flex; align-items: center; gap: 10px; font-size: 11px; color: #5d6a80; }
+  #densidad input { width: 128px; accent-color: #6f97d8; }
+
+  /* migas de pan: la pila de navegación que hoy no existe en la app, y que
+     es lo que el explorador de ADR-0014 hereda al conmutar */
+  #ruta { position: fixed; top: 22px; left: 22px; z-index: 11; display: flex;
+    align-items: center; gap: 3px; font-size: 12px;
+    max-width: calc(50vw - 190px); overflow: hidden; }
+  #ruta b { all: unset; padding: 5px 10px; border-radius: 7px; cursor: pointer;
+    color: #8b9ab2; transition: .15s;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Los escalones intermedios ceden sitio; el actual nunca se recorta. */
+  #ruta b:not(:last-child) { min-width: 0; flex: 0 1 auto; }
+  #ruta b:last-child { flex: 0 0 auto; }
+  #ruta b:hover { background: rgba(255,255,255,.07); color: #e8eef8; }
+  #ruta b:last-child { color: #fff; cursor: default; }
+  #ruta b:last-child:hover { background: none; }
+  #ruta i { font-style: normal; color: #46536a; }
+
+  canvas { cursor: grab; }
+  canvas.arrastrando { cursor: grabbing; }
+
+  #nota { position: fixed; top: 74px; left: 50%; transform: translateX(-50%);
+    z-index: 10; font-size: 11.5px; color: #6c7a91; text-align: center;
+    max-width: 620px; pointer-events: none; transition: opacity .3s; }
+</style>
+
+<canvas id="c"></canvas>
+
+<div id="barra" role="tablist">
+  <button role="tab" data-d="0" aria-selected="true"><i>1</i><b>Observatorio</b></button>
+  <button role="tab" data-d="1" aria-selected="false"><i>2</i><b>Cartografía</b></button>
+  <button role="tab" data-d="2" aria-selected="false"><i>3</i><b>Instrumento</b></button>
+</div>
+
+<div id="nota"></div>
+
+<nav id="ruta" aria-label="ruta"></nav>
+
+<div id="buscar">
+  <input id="q" placeholder="escribe y mira el mapa encenderse…" autocomplete="off" spellcheck="false">
+  <div id="pistas">
+    <span>capturas</span><span>clipops</span><span>visa</span><span>github</span><span>onedrive</span>
+  </div>
+</div>
+
+<div id="hud"></div>
+
+<div id="densidad">
+  <span>densidad</span>
+  <input type="range" id="dens" min="1" max="20" step="1" value="1">
+  <span id="densTxt">1.042</span>
+</div>
+
+<script>
+"use strict";
+
+/* ════════════════════════════════════════════════════════════════════════
+   DATOS — regiones reales del corpus del usuario (2026-08-10, 1.042
+   archivos). Los nombres y los pesos NO son inventados: salen de
+   `obrain-api --cielo` sobre `vida.obrain`. Lo sintético es únicamente
+   la posición de cada archivo dentro de su región y el multiplicador de
+   densidad, que existe para juzgar el render a la escala que tendrá el
+   corpus cuando llegue el contenido del móvil.
+   ════════════════════════════════════════════════════════════════════════ */
+
+const REGIONES = [
+  ["Imágenes/Capturas de pantalla", 229, 4, 0],
+  ["pacox/Downloads",               183, 2, 1],
+  ["GitHub/losFrutosDeMaria",       103, 5, 0],
+  ["ClipOps/src",                    81, 6, 0],
+  ["Orchestrator's-Brain/core",      63, 6, 1],
+  ["GitHub/Cheddar-Chase",           59, 5, 0],
+  ["Documentos/Rockstar Games",      58, 4, 0],
+  ["GitHub/Triplets_redesign",       54, 5, 0],
+  ["GitHub/Martian-Roulette",        47, 5, 0],
+  ["GitHub/ClipOps",                 23, 5, 1],
+  ["GitHub/Orchestrator's-Brain",    23, 5, 1],
+  ["Orchestrator's-Brain/ui",        22, 6, 0],
+  ["OneDrive/Escritorio",            18, 3, 1],
+  ["Documentos/Battlefield 1",       18, 4, 0],
+  ["OneDrive/Documentos",            12, 3, 0],
+  ["ClipOps/public",                  8, 6, 0],
+  ["Documentos/Clansoft",             7, 4, 0],
+  ["Documentos/My Games",             6, 4, 0],
+  ["pacox/Videos",                    6, 2, 0],
+  ["ClipOps/scripts",                 3, 6, 0],
+  ["Imágenes/Álbum de cámara",        3, 4, 0],
+  ["pacox/OneDrive",                  3, 2, 0],
+  ["ClipOps/prisma",                  2, 6, 0],
+  ["Imágenes/Nitro",                  2, 4, 0],
+  ["OneDrive/Datos adjuntos",         2, 3, 0],
+  ["Downloads/JPGM",                  2, 3, 0],
+  ["Documentos/Blocs de notas",       1, 4, 0],
+  ["OneDrive/Imágenes",               1, 3, 0],
+  ["Documentos/Vps",                  1, 4, 1],
+].map(([label, weight, depth, sens]) => ({ label, weight, depth, sens }));
+
+/* Puentes reales: sesiones de trabajo que cruzaron dos regiones. */
+const PUENTES = [
+  [1, 0, 7], [4, 10, 5], [1, 3, 4], [9, 3, 4], [0, 12, 4], [0, 3, 4],
+  [7, 0, 3], [1, 9, 3], [1, 15, 3], [9, 0, 3], [2, 0, 2], [5, 1, 2],
+  [6, 13, 2], [11, 4, 2], [8, 1, 2], [14, 12, 1], [16, 6, 1], [18, 1, 1],
+];
+
+/* ── azar reproducible: el layout tiene que ser el mismo dos veces ── */
+function rng(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   LAYOUT — determinista y estable. Las regiones se empaquetan por peso en
+   una espiral de phyllotaxis; los archivos caen en un disco alrededor de
+   la suya. Ni una llamada a Math.random: la misma consulta dos veces da
+   las mismas posiciones, que es el requisito del capítulo 6.
+   ════════════════════════════════════════════════════════════════════════ */
+
+let R = [], N = [], mult = 1;
+
+function construir(multiplicador) {
+  mult = multiplicador;
+  const r = rng(20260810);
+
+  // 1 · centros de región — empaquetado sin solape.
+  //
+  // La espiral áurea sola no vale: coloca por índice y no mira el tamaño,
+  // así que la región mayor se come a las que caen encima. Aquí cada región
+  // avanza por la espiral hasta encontrar el primer hueco donde cabe. Es
+  // O(n²) con n=29: irrelevante, y a cambio el cielo se lee.
+  R = REGIONES.map((reg, i) => ({
+    ...reg, i,
+    peso: reg.weight * mult,
+    radio: 30 + Math.sqrt(reg.weight * mult) * 8.2,
+    x: 0, y: 0,
+    recencia: r(),                                   // temperatura
+    brillo: 0, objetivo: 0,
+  }));
+
+  const GAP = 26;                                    // aire entre territorios
+  const puestas = [];
+  for (const reg of R) {
+    let t = 0;
+    for (;;) {
+      const ang = t * 0.48;
+      const d = 13 * t;
+      const x = Math.cos(ang) * d, y = Math.sin(ang) * d * 0.86;
+      const choca = puestas.some(p =>
+        Math.hypot(p.x - x, p.y - y) < p.radio + reg.radio + GAP);
+      if (!choca) { reg.x = x; reg.y = y; break; }
+      t++;
+    }
+    puestas.push(reg);
+  }
+
+  // 2 · subregiones — el nivel que se despliega al acercarse.
+  //
+  // Las posiciones se calculan UNA vez, con los archivos ya dentro de su
+  // subgrupo. Acercarse no recoloca nada: sólo revela nombres que ya
+  // estaban ahí. Es la condición del capítulo 6 —un nodo cuyo sitio
+  // aprendiste en el año 1 sigue ahí en el año 3— y es la diferencia entre
+  // *level of detail* y un mapa que se reorganiza solo, que se siente
+  // embrujado.
+  const SUBS = {
+    img:    ["2026-08", "2026-07", "2026-06", "2025", "sin fecha", "editadas"],
+    codigo: ["src", "docs", "tests", "assets", "config", "scripts"],
+    docs:   ["2026", "2025", "trámites", "banco", "escaneados", "recibos"],
+    gen:    ["reciente", "archivo", "varios", "pendiente", "revisado", "copias"],
+  };
+  const familia = (l) =>
+    /Imágenes|Capturas|Álbum/.test(l) ? "img"
+    : /GitHub|ClipOps|Brain|src|ui|core/.test(l) ? "codigo"
+    : /Documentos|OneDrive|Downloads|Datos/.test(l) ? "docs" : "gen";
+
+  for (const reg of R) {
+    const n = Math.max(1, Math.round(reg.peso));
+    const cuantas = Math.max(1, Math.min(6, Math.round(Math.sqrt(n) / 2.1)));
+    const nombres = SUBS[familia(reg.label)];
+    reg.subs = [];
+    for (let s = 0; s < cuantas; s++) {
+      const ang = s * 2.399963229728653 + reg.i;
+      const d = cuantas === 1 ? 0 : (reg.radio * 0.52) * Math.sqrt(s / cuantas + .18);
+      reg.subs.push({
+        label: nombres[s % nombres.length],
+        ruta: reg.label + "/" + nombres[s % nombres.length],
+        x: reg.x + Math.cos(ang) * d,
+        y: reg.y + Math.sin(ang) * d,
+        radio: reg.radio / (cuantas === 1 ? 1 : 2.15),
+        peso: 0, i: s,
+      });
+    }
+  }
+
+  // 3 · archivos, cada uno dentro de su subregión
+  N = [];
+  for (const reg of R) {
+    const n = Math.max(1, Math.round(reg.peso));
+    for (let k = 0; k < n; k++) {
+      const sub = reg.subs[Math.floor(r() * reg.subs.length)];
+      sub.peso++;
+      const a = r() * Math.PI * 2;
+      const d = Math.sqrt(r()) * sub.radio;
+      const grados = 1 + Math.floor(Math.pow(r(), 2.4) * 9);   // densidad de conexiones
+      N.push({
+        x: sub.x + Math.cos(a) * d,
+        y: sub.y + Math.sin(a) * d,
+        reg: reg.i, sub: sub.i,
+        r: 0.85 + Math.sqrt(grados) * 0.62,          // tamaño = densidad de conexiones
+        recencia: Math.min(1, reg.recencia * 0.55 + r() * 0.62),
+        conf: 0.45 + r() * 0.55,                     // saturación = confianza
+        fase: r() * Math.PI * 2,
+        on: 0,
+      });
+    }
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   CÁMARA — encuadra todo el cielo y se ajusta al viewport.
+   ════════════════════════════════════════════════════════════════════════ */
+/* La cámara tiene destino. Nada se teletransporta: el foco se desplaza y se
+   amortigua (§3, animación 2). `zBase` es el encuadre del cielo entero, y
+   sirve de unidad: `cam.z / zBase` es «cuánto me he acercado». */
+const cam = { x: 0, y: 0, z: 1 };
+const destino = { x: 0, y: 0, z: 1 };
+const cielo = { x: 0, y: 0, z: 1 };      // el encuadre de «todo», al que se vuelve
+let zBase = 1;
+
+function encuadrar(w, h) {
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const reg of R) {
+    x0 = Math.min(x0, reg.x - reg.radio); x1 = Math.max(x1, reg.x + reg.radio);
+    y0 = Math.min(y0, reg.y - reg.radio); y1 = Math.max(y1, reg.y + reg.radio);
+  }
+  // Márgenes asimétricos: arriba manda el conmutador, abajo la barra de
+  // búsqueda. El mapa vive en el hueco que dejan, no debajo de ellos.
+  const mx = 70, arriba = 116, abajo = 128;
+  zBase = Math.min((w - mx * 2) / (x1 - x0), (h - arriba - abajo) / (y1 - y0));
+  cielo.z = zBase;
+  cielo.x = (x0 + x1) / 2;
+  cielo.y = (y0 + y1) / 2 - (arriba - abajo) / 2 / zBase;
+  Object.assign(destino, cielo);
+  Object.assign(cam, cielo);
+}
+
+/* Enfocar algo = pedirle un destino a la cámara, nunca saltar. */
+function irA(x, y, radio, w, h) {
+  destino.x = x; destino.y = y;
+  destino.z = Math.min(zBase * 30, Math.min(w, h) * .40 / Math.max(radio, 6));
+}
+function volverAlCielo() { Object.assign(destino, cielo); }
+
+const px = (x, w) => (x - cam.x) * cam.z + w / 2;
+const py = (y, h) => (y - cam.y) * cam.z + h / 2;
+
+/* Escala para el TAMAÑO de un nodo, no para su posición.
+   Si el halo creciera con el zoom, acercarse convertiría el cielo en una
+   mancha: justo lo contrario de acercarse. Amortiguada, al acercarte ves
+   *más estructura*, que es para lo que uno se acerca. Y mantiene honesto
+   el canal de §1 — el tamaño sigue siendo densidad de conexiones, no
+   distancia de cámara. */
+const zVis = () => zBase * Math.pow(cam.z / zBase, .34);
+const mundoX = (sx, w) => (sx - w / 2) / cam.z + cam.x;
+const mundoY = (sy, h) => (sy - h / 2) / cam.z + cam.y;
+
+/* ════════════════════════════════════════════════════════════════════════
+   SPRITES — un halo se dibuja una vez y se estampa N veces. Es lo que
+   permite veinte mil nodos sin tocar WebGL.
+   ════════════════════════════════════════════════════════════════════════ */
+function sprite(size, stops) {
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const g = c.getContext("2d");
+  const grad = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  for (const [p, col] of stops) grad.addColorStop(p, col);
+  g.fillStyle = grad;
+  g.fillRect(0, 0, size, size);
+  return c;
+}
+
+const SP = {
+  estrella: sprite(64, [[0, "rgba(255,255,255,1)"], [.16, "rgba(255,250,235,.92)"],
+                        [.42, "rgba(150,180,255,.26)"], [1, "rgba(90,130,220,0)"]]),
+  polvo:    sprite(256, [[0, "rgba(90,130,210,.16)"], [.5, "rgba(70,100,180,.05)"],
+                        [1, "rgba(50,80,150,0)"]]),
+  calido:   sprite(64, [[0, "rgba(255,255,255,1)"], [.16, "rgba(255,228,180,.94)"],
+                        [.44, "rgba(255,170,90,.24)"], [1, "rgba(220,120,50,0)"]]),
+};
+
+/* ════════════════════════════════════════════════════════════════════════
+   CAPA ESTÁTICA — el cielo en reposo se pinta UNA vez a un lienzo aparte y
+   por fotograma sólo se estampa. Es la disciplina de "modo reposo" de §2:
+   una galaxia a 60 fps constantes calienta el portátil, y una herramienta
+   que hay que cerrar para que dure la tarde ha fracasado como producto.
+   ════════════════════════════════════════════════════════════════════════ */
+let capa = document.createElement("canvas"), sucia = true;
+let capaCam = { x: 0, y: 0, z: 1 };      // con qué cámara se pintó `capa`
+
+const DIR = ["observatorio", "cartografia", "instrumento"];
+let dir = 0;
+
+const PALETA = [
+  [180, .55], [ 30, .62], [265, .48], [ 96, .42], [345, .55],
+  [205, .58], [ 45, .50], [285, .45], [160, .48], [ 15, .52],
+];
+
+function pintarEstatico(w, h) {
+  capa.width = Math.round(w * dpr); capa.height = Math.round(h * dpr);
+  const g = capa.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+
+  if (dir === 0) pintarObservatorio(g, w, h);
+  if (dir === 1) pintarCartografia(g, w, h);
+  if (dir === 2) pintarInstrumento(g, w, h);
+  sucia = false;
+}
+
+/* ── 1 · OBSERVATORIO ───────────────────────────────────────────────────
+   La apuesta: que el mapa se sienta un lugar. Mezcla aditiva, polvo por
+   densidad, temperatura por recencia. La luz es información: lo tocado
+   hace poco tiende a ámbar, lo antiguo a azul frío.                      */
+function pintarObservatorio(g, w, h) {
+  const fondo = g.createRadialGradient(w / 2, h * .46, 0, w / 2, h * .46, Math.max(w, h) * .75);
+  fondo.addColorStop(0, "#0b1020"); fondo.addColorStop(1, "#04060d");
+  g.fillStyle = fondo; g.fillRect(0, 0, w, h);
+
+  g.globalCompositeOperation = "lighter";
+
+  for (const reg of R) {                                    // polvo = densidad
+    const s = reg.radio * cam.z * 3.1;
+    g.globalAlpha = Math.min(.5, .1 + reg.peso / (420 * mult));
+    g.drawImage(SP.polvo, px(reg.x, w) - s / 2, py(reg.y, h) - s / 2, s, s);
+  }
+
+  g.globalAlpha = .1; g.lineWidth = 1;                      // puentes
+  for (const [a, b, n] of PUENTES) {
+    const A = R[a], B = R[b]; if (!A || !B) continue;
+    g.strokeStyle = "rgba(150,190,255,.5)"; g.lineWidth = Math.min(2.4, .5 + n * .26);
+    g.beginPath();
+    g.moveTo(px(A.x, w), py(A.y, h));
+    g.quadraticCurveTo((px(A.x, w) + px(B.x, w)) / 2, (py(A.y, h) + py(B.y, h)) / 2 - 46,
+                        px(B.x, w), py(B.y, h));
+    g.stroke();
+  }
+
+  const zv = zVis();
+  for (const nd of N) {                                     // estrellas
+    const s = nd.r * zv * 7.4;
+    if (s < .5) continue;
+    g.globalAlpha = (.3 + nd.conf * .55) * (.55 + nd.recencia * .45);
+    g.drawImage(nd.recencia > .62 ? SP.calido : SP.estrella,
+      px(nd.x, w) - s / 2, py(nd.y, h) - s / 2, s, s);
+  }
+
+  g.globalCompositeOperation = "source-over"; g.globalAlpha = 1;
+  etiquetas(g, w, h, { color: "rgba(206,220,244,", sombra: true, min: 12 });
+}
+
+/* ── 2 · CARTOGRAFÍA ────────────────────────────────────────────────────
+   La apuesta: legibilidad. Es la analogía que ADR-0013 usó para decidirse
+   — un mapa de calles —. Territorios con nombre siempre visible, rutas
+   entre ellos. Menos espectáculo, más "sé dónde estoy".                  */
+function pintarCartografia(g, w, h) {
+  g.fillStyle = "#080a10"; g.fillRect(0, 0, w, h);
+
+  for (let i = R.length - 1; i >= 0; i--) {                 // territorios
+    const reg = R[i], [hue, sat] = PALETA[i % PALETA.length];
+    const X = px(reg.x, w), Y = py(reg.y, h), rr = reg.radio * cam.z * 1.16;
+    const grad = g.createRadialGradient(X, Y, rr * .1, X, Y, rr);
+    grad.addColorStop(0, `hsla(${hue},${sat * 100}%,52%,.20)`);
+    grad.addColorStop(1, `hsla(${hue},${sat * 100}%,42%,.045)`);
+    g.fillStyle = grad;
+    g.beginPath(); g.arc(X, Y, rr, 0, 7); g.fill();
+    g.strokeStyle = `hsla(${hue},${sat * 100}%,62%,.30)`;
+    g.lineWidth = 1.1; g.stroke();
+  }
+
+  for (const [a, b, n] of PUENTES) {                        // rutas
+    const A = R[a], B = R[b]; if (!A || !B) continue;
+    g.strokeStyle = `rgba(190,205,230,${.07 + n * .028})`;
+    g.lineWidth = .9 + n * .42; g.lineCap = "round";
+    g.beginPath(); g.moveTo(px(A.x, w), py(A.y, h)); g.lineTo(px(B.x, w), py(B.y, h)); g.stroke();
+  }
+
+  const zv = zVis();
+  for (const nd of N) {                                     // archivos, planos
+    const [hue, sat] = PALETA[nd.reg % PALETA.length];
+    const s = Math.max(.7, nd.r * zv * 1.35);
+    g.fillStyle = `hsla(${hue},${sat * 100 * nd.conf}%,${58 + nd.recencia * 22}%,${.42 + nd.conf * .4})`;
+    g.beginPath(); g.arc(px(nd.x, w), py(nd.y, h), s, 0, 7); g.fill();
+  }
+
+  etiquetas(g, w, h, { color: "rgba(228,236,248,", sombra: true, min: 0, siempre: true });
+}
+
+/* ── 3 · INSTRUMENTO ────────────────────────────────────────────────────
+   La apuesta: contención. Casi monocromo, marcas precisas, mucho vacío.
+   Se parece a una consola de observatorio, no al cielo. Es la dirección
+   que menos se puede confundir con un salvapantallas.                    */
+function pintarInstrumento(g, w, h) {
+  g.fillStyle = "#06080b"; g.fillRect(0, 0, w, h);
+
+  g.strokeStyle = "rgba(120,160,200,.045)"; g.lineWidth = 1;   // retícula
+  for (let x = (w / 2 - cam.x * cam.z) % 84; x < w; x += 84) {
+    g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke();
+  }
+  for (let y = (h / 2 - cam.y * cam.z) % 84; y < h; y += 84) {
+    g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke();
+  }
+
+  for (const [a, b, n] of PUENTES) {
+    const A = R[a], B = R[b]; if (!A || !B) continue;
+    g.strokeStyle = `rgba(140,200,255,${.05 + n * .02})`; g.lineWidth = 1;
+    g.setLineDash([3, 4]);
+    g.beginPath(); g.moveTo(px(A.x, w), py(A.y, h)); g.lineTo(px(B.x, w), py(B.y, h)); g.stroke();
+  }
+  g.setLineDash([]);
+
+  for (const reg of R) {                                      // perímetro exacto
+    const X = px(reg.x, w), Y = py(reg.y, h), rr = reg.radio * cam.z;
+    g.strokeStyle = "rgba(150,195,235,.17)"; g.lineWidth = 1;
+    g.beginPath(); g.arc(X, Y, rr, 0, 7); g.stroke();
+  }
+
+  const zv = zVis();
+  for (const nd of N) {                                       // anillos, no puntos
+    const s = Math.max(.6, nd.r * zv * 1.5);
+    const l = 52 + nd.recencia * 34;
+    if (s > 1.7) {
+      g.strokeStyle = `hsla(196,${18 + nd.conf * 30}%,${l}%,${.34 + nd.conf * .36})`;
+      g.lineWidth = 1;
+      g.beginPath(); g.arc(px(nd.x, w), py(nd.y, h), s, 0, 7); g.stroke();
+    } else {
+      g.fillStyle = `hsla(196,${18 + nd.conf * 30}%,${l}%,${.3 + nd.conf * .3})`;
+      g.fillRect(px(nd.x, w) - s / 2, py(nd.y, h) - s / 2, s, s);
+    }
+  }
+
+  etiquetas(g, w, h, { color: "rgba(196,216,236,", sombra: false, min: 0,
+                       siempre: true, mono: true });
+}
+
+/* ── etiquetas: el nombre de la región, que es lo que la hace navegable ── */
+function etiquetas(g, w, h, op) {
+  // Evasión de colisiones. Las regiones vienen ordenadas por peso, así que
+  // la grande gana el sitio y la pequeña calla. Una etiqueta ilegible es
+  // peor que ninguna: el nombre de la región es lo que hace navegable el
+  // cielo, y encimadas no se lee ninguno de los dos.
+  const puestas = [];
+  const fuente = (grande) => `${op.mono ? "500 " : grande ? "600 " : "500 "}${
+    op.mono ? 10.5 : grande ? 12.5 : 11}px ${
+    op.mono ? "Consolas, ui-monospace, monospace" : '"Segoe UI", system-ui, sans-serif'}`;
+
+  g.textAlign = "center";
+  g.textBaseline = "alphabetic";
+
+  // ── nivel 2: las subregiones, que sólo existen si te has acercado ──
+  //
+  // «A poco zoom no ves 40.000 nodos: ves 30 regiones con nombre. Te acercas
+  // y una región se despliega» (§6). Van primero para ganarle el sitio a la
+  // etiqueta de la región: si estás dentro, el nombre de dentro es el útil.
+  const zoom = cam.z / zBase;
+  if (zoom > 2.2) {
+    g.font = op.mono ? "500 10.5px Consolas, ui-monospace, monospace"
+                     : '500 11.5px "Segoe UI", system-ui, sans-serif';
+    for (const reg of R) for (const sub of reg.subs) {
+      if (!sub.peso || sub.radio * cam.z < 24) continue;
+      const X = px(sub.x, w), Y = py(sub.y, h) - sub.radio * cam.z - 7;
+      const ancho = g.measureText(sub.label).width;
+      const caja = { x0: X - ancho / 2 - 5, x1: X + ancho / 2 + 5, y0: Y - 11, y1: Y + 14 };
+      if (caja.x1 < 0 || caja.x0 > w || caja.y1 < 0 || caja.y0 > h) continue;
+      if (puestas.some(p => !(caja.x1 < p.x0 || caja.x0 > p.x1 || caja.y1 < p.y0 || caja.y0 > p.y1)))
+        continue;
+      caja.grande = true; puestas.push(caja);
+      const fade = Math.min(1, (zoom - 2.2) / 1.1);        // entra con un fundido
+      if (op.sombra) {
+        g.lineWidth = 3; g.lineJoin = "round";
+        g.strokeStyle = "rgba(3,5,11,.82)"; g.strokeText(sub.label, X, Y);
+      }
+      g.fillStyle = op.color + (.86 * fade) + ")";
+      g.fillText(sub.label, X, Y);
+      g.font = `10px ${op.mono ? "Consolas, monospace" : '"Segoe UI", sans-serif'}`;
+      if (op.sombra) { g.lineWidth = 3; g.strokeText(sub.peso.toLocaleString("es"), X, Y + 12); }
+      g.fillStyle = op.color + (.4 * fade) + ")";
+      g.fillText(sub.peso.toLocaleString("es"), X, Y + 12);
+      g.font = op.mono ? "500 10.5px Consolas, ui-monospace, monospace"
+                       : '500 11.5px "Segoe UI", system-ui, sans-serif';
+    }
+  }
+
+  for (const reg of R) {
+    const grande = reg.peso > 40 * mult;
+    g.font = fuente(grande);
+
+    // El nombre va **sobre** la región, no encima de sus estrellas: es una
+    // etiqueta de territorio, y la etiqueta se lee mejor en el vacío.
+    const X = px(reg.x, w);
+    const Y = py(reg.y, h) - reg.radio * cam.z - 8;
+    const ancho = g.measureText(reg.label).width;
+    const alto = grande ? 27 : 14;                  // + la cifra, si la lleva
+    const caja = { x0: X - ancho / 2 - 5, x1: X + ancho / 2 + 5, y0: Y - 12, y1: Y + alto - 12 };
+
+    // Fuera del viewport: no gasta sitio en la rejilla de colisiones.
+    if (caja.x1 < 0 || caja.x0 > w || caja.y1 < 0 || caja.y0 > h) continue;
+
+    const choca = puestas.some(p =>
+      !(caja.x1 < p.x0 || caja.x0 > p.x1 || caja.y1 < p.y0 || caja.y0 > p.y1));
+    // Las grandes siempre entran; las pequeñas ceden. Es *level of detail*
+    // aplicado al nombre: a esta escala no caben los 29, y una etiqueta
+    // ilegible es peor que ninguna.
+    if (choca && !grande) continue;
+    if (choca && grande && puestas.some(p => p.grande &&
+      !(caja.x1 < p.x0 || caja.x0 > p.x1 || caja.y1 < p.y0 || caja.y0 > p.y1))) continue;
+    caja.grande = grande;
+    puestas.push(caja);
+
+    const a = grande ? .94 : (op.siempre ? .58 : .4);
+    if (op.sombra) {
+      g.lineWidth = 3.2; g.lineJoin = "round";
+      g.strokeStyle = "rgba(3,5,11,.82)";
+      g.strokeText(reg.label, X, Y);
+    }
+    g.fillStyle = op.color + a + ")";
+    g.fillText(reg.label, X, Y);
+
+    if (grande) {
+      g.font = `10px ${op.mono ? "Consolas, monospace" : '"Segoe UI", sans-serif'}`;
+      if (op.sombra) { g.lineWidth = 3; g.strokeText(Math.round(reg.peso).toLocaleString("es"), X, Y + 13); }
+      g.fillStyle = op.color + .4 + ")";
+      g.fillText(Math.round(reg.peso).toLocaleString("es"), X, Y + 13);
+    }
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   ENCENDIDO — «el mapa no cambia de escala: se enciende por donde caen los
+   resultados» (ADR-0013). Es la interacción central del producto, y por eso
+   está en el prototipo: sin ella no se puede juzgar la dirección.
+   ════════════════════════════════════════════════════════════════════════ */
+let consulta = "";
+function buscar(q) {
+  consulta = q.trim().toLowerCase();
+  for (const reg of R) {
+    reg.objetivo = !consulta ? 0
+      : (reg.label.toLowerCase().includes(consulta) ? 1
+        : (consulta.length > 2 && reg.label.toLowerCase().split(/[\/\s.-]+/)
+            .some(t => t.startsWith(consulta.slice(0, 4))) ? .55 : 0));
+  }
+  // «visa» no es el nombre de ninguna carpeta: está en el contenido.
+  if (consulta && "visa comprobante ingresos".includes(consulta) && consulta.length > 2) {
+    R[1].objetivo = 1; R[12].objetivo = .7; R[14].objetivo = .8;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   BUCLE — el contenido está en el frame 1 (capa estática). Aquí sólo va lo
+   que se mueve: el encendido y el latido de lo reciente (I10).
+   ════════════════════════════════════════════════════════════════════════ */
+const cv = document.getElementById("c"), ctx = cv.getContext("2d");
+let W = 0, H = 0, t0 = performance.now(), fps = 0, ultimo = 0;
+
+/* Se trabaja en píxeles CSS y se escala el contexto por `dpr`. Si no, en una
+   pantalla HiDPI las fuentes y los trazos salen a mitad de tamaño. */
+let dpr = 1;
+function medir() {
+  dpr = Math.min(devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  encuadrar(W, H); sucia = true;
+}
+
+function frame(ahora) {
+  const dt = Math.min(50, ahora - ultimo) / 1000; ultimo = ahora;
+  fps = fps * .92 + (1 / Math.max(dt, .001)) * .08;
+
+  // ── cámara: se desplaza y se amortigua, nunca salta (§3, animación 2) ──
+  const k = Math.min(1, dt * 5.4);
+  cam.x += (destino.x - cam.x) * k;
+  cam.y += (destino.y - cam.y) * k;
+  cam.z *= Math.pow(destino.z / cam.z, k);      // el zoom se interpola en log
+  const moviendo =
+    Math.abs(cam.z / destino.z - 1) > .0025 ||
+    Math.hypot(destino.x - cam.x, destino.y - cam.y) * cam.z > .7;
+  if (!moviendo) { cam.x = destino.x; cam.y = destino.y; cam.z = destino.z; }
+
+  // Repintar 20.000 nodos en cada fotograma de un zoom sería tirar la
+  // batería por la ventana. Mientras la cámara se mueve se **transforma**
+  // la capa ya pintada; cuando se para, se repinta nítida. Es el mismo
+  // compromiso de §2: el bucle sólo trabaja cuando hay algo que cambiar.
+  if (!moviendo && (sucia || capaCam.z !== cam.z || capaCam.x !== cam.x || capaCam.y !== cam.y)) {
+    pintarEstatico(W, H);
+    capaCam = { x: cam.x, y: cam.y, z: cam.z };
+  }
+
+  ctx.clearRect(0, 0, W, H);
+  const s = cam.z / capaCam.z;
+  ctx.save();
+  ctx.translate(W / 2 + (capaCam.x - cam.x) * cam.z, H / 2 + (capaCam.y - cam.y) * cam.z);
+  ctx.scale(s, s);
+  ctx.translate(-W / 2, -H / 2);
+  ctx.drawImage(capa, 0, 0, W, H);
+  ctx.restore();
+
+  // atenuar lo que no coincide, encender lo que sí
+  let activa = false;
+  for (const reg of R) {
+    reg.brillo += (reg.objetivo - reg.brillo) * Math.min(1, dt * 7);
+    if (reg.brillo > .01) activa = true;
+  }
+  if (consulta) {
+    ctx.fillStyle = "rgba(4,6,12,.63)"; ctx.fillRect(0, 0, W, H);
+  }
+
+  const t = (ahora - t0) / 1000, zv = zVis();
+  ctx.globalCompositeOperation = "lighter";
+  for (const nd of N) {
+    const reg = R[nd.reg];
+    const enc = reg.brillo;
+    if (consulta && enc < .02) continue;
+    // latido: amplitud ∝ recencia, periodo largo, desincronizado
+    const lat = 1 + Math.sin(t * 1.5 + nd.fase) * .11 * nd.recencia;
+    const s = nd.r * zv * (dir === 0 ? 8.6 : 5.2) * lat * (consulta ? 1 + enc * .5 : 1);
+    if (s < .6) continue;
+    ctx.globalAlpha = consulta
+      ? enc * (.42 + nd.conf * .5)
+      : nd.recencia * .1 * (dir === 0 ? 1 : .45);
+    if (ctx.globalAlpha < .012) continue;
+    ctx.drawImage(nd.recencia > .62 ? SP.calido : SP.estrella,
+      px(nd.x, W) - s / 2, py(nd.y, H) - s / 2, s, s);
+  }
+  ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;
+
+  if (consulta) {                                   // re-rotular lo encendido
+    for (const reg of R) {
+      if (reg.brillo < .06) continue;
+      const X = px(reg.x, W), Y = py(reg.y, H) - reg.radio * cam.z - 9;
+      ctx.font = "600 12.5px 'Segoe UI', system-ui, sans-serif"; ctx.textAlign = "center";
+      ctx.fillStyle = "rgba(0,0,0,.7)"; ctx.fillText(reg.label, X + 1, Y + 1);
+      ctx.fillStyle = `rgba(236,244,255,${reg.brillo})`; ctx.fillText(reg.label, X, Y);
+    }
+  }
+
+  // La nota explica la dirección; en cuanto navegas, estorba.
+  nota.style.opacity = (foco === null && cam.z <= zBase * 1.05) ? "1" : "0";
+
+  hud.innerHTML =
+    `<b>${DIR[dir]}</b><br>` +
+    `${N.length.toLocaleString("es")} nodos · ${R.length} regiones · ${PUENTES.length} puentes<br>` +
+    `${fps.toFixed(0)} fps` + (activa ? " · encendido" : " · reposo");
+
+  requestAnimationFrame(frame);
+}
+
+/* ── controles ── */
+const hud = document.getElementById("hud");
+const nota = document.getElementById("nota");
+const NOTAS = [
+  "Mezcla aditiva, polvo por densidad, temperatura por recencia. Lo tocado hace poco tiende a ámbar; lo antiguo, a azul frío.",
+  "La analogía con la que se decidió ADR-0013: un mapa de calles. Territorios con nombre siempre legible y rutas entre ellos.",
+  "Contención. Marcas precisas, retícula, casi monocromo. Es la dirección que no se puede confundir con un salvapantallas.",
+];
+
+function elegir(d) {
+  dir = d; sucia = true;
+  document.querySelectorAll("#barra button").forEach((b, i) =>
+    b.setAttribute("aria-selected", String(i === d)));
+  document.getElementById("nota").textContent = NOTAS[d];
+}
+document.querySelectorAll("#barra button").forEach(b =>
+  b.onclick = () => elegir(+b.dataset.d));
+addEventListener("keydown", e => {
+  if (e.key >= "1" && e.key <= "3" && document.activeElement !== q) elegir(+e.key - 1);
+});
+
+const q = document.getElementById("q");
+q.oninput = () => buscar(q.value);
+document.querySelectorAll("#pistas span").forEach(s =>
+  s.onclick = () => { q.value = s.textContent; buscar(q.value); q.focus(); });
+
+const dens = document.getElementById("dens"), densTxt = document.getElementById("densTxt");
+dens.oninput = () => {
+  construir(+dens.value);
+  densTxt.textContent = N.length.toLocaleString("es");
+  encuadrar(W, H); sucia = true;
+  buscar(q.value);        // `construir` rehace R: hay que reaplicar el encendido
+};
+
+/* ════════════════════════════════════════════════════════════════════════
+   NAVEGACIÓN — rueda, arrastre, y clic para entrar.
+   Sin esto la galaxia es un póster: se mira y no se usa. Y sin poder entrar
+   hasta un archivo concreto, la mitad «explorador» de ADR-0014 no tiene de
+   dónde salir — el conmutador necesita una posición que heredar.
+   ════════════════════════════════════════════════════════════════════════ */
+let foco = null, focoSub = null;
+
+function pintarRuta() {
+  const seg = [{ txt: "Todo", ir: () => { foco = focoSub = null; volverAlCielo(); } }];
+  if (foco !== null) {
+    const reg = R[foco];
+    seg.push({ txt: reg.label, ir: () => { focoSub = null; irA(reg.x, reg.y, reg.radio, W, H); } });
+    if (focoSub !== null) seg.push({ txt: reg.subs[focoSub].label, ir: () => {} });
+  }
+  const nav = document.getElementById("ruta");
+  nav.textContent = "";
+  seg.forEach((s, i) => {
+    if (i) { const sep = document.createElement("i"); sep.textContent = "›"; nav.append(sep); }
+    const b = document.createElement("b");
+    b.textContent = s.txt;
+    b.onclick = () => { s.ir(); pintarRuta(); };
+    nav.append(b);
+  });
+}
+
+/** Qué hay bajo el cursor. Si estás dentro de una región, gana la subregión. */
+function loQueHayEn(sx, sy) {
+  const mx = mundoX(sx, W), my = mundoY(sy, H);
+  if (cam.z / zBase > 2.2) {
+    for (const reg of R) for (const sub of reg.subs) {
+      if (sub.peso && Math.hypot(sub.x - mx, sub.y - my) < sub.radio + 8)
+        return { reg: reg.i, sub: sub.i };
+    }
+  }
+  let mejor = null, dmin = 1e9;
+  for (const reg of R) {
+    const d = Math.hypot(reg.x - mx, reg.y - my);
+    if (d < reg.radio + 14 && d < dmin) { dmin = d; mejor = { reg: reg.i, sub: null }; }
+  }
+  return mejor;
+}
+
+// ── rueda: zoom hacia el cursor, no hacia el centro ──
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  const f = Math.exp(-e.deltaY * .0016);
+  const nz = Math.min(zBase * 34, Math.max(zBase * .85, destino.z * f));
+  // el punto del mundo bajo el ratón se queda quieto
+  const wx = mundoX(e.clientX, W), wy = mundoY(e.clientY, H);
+  destino.x = wx - (e.clientX - W / 2) / nz;
+  destino.y = wy - (e.clientY - H / 2) / nz;
+  destino.z = nz;
+}, { passive: false });
+
+// ── arrastre ──
+let arr = null;
+cv.addEventListener("pointerdown", e => {
+  arr = { sx: e.clientX, sy: e.clientY, cx: destino.x, cy: destino.y, mov: 0 };
+  cv.setPointerCapture(e.pointerId); cv.classList.add("arrastrando");
+});
+cv.addEventListener("pointermove", e => {
+  if (!arr) return;
+  const dx = e.clientX - arr.sx, dy = e.clientY - arr.sy;
+  arr.mov = Math.max(arr.mov, Math.hypot(dx, dy));
+  destino.x = arr.cx - dx / cam.z; destino.y = arr.cy - dy / cam.z;
+  cam.x = destino.x; cam.y = destino.y;              // el arrastre es 1:1, sin retardo
+});
+cv.addEventListener("pointerup", e => {
+  cv.classList.remove("arrastrando");
+  const era = arr; arr = null;
+  if (!era || era.mov > 4) return;                   // fue un arrastre, no un clic
+
+  const hit = loQueHayEn(e.clientX, e.clientY);
+  if (!hit) { foco = focoSub = null; volverAlCielo(); pintarRuta(); return; }
+  foco = hit.reg; focoSub = hit.sub;
+  const t = hit.sub === null ? R[hit.reg] : R[hit.reg].subs[hit.sub];
+  irA(t.x, t.y, t.radio, W, H);
+  pintarRuta();
+});
+
+// Escape deshace un escalón cada vez: primero la consulta, luego la ruta.
+addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  if (q.value) { q.value = ""; buscar(""); q.blur(); return; }
+  if (focoSub !== null) { focoSub = null; const r = R[foco]; irA(r.x, r.y, r.radio, W, H); }
+  else if (foco !== null) { foco = null; volverAlCielo(); }
+  pintarRuta();
+});
+
+addEventListener("resize", medir);
+construir(1); medir(); elegir(0); pintarRuta();
+requestAnimationFrame(t => { ultimo = t; frame(t); });
+</script>
