@@ -41,14 +41,29 @@ pub struct Hit {
 /// y la otra no ve. §6 habla de rerank sobre el top-50; éste es el mismo orden.
 pub const CANDIDATES: usize = 50;
 
-/// El texto de un fragmento, recortado para enseñarlo.
-fn snippet_of(store: &Store, chunk: i64) -> String {
+/// La prueba de un fragmento: **el tramo que explica por qué está ahí**.
+///
+/// Antes eran los primeros 160 caracteres del fragmento, y auditarlo contra el
+/// corpus real (2026-08-12) destapó que eso no es una prueba sino un recorte:
+/// la consulta «comprobante de ingresos» —la pregunta de la visa— enseñaba
+/// como evidencia el sello digital del SAT en base64, mientras la frase que
+/// explicaba el resultado estaba doscientos caracteres más abajo, dentro del
+/// mismo fragmento. Quien elige el tramo es
+/// [`obrain_extract::evidence`], donde está el razonamiento y la medición.
+///
+/// Devuelve vacío cuando el fragmento no tiene ni un tramo legible. Un hueco
+/// es honesto; un sello disfrazado de explicación, no.
+fn snippet_of(store: &Store, chunk: i64, query: &str) -> String {
     let text: String = store
         .conn()
         .query_row("SELECT text FROM chunks WHERE id = ?1", [chunk], |r| r.get(0))
         .unwrap_or_default();
-    let one_line = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    one_line.chars().take(160).collect()
+    match obrain_extract::evidence::pick(&text, query, obrain_extract::evidence::BUDGET) {
+        // El tramo se guarda como rebanada exacta (I9) y se aplana sólo aquí,
+        // al enseñarlo: los saltos de línea de un PDF no aportan en una fila.
+        Some(ev) => ev.text.split_whitespace().collect::<Vec<_>>().join(" "),
+        None => String::new(),
+    }
 }
 
 fn path_of(store: &Store, e: &EntityId, at: TimePoint) -> String {
@@ -89,7 +104,7 @@ pub fn semantic(
         }
         out.push(Hit {
             path: path_of(store, &n.entity, at),
-            snippet: snippet_of(store, n.chunk),
+            snippet: snippet_of(store, n.chunk, query),
             entity: n.entity,
             score: n.score as f64,
             ranks: vec![("knn".to_string(), out.len() + 1)],
@@ -134,9 +149,16 @@ pub fn hybrid(
                     .map(|h| h.path.clone())
                     .or_else(|| l.map(|h| h.path.clone()))
                     .unwrap_or_else(|| path_of(store, &f.item, at)),
-                snippet: v
-                    .map(|h| h.snippet.clone())
-                    .or_else(|| l.map(|h| h.snippet.clone()))
+                // El primero que traiga algo, no el primero que exista: desde
+                // que la prueba puede salir vacía —un fragmento que es sello
+                // entero—, preferir la rama vectorial sin mirar dejaría sin
+                // explicación un resultado que la rama léxica sí sabía
+                // explicar.
+                snippet: [v.map(|h| &h.snippet), l.map(|h| &h.snippet)]
+                    .into_iter()
+                    .flatten()
+                    .find(|s| !s.is_empty())
+                    .cloned()
                     .unwrap_or_default(),
                 chunk: v.and_then(|h| h.chunk),
                 entity: f.item,

@@ -2,7 +2,7 @@
 
 > Las aplicaciones actuales almacenan información. Orchestrator's Brain construye conocimiento.
 
-**Estado:** Fase 2 — Arquitectura · **Última revisión:** 2026-08-10 · **Documento vivo**
+**Estado:** Fase 2 — Arquitectura · **Última revisión:** 2026-08-12 · **Documento vivo**
 
 Este documento refleja siempre el estado *actual* del diseño. Se edita libremente.
 El *porqué* de las decisiones contestadas vive en [`adr/`](adr/) y no se edita nunca.
@@ -1589,6 +1589,38 @@ tiene que generar.
 Es el mismo patrón que M2 y M3 ya vivieron con las cachés de Chromium: los
 contadores decían éxito y auditar el contenido decía otra cosa.
 
+> **Auditado el 2026-08-12, y el diagnóstico de arriba era el equivocado.**
+> Ver [ADR-0016](adr/0016-la-prueba-se-elige-el-indice-no-se-filtra.md). Lo que
+> se midió, en corto:
+>
+> - **Los sellos son 19 fragmentos de 4.058** (0,5 %) en 8 archivos, dos de
+>   ellos ni PDF. No hay volumen que contamine nada.
+> - **La recuperación no estaba equivocada.** El fragmento ganador dice
+>   «REPRESENTACIÓN IMPRESA DE UN **CFDI**», y CFDI es literalmente
+>   *Comprobante Fiscal Digital por Internet*. Acertó la clase de documento por
+>   la razón correcta.
+> - **El empate a 0.870 no es falta de discriminación: son los mismos bytes.**
+>   Comprobado par a par, 6 de 6 idénticos. `Estados_de_Cuenta_Abuelo_Visa.pdf`
+>   **contiene** los BNM de abril, mayo y junio, y
+>   `Documentos_Identidad_Respaldo_Visa.pdf` **contiene**
+>   `EstadoCuenta5c0ae35f…pdf`. Los cinco primeros resultados son **tres
+>   documentos**.
+> - **Lo que estaba roto era el recorte.** La prueba eran los primeros 160
+>   caracteres del fragmento, sin buscar nunca la parte que había coincidido.
+>   La frase que explicaba el resultado estaba doscientos caracteres más abajo,
+>   dentro del mismo fragmento.
+>
+> Arreglado eligiendo la ventana en vez de filtrar el índice: no se tiró ni un
+> dato, no subió la versión del chunker, y los diez resultados de «comprobante
+> de ingresos» enseñan hoy texto en español que explica por qué están.
+> `obrain-extract --pruebas` queda en el núcleo para volver a medirlo.
+>
+> **La lección metodológica es la de siempre, una vuelta más:** este informe
+> auditó el *contenido* —y por eso encontró el sello— pero no auditó **lo que
+> se le enseña a una persona**, que es una tercera cosa distinta de los
+> contadores y del contenido. Los sellos existían; la conclusión que se sacó de
+> verlos, no.
+
 **3 · La vigilancia continua no tenía hito.** Está diseñada en §4.1 con la
 tecnología elegida (USN Change Journal + `ReadDirectoryChangesW`), es la razón por
 la que [ADR-0003](adr/0003-lenguaje-del-nucleo.md) eligió Rust para *«un demonio
@@ -1619,6 +1651,7 @@ de barata a instantánea.
 - **¿Puede el usuario crear sus propias regiones y nombrarlas?** Pedido el 2026-08-10: *«quiero poder ordenar mis cosas a mi gusto y que el programa no pierda de vista qué es qué y con qué se relaciona»*. La mitad difícil ya está garantizada por **I5** —una aserción del usuario gana para siempre y ningún reescaneo la pisa— y `Brain::correct` ya la escribe con test. Lo que no está decidido es lo estructural: hoy las regiones salen del árbol de contención del disco, y esto introduce **una segunda fuente de regiones que no es el sistema de archivos**, conviviendo con la primera. Hay que decidir si una región de usuario es una entidad más con una faceta, cómo se resuelve que un archivo caiga en dos, y qué manda al dibujar el cielo. Está emparentado con el hallazgo del dimensionado de regiones del informe del corpus real: si el usuario puede agrupar a mano, el peso por número de archivos deja de ser la única respuesta posible.
 - **¿Se indexa la papelera de reciclaje?** Hoy no: `$Recycle.Bin` está en `SYSTEM_DIRS` de [`obrain-scan/src/exclude.rs`](../core/obrain-scan/src/exclude.rs) y además cae por el atributo oculto/sistema. El usuario ha pedido amplitud de escaneo *«desde mis descargas hasta mi papelera de reciclaje»* (2026-08-10), así que deja de ser una exclusión obvia y pasa a ser una decisión. A favor: es exactamente donde vive lo que no recuerdas que tienes, que es la cuña F3. En contra: contenido que el usuario decidió borrar reapareciendo en las respuestas, con una tensión incómoda con I4 (nada se borra, se retracta) — I4 habla del grafo, y la papelera es el usuario ejerciendo lo contrario sobre sus archivos. Si se decide que sí, necesita ser opt-in explícito y visiblemente marcado en los resultados, no una exclusión menos en una lista.
 
+- **¿Cómo se representa que un documento está *dentro* de otro?** Aparecido al auditar la prueba el 2026-08-12 ([ADR-0016](adr/0016-la-prueba-se-elige-el-indice-no-se-filtra.md)). En el corpus real, `Estados_de_Cuenta_Abuelo_Visa.pdf` contiene los tres estados de cuenta mensuales del banco, y `Documentos_Identidad_Respaldo_Visa.pdf` contiene otro — comprobado por hash, fragmento a fragmento, 6 de 6 idénticos al byte. A escala del corpus son **467 fragmentos, el 11,5 % del índice y de los vectores, en 44 documentos**. Hoy el sistema no tiene forma de decirlo: M3 modela `duplicate_of` para archivos enteros (44 en este corpus) pero no *«este documento es parte de aquel»*, y sin esa arista una búsqueda devuelve cinco filas donde hay tres documentos, sin poder explicar por qué se parecen tanto. Lo que hay que decidir: si es un predicado nuevo del vocabulario de §3.4 o un caso de los que ya hay; si lo detecta M3 al enlazar (comparando hashes de fragmento, que es determinista y barato) o M6 al inferir; y qué hace la interfaz con ello — colapsar las filas es lo obvio, pero **la razón por la que se colapsan es justo el tipo de cosa que un gestor de archivos no puede enseñar y este proyecto sí**, así que esconderlo sin más sería desaprovecharlo. Es contenido legítimo duplicado, no ruido: no se filtra.
 - ¿El escaneo debería distinguir *«no lo indexé»* de *«no existe»* de cara al usuario? Hoy un archivo podado por `exclude.rs` es indistinguible de uno que nunca estuvo, y con el explorador de [ADR-0014](adr/0014-dos-vistas-un-solo-estado.md) esa diferencia pasa a ser visible: el usuario podrá bajar hasta una carpeta y ver que falta algo.
 - Slug técnico: `orchestrator-brain` u `obrain`. El apóstrofo de `Orchestrator's-Brain` dará guerra en scripts, CI, rutas y URLs. **Ya no es una previsión:** M5a fijó `obrain` para paquetes e identificadores —`obrain-ui`, `obrain-app`, `dev.obrain.app`— pero la **carpeta** sigue llevando apóstrofo y ya ha costado un rodeo en `ui/src-tauri/build.rs`. Lo que queda por decidir es sólo eso: si se renombra el directorio. Ver el informe de M5a.
 
@@ -1643,6 +1676,7 @@ de barata a instantánea.
 | [0013](adr/0013-el-mapa-es-la-pantalla.md) | El mapa es la pantalla; la barra busca dentro de él | Aceptada — sustituye a 0004 |
 | [0014](adr/0014-dos-vistas-un-solo-estado.md) | Dos vistas, un solo estado: la galaxia y el explorador | Aceptada — acota `EXPERIENCE.md` §4.4 |
 | [0015](adr/0015-el-cielo-reparte-por-anchura-no-por-peso.md) | El cielo reparte por anchura; el tamaño sigue siendo cuántos archivos hay | Aceptada |
+| [0016](adr/0016-la-prueba-se-elige-el-indice-no-se-filtra.md) | La prueba se elige; el índice no se filtra | Aceptada — corrige el hallazgo 2 de §9 |
 
 ## Documentos
 

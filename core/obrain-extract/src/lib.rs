@@ -32,6 +32,7 @@
 //! [`docs/adr/0005`](../../../docs/adr/0005-donde-vive-el-texto-extraido.md).
 
 pub mod chunk;
+pub mod evidence;
 pub mod format;
 pub mod index;
 pub mod noise;

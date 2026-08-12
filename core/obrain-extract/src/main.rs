@@ -18,6 +18,7 @@ fn main() -> ExitCode {
              OPCIONES:\n  \
                --sample          mostrar extracciones y busquedas reales\n  \
                --buscar <texto>  buscar en el indice lexico y salir\n  \
+               --pruebas         auditar que fragmentos tienen prueba que enseñar\n  \
                --limite <n>      resultados de busqueda (por defecto 10)\n"
         );
         return ExitCode::from(2);
@@ -48,6 +49,16 @@ fn main() -> ExitCode {
         .unwrap_or(0);
     let tp = TimePoint::at(at);
     let limit = value("--limite").and_then(|v| v.parse().ok()).unwrap_or(10);
+
+    // ── auditar la prueba: no extrae nada, sólo mide lo que hay ──
+    //
+    // Con salida temprana a propósito: medir si el índice puede explicarse no
+    // debería obligar a reescribirlo. Es la misma forma de `--pesos` en M5a.
+    if args.iter().any(|a| a == "--pruebas") {
+        evidencia(&store, tp);
+        println!();
+        return ExitCode::SUCCESS;
+    }
 
     // ── modo consulta: no extrae nada, sólo busca ──
     if let Some(q) = value("--buscar") {
@@ -213,6 +224,72 @@ fn print_hits(query: &str, hits: &[obrain_extract::Hit]) {
     }
 }
 
+/// ¿Hay algo que enseñar como prueba en cada fragmento?
+///
+/// I9 dice que ninguna respuesta va sin procedencia, y esa procedencia es un
+/// tramo de texto que se le enseña a una persona. Los contadores de arriba
+/// dicen cuántos fragmentos hay; éste dice **cuántos podrían explicarse**, que
+/// es lo único que se ve en pantalla. Auditar esto es lo que destapó, el
+/// 2026-08-12, que la prueba de la pregunta de la visa era un sello del SAT en
+/// base64 — con todos los contadores en verde.
+fn evidencia(store: &Store, tp: TimePoint) {
+    use obrain_extract::evidence;
+
+    println!("\n══ PRUEBA QUE SE PUEDE ENSEÑAR ════════════");
+    let mut stmt = match store
+        .conn()
+        .prepare("SELECT entity, ordinal, text FROM chunks ORDER BY id")
+    {
+        Ok(s) => s,
+        Err(e) => return println!("  error: {e}"),
+    };
+    let filas = stmt.query_map([], |r| {
+        Ok((
+            obrain_core::EntityId(r.get::<_, String>(0)?),
+            r.get::<_, i64>(1)?,
+            r.get::<_, String>(2)?,
+        ))
+    });
+    let Ok(filas) = filas else {
+        return println!("  error al leer los fragmentos");
+    };
+
+    let (mut total, mut con_sello, mut sin_prueba) = (0usize, 0usize, 0usize);
+    let mut mudos: Vec<(obrain_core::EntityId, i64)> = Vec::new();
+    for fila in filas.flatten() {
+        let (entity, ordinal, text) = fila;
+        total += 1;
+        if !evidence::machine_spans(&text).is_empty() {
+            con_sello += 1;
+        }
+        // Sin consulta: el peor caso, el que se enseña cuando no hay término
+        // que resaltar. Si aquí no sale nada, no hay nada que enseñar nunca.
+        if evidence::pick(&text, "", evidence::BUDGET).is_none() {
+            sin_prueba += 1;
+            if mudos.len() < 10 {
+                mudos.push((entity, ordinal));
+            }
+        }
+    }
+
+    let pct = |n: usize| n as f64 * 100.0 / total.max(1) as f64;
+    println!("  fragmentos                {total}");
+    println!("  con texto de maquina      {con_sello}  ({:.1}%)", pct(con_sello));
+    println!("  SIN nada que enseñar      {sin_prueba}  ({:.1}%)", pct(sin_prueba));
+    if sin_prueba > 0 {
+        println!("\n  los que no tienen prueba (se enseñan vacios, nunca el sello):");
+        for (e, ordinal) in &mudos {
+            let p = store
+                .resolve(e, "path_observed_at", tp)
+                .ok()
+                .flatten()
+                .and_then(|a| a.object.as_text().map(str::to_string))
+                .unwrap_or_else(|| e.to_string());
+            println!("    #{ordinal:<4} {}", p.rsplit(['\\', '/']).next().unwrap_or(&p));
+        }
+    }
+}
+
 /// Auditoría: mirar texto real, no contadores.
 fn sample(store: &Store, files: &[obrain_extract::FileRow], tp: TimePoint) {
     println!("\n══ MUESTRA DE EXTRACCIONES ════════════════");
@@ -301,6 +378,8 @@ fn sample(store: &Store, files: &[obrain_extract::FileRow], tp: TimePoint) {
             Err(e) => println!("  error: {e}"),
         }
     }
+
+    evidencia(store, tp);
 
     println!("\n══ BUSQUEDAS DE PRUEBA ════════════════════");
     for q in [

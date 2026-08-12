@@ -42,6 +42,22 @@ pub fn prepare(raw: &str) -> Option<String> {
     (!terms.is_empty()).then(|| terms.join(" AND "))
 }
 
+/// El recorte de FTS5 es buena prueba —rodea el término y lo marca— salvo
+/// cuando cae al lado de un sello criptográfico, y entonces la evidencia que
+/// exige I9 se lee como que el programa está roto.
+///
+/// Se conserva el recorte de FTS5 en el caso normal, con su resaltado, y sólo
+/// se sustituye por [`crate::evidence::pick`] cuando trae texto que no escribió
+/// una persona. El razonamiento y la medición están en ese módulo.
+fn guard(fts: String, text: &str, raw_query: &str) -> String {
+    if !fts.split_whitespace().any(crate::evidence::is_machine_token) {
+        return fts;
+    }
+    crate::evidence::pick(text, raw_query, crate::evidence::BUDGET)
+        .map(|e| e.text)
+        .unwrap_or_default()
+}
+
 /// Busca en el índice léxico y devuelve **un resultado por archivo**: el mejor
 /// de sus fragmentos.
 ///
@@ -54,7 +70,7 @@ pub fn search(store: &Store, raw_query: &str, limit: usize, at: TimePoint) -> Re
 
     let mut stmt = store.conn().prepare(
         "SELECT c.entity, c.ordinal, bm25(chunks_fts) AS score,
-                snippet(chunks_fts, 0, '«', '»', ' … ', 14)
+                snippet(chunks_fts, 0, '«', '»', ' … ', 14), c.text
          FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid
          WHERE chunks_fts MATCH ?1
          ORDER BY score
@@ -63,11 +79,13 @@ pub fn search(store: &Store, raw_query: &str, limit: usize, at: TimePoint) -> Re
     // Se piden de sobra porque varios fragmentos del mismo archivo colapsan
     // en un solo resultado.
     let rows = stmt.query_map(params![query, (limit * 10).max(50) as i64], |r| {
+        let fts: String = r.get(3)?;
+        let text: String = r.get(4)?;
         Ok(Hit {
             entity: EntityId(r.get(0)?),
             ordinal: r.get(1)?,
             score: r.get(2)?,
-            snippet: r.get(3)?,
+            snippet: guard(fts, &text, raw_query),
             path: String::new(),
         })
     })?;
