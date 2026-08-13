@@ -130,7 +130,13 @@ Nota que la ley de §1 no te da la respuesta hecha: «densidad de conexiones» a
 
 </details>
 
-### 6. El boilerplate de los PDF contamina los vectores y la procedencia — NUEVO, y es del núcleo
+### 6. El boilerplate de los PDF contamina los vectores y la procedencia — RESUELTO (2026-08-12), y el diagnóstico de abajo era el equivocado
+
+> Auditarlo tumbó las dos mitades de lo que sigue: los sellos son el **0,5 %**
+> del índice, la recuperación acertaba por la razón correcta (CFDI es
+> *Comprobante Fiscal Digital*), y el empate no era falta de discriminación
+> sino **los mismos bytes en dos archivos**. Lo roto era el recorte de la
+> prueba. Ver [ADR-0016](../adr/0016-la-prueba-se-elige-el-indice-no-se-filtra.md).
 
 Los cinco primeros resultados de «comprobante de ingresos» puntuaron 0.870, 0.870, 0.870, 0.870 y 0.869. Empatados a la milésima: el sistema acierta la *clase* de documento y dentro de la clase no discrimina.
 
@@ -140,7 +146,12 @@ El motivo está en el fragmento que enseña como prueba: un **sello digital del 
 
 No lo arregles a ciegas ni lo silencies filtrando por longitud o por entropía sin medir. Es el mismo patrón que M2 y M3 ya vivieron con las cachés de Chromium: los contadores decían éxito y **auditar el contenido** decía otra cosa. Audita primero.
 
-### 7. El panel de entidad tiene que enseñar el archivo, y eso toca el criterio de M1
+### 7. El panel de entidad tiene que enseñar el archivo, y eso toca el criterio de M1 — EN CURSO
+
+> Es la mitad de [`m5b-llegar-y-ver.md`](m5b-llegar-y-ver.md), que es el prompt
+> vivo. **M5b se encogió el 2026-08-12** a dos piezas —el explorador y este
+> panel con previsualización— y todo lo demás salió del hito. El porqué está en
+> `PROJECT-MASTER.md` §9, «Por qué M5b se encogió».
 
 `EXPERIENCE.md` §4.1 lleva **previsualización** como escalón propio de la escalera desde el principio, y §4.4 describe el panel sin decir nunca qué se ve del archivo en sí. El usuario lo planteó sin rodeos el 2026-08-10: *«si no puedo ver los archivos, no va a tener mucho chiste la app»*. Tiene razón, y sin esto el explorador de [ADR-0014](../adr/0014-dos-vistas-un-solo-estado.md) es una lista de nombres.
 

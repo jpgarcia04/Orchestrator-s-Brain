@@ -24,3 +24,10 @@ serde = { version = "1", features = ["derive"] }
 # se puede depurar, y un mapa que sale mal se confunde con una decisión de
 # diseño si no se puede mirar el dato que lo produjo.
 serde_json = "1"
+
+[dev-dependencies]
+# Sólo en los tests, y sólo para una cosa: comprobar que la señal que la fila
+# del explorador transporta es **la misma** que M1 calcula. Afirmar en el test
+# la cadena `"cloud_dehydrated"` a mano probaría que el texto viaja, no que la
+# guarda que impide hidratar un archivo sigue diciendo que no.
+obrain-scan = { path = "../obrain-scan" }

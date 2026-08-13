@@ -1,4 +1,4 @@
-//! La aplicación de escritorio. **Cinco comandos y ni una decisión.**
+//! La aplicación de escritorio. **Seis comandos y ni una decisión.**
 //!
 //! Todo lo que hay aquí es transporte: coger el cerrojo, llamar a
 //! [`obrain_api`] y aplastar el error a texto. Si algún comando tuviera lógica
@@ -17,7 +17,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use obrain_api::{Brain, EntityView, Glance, Lens, Sky};
+use obrain_api::{Brain, EntityView, Glance, Lens, Listing, Sky};
 use obrain_core::EntityId;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -75,6 +75,17 @@ fn lente(
 fn cielo(target: usize, cerebro: State<'_, Cerebro>) -> Result<Sky, String> {
     let brain = cerebro.0.lock().map_err(texto)?;
     brain.sky(target).map_err(texto)
+}
+
+/// El explorador de ADR-0014: qué hay dentro de esto.
+///
+/// `foco` a `None` entra por las raíces, que es donde empieza quien abre el
+/// explorador sin haber enfocado nada en la galaxia.
+#[tauri::command]
+fn explorar(foco: Option<String>, cerebro: State<'_, Cerebro>) -> Result<Listing, String> {
+    let foco = foco.map(EntityId);
+    let brain = cerebro.0.lock().map_err(texto)?;
+    brain.children(foco.as_ref()).map_err(texto)
 }
 
 #[tauri::command]
@@ -148,7 +159,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            vistazo, lente, cielo, entidad, corregir, estado
+            vistazo, lente, cielo, explorar, entidad, corregir, estado
         ])
         .run(tauri::generate_context!())
         .expect("no se pudo arrancar la ventana");

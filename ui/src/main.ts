@@ -18,6 +18,7 @@
  * [ADR-0004]: ../../docs/adr/0004-punto-de-entrada-barra-no-galaxia.md
  */
 
+import { Explorador } from "./explorador";
 import { Mapa } from "./mapa";
 import { cielo, estado, lente, vistazo } from "./nucleo";
 import type { Cielo, Grupo, Hit } from "./nucleo";
@@ -26,8 +27,18 @@ const $consulta = document.querySelector<HTMLInputElement>("#consulta")!;
 const $estado = document.querySelector<HTMLDivElement>("#estado")!;
 const $resultados = document.querySelector<HTMLOListElement>("#resultados")!;
 const $lienzo = document.querySelector<HTMLCanvasElement>("#sustrato")!;
+const $barra = document.querySelector<HTMLElement>("#barra")!;
+const $conmutador = document.querySelector<HTMLButtonElement>("#conmutador")!;
 
 const mapa = new Mapa($lienzo);
+const explorador = new Explorador(document.querySelector<HTMLElement>("#explorador")!);
+
+/**
+ * Lo último que se enfocó. **Es la mitad de la continuidad del ADR-0014**: el
+ * conmutador cambia la lente, no el destino, así que el explorador tiene que
+ * poder abrir donde estaba mirando la galaxia.
+ */
+let foco: string | null = null;
 
 /**
  * Espera antes de consultar. 90 ms y no 300: la consulta híbrida completa se
@@ -156,9 +167,10 @@ async function enfocar(): Promise<void> {
   if (!fila) return;
   const g = grupos[fila.grupo];
   if (!g) return;
-  const foco = fila.hit ?? g.hub;
-  if (!foco) return;
-  const l = await lente([foco], 2, 300);
+  const donde = fila.hit ?? g.hub;
+  if (!donde) return;
+  foco = donde;
+  const l = await lente([donde], 2, 300);
   mapa.mostrar(l);
   const nombre = fila.hit ? porId.get(fila.hit)?.label : g.label;
   const base = `${nombre} · ${l.nodes.length} nodos, ${l.edges.length} aristas`;
@@ -255,13 +267,58 @@ $resultados.addEventListener("click", (e) => {
 $lienzo.addEventListener("click", async (e) => {
   const r = mapa.regionEn(e.clientX, e.clientY);
   if (!r) return;
+  foco = r.id;
   const l = await lente([r.id], 2, 300);
   mapa.mostrar(l);
   decir(`${r.path} · ${r.weight} archivos · ${l.nodes.length} nodos · Esc para volver`);
 });
 
 window.addEventListener("keydown", (e) => {
+  if (explorador.visible) return; // el explorador tiene sus propias teclas
+  // El escalón de §4.1 que no pasa por la barra: el conmutador **también es una
+  // tecla**, disponible en cualquier escalón.
+  if (e.key.toLowerCase() === "e" && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    void conmutar();
+    return;
+  }
   if (e.key === "Escape" && document.activeElement !== $consulta) alCielo();
 });
+
+// ────────────────────────────────────────────────── el conmutador (§4.7)
+
+/**
+ * Abre el explorador **donde estabas**, y al volver deja la cámara donde el
+ * explorador te dejó. Las dos direcciones son requisito: si una te devolviera
+ * al inicio, dejarían de ser dos vistas de un solo estado y pasarían a ser dos
+ * aplicaciones compartiendo ventana.
+ */
+async function conmutar(): Promise<void> {
+  if (explorador.visible) {
+    explorador.cerrar();
+    return;
+  }
+  mapa.congelar();
+  $barra.style.visibility = "hidden";
+  $conmutador.style.visibility = "hidden";
+  await explorador.abrir(foco);
+}
+
+explorador.onCerrar = (donde) => {
+  $barra.style.visibility = "";
+  $conmutador.style.visibility = "";
+  mapa.descongelar();
+  if (donde) {
+    foco = donde;
+    void lente([donde], 2, 300).then((l) => mapa.mostrar(l));
+  }
+  $consulta.focus();
+};
+
+explorador.onFila = (f) => {
+  foco = f.id;
+};
+
+$conmutador.addEventListener("click", () => void conmutar());
 
 void arrancar();

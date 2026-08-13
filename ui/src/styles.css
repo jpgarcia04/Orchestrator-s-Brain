@@ -184,6 +184,190 @@ body {
   letter-spacing: 0.06em;
 }
 
+/* ──────────────────────────────────────────────────────── el explorador ── */
+
+/* Detrás del explorador hay una fotografía, no una escena viva (ADR-0014 §3).
+   El desenfoque es lo que lo dice sin escribirlo. */
+#sustrato.congelado {
+  filter: blur(7px) saturate(0.72) brightness(0.62);
+  transition: filter 220ms ease-out;
+}
+
+/* El conmutador de §4.7: visible y en un sitio fijo. Si hubiera que buscarlo,
+   el explorador acabaría apareciendo solo — que es justo lo que no puede pasar. */
+#conmutador {
+  position: fixed;
+  right: 18px;
+  bottom: 16px;
+  padding: 7px 14px;
+  border: 1px solid var(--borde);
+  border-top-color: rgba(150, 180, 225, 0.22);
+  border-radius: 999px;
+  background: var(--barra);
+  backdrop-filter: blur(24px);
+  color: var(--tinta-tenue);
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+}
+
+#conmutador:hover {
+  color: var(--tinta);
+}
+
+#explorador {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(1120px, calc(100vw - 96px));
+  height: min(680px, calc(100vh - 120px));
+  display: flex;
+  flex-direction: column;
+  background: rgba(9, 13, 22, 0.9);
+  border: 1px solid var(--borde);
+  border-top-color: rgba(150, 180, 225, 0.24);
+  border-radius: 18px;
+  backdrop-filter: blur(28px) saturate(1.15);
+  box-shadow: 0 40px 120px -20px rgba(0, 0, 0, 0.9);
+  outline: none;
+  overflow: hidden;
+}
+
+#explorador[hidden] {
+  display: none;
+}
+
+#explorador header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--borde);
+}
+
+#migas {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+#migas button {
+  border: 0;
+  background: transparent;
+  color: var(--tinta-tenue);
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+#migas button:last-child {
+  color: var(--tinta);
+}
+
+#migas button:hover {
+  background: rgba(120, 160, 220, 0.12);
+}
+
+#migas button + button::before {
+  content: "›";
+  margin-right: 9px;
+  color: #3c4a5e;
+}
+
+.pista {
+  color: #46566c;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Columnas: la representación que lleva cuarenta años ganando a la jerarquía
+   profunda. Se ve dónde estás, de dónde vienes y qué había al lado. */
+#columnas {
+  flex: 1;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 0;
+}
+
+.columna {
+  flex: 0 0 268px;
+  border-right: 1px solid var(--borde);
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.columna:last-child {
+  flex-basis: 320px;
+}
+
+.columna ul {
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+}
+
+.columna li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 9px;
+  border-radius: 7px;
+  cursor: default;
+}
+
+.columna li[aria-selected="true"] {
+  background: rgba(120, 160, 220, 0.13);
+}
+
+.columna li:hover {
+  background: rgba(120, 160, 220, 0.07);
+}
+
+.fila-nombre {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+/* Una carpeta pesa lo que hay dentro, y eso se lee antes de entrar. */
+.carpeta .fila-nombre {
+  color: #a9c6ea;
+}
+
+.carpeta::after {
+  content: "›";
+  color: #3c4a5e;
+  order: 9;
+}
+
+.fila-meta {
+  color: var(--tinta-tenue);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.nube {
+  color: #6f8fb4;
+  font-size: 11px;
+}
+
+.vacio {
+  color: #46566c;
+  font-size: 12px;
+  font-style: italic;
+}
+
 /* §3, disciplina: `prefers-reduced-motion` colapsa las animaciones y la
    aplicación sigue siendo completamente utilizable. */
 @media (prefers-reduced-motion: reduce) {

@@ -360,7 +360,7 @@ Cada hito se valida contra la pregunta de la visa.
 | 🔒 **Puerta de sensibilidad** | Clasificación `normal`/`sensitive`/`vault` y aplicación de §5.2. → [`core/obrain-guard`](../core/obrain-guard) | **Hecha (2026-08-07).** No es un hito: es el requisito previo de M4. Ver informe abajo. |
 | ✅ **M4 — Entender** | Embeddings locales, búsqueda semántica, fusión RRF. → [`core/obrain-embed`](../core/obrain-embed) | **Hecho (2026-08-07).** 2.479 vectores, `universidad` encuentra un formulario de matrícula que no contiene la palabra. Rerank **diferido con la medición** ([ADR-0011](adr/0011-rerank-diferido.md)). Ver informe abajo. |
 | ✅ **M5a — La barra sobre el sustrato** | Superficie del núcleo, lente de I2, barra de ADR-0004. → [`core/obrain-api`](../core/obrain-api) + [`ui`](../ui) | **Hecho (2026-08-08).** Ver informe abajo. |
-| **M5b — El mapa de frente** | Tecla global, modos foco y deriva, panel de entidad, expansión, Trazo, y el conmutador galaxia/explorador de [ADR-0014](adr/0014-dos-vistas-un-solo-estado.md). | Se puede explorar un nodo concentrador y sus artefactos visualmente. |
+| **M5b — Llegar y ver** | Dos cosas: el conmutador galaxia/explorador de [ADR-0014](adr/0014-dos-vistas-un-solo-estado.md), y el panel de entidad de [`EXPERIENCE.md`](EXPERIENCE.md) §4.4 **con previsualización**. Nada más. | **Abres la app, llegas hasta un archivo sin escribir su nombre, y lo ves.** |
 | **M5c — Enterarse** | Vigilancia continua: USN Change Journal para el volumen, `ReadDirectoryChangesW` para carpetas concretas (§4.1). El demonio de [ADR-0003](adr/0003-lenguaje-del-nucleo.md). | Se deja un archivo nuevo en una carpeta vigilada y **aparece en el mapa sin que nadie lance nada**. |
 | **M6 — Construir conocimiento** | Extracción de entidades, detección de `Process`, enriquecimiento por atención. | La métrica de §0 es medible y positiva. |
 | **M7 — La pregunta** | Comprensión de consulta, resolución temporal, respuesta con citas. | **Responde la pregunta de la visa.** |
@@ -376,6 +376,49 @@ Las dos cosas se decidieron **antes** de escribir código, en 2026-08-08, y conv
 **Y el alcance estaba subestimado.** «Lente, layout estable, navegación por foco» suena a una vista de grafo, pero M5 es el hito donde aparece la aplicación entera: el primer Tauri, el primer TypeScript, el primer PixiJS, el primer contrato contra el núcleo — y la barra, que [ADR-0004](adr/0004-punto-de-entrada-barra-no-galaxia.md) declara punto de entrada. Construir el mapa sin la barra sería construir exactamente lo que ese ADR rechaza, y además sin puerta por donde entrar. De ahí el corte: **M5a es el camino de las cuarenta veces al día**, M5b es el mapa de frente.
 
 **El orden frente a M6 no es preferencia, es dependencia.** §4.4 pide que el enriquecimiento vaya en una cola *«priorizada por atención del usuario: abierto recientemente, dentro de un foco activo, tocado por una búsqueda»*. Esas señales no existen sin interfaz. M6 antes que M5 obligaría a inventar una política de priorización sin la fuente de datos que la política necesita.
+
+### Por qué M5b se encogió (2026-08-12)
+
+M5 ya se partió en dos una vez por tener el alcance subestimado. M5b volvió a
+crecer, y esta vez no por subestimarlo sino por **absorber**: empezó siendo
+tecla global, modos foco y deriva, panel de entidad, expansión y Trazo; se le
+sumó el explorador de [ADR-0014](adr/0014-dos-vistas-un-solo-estado.md), la
+dirección visual, la previsualización, las regiones creadas por el usuario y
+dos problemas del núcleo. Su criterio de «hecho» no se movió del 2026-08-08 al
+2026-08-12.
+
+**El síntoma que lo destapó no fue técnico.** El usuario lo dijo así: *«me está
+alertando que estoy perdiendo la noción de lo que estamos haciendo… me alarma
+que por querer hacerlo tan complejo se me acabe saliendo de las manos»*. Un
+hito que no cierra no se siente como un hito grande: se siente como un proyecto
+que no avanza, y ésa es una forma de morir tan buena como cualquier otra.
+
+**El número que lo confirma.** El núcleo son 15.264 líneas y la aplicación que
+se puede abrir, 1.578. Este documento, 1.685 — **el maestro es más largo que el
+producto**. La documentación no es el problema: es lo que ha permitido retomar
+el proyecto y encontrar diagnósticos equivocados en los propios informes. El
+problema es que la interfaz no ha alcanzado nunca al motor.
+
+**Qué sale, y por qué cada cosa:**
+
+| Sale | A dónde | Motivo |
+|---|---|---|
+| **Trazo** (animación #5) | M7 | Dibuja *pregunta → `Process` → intervalo → documentos*, y `Process` es M6. **Es el mismo error que ya se corrigió una vez**: un criterio que depende del entregable de un hito posterior no se puede cerrar nunca. |
+| **Regiones creadas por el usuario** | M6 · §10 | Introduce una segunda fuente de regiones que no es el sistema de archivos, conviviendo con la primera. Es arquitectura, no interfaz. |
+| **La dirección visual** (Observatorio vs. Instrumento) | Después de M5b · §10 | Las dos finalistas comparten geometría y navegación; la diferencia es de tratamiento. Es piel sobre una composición que M5b todavía va a cambiar de proporciones. |
+| **Modo deriva, expansión, tecla global** | M5d o donde caigan | No hacen la app usable. Deriva es el modo sin objetivo; la tecla global es el escalón 1 de §4.1 y es barata, pero no es lo que falta. |
+
+**Qué queda, y por qué sólo eso.** Hoy el motor encuentra el documento de la
+visa en 195 ms y la interfaz no deja verlo. El usuario lo dijo antes:
+*«si no puedo ver los archivos, no va a tener mucho chiste la app»*. Llegar y
+ver son las dos mitades de esa frase, y no hay una tercera cosa en M5b.
+
+Y una consecuencia que no es de alcance sino de método: **cuando M5b cierre,
+se usa una semana antes de escribir otra línea.** El proyecto ha medido contra
+el corpus y contra los invariantes, que está bien. No ha medido nunca contra la
+única prueba que queda —si el usuario lo abre solo, sin que nadie se lo pida— y
+ésa es la que decide si esto es un producto o una demostración muy bien
+documentada.
 
 ### Por qué M5c existe, y por qué va justo detrás de M5b
 
@@ -1651,6 +1694,7 @@ de barata a instantánea.
 - **¿Puede el usuario crear sus propias regiones y nombrarlas?** Pedido el 2026-08-10: *«quiero poder ordenar mis cosas a mi gusto y que el programa no pierda de vista qué es qué y con qué se relaciona»*. La mitad difícil ya está garantizada por **I5** —una aserción del usuario gana para siempre y ningún reescaneo la pisa— y `Brain::correct` ya la escribe con test. Lo que no está decidido es lo estructural: hoy las regiones salen del árbol de contención del disco, y esto introduce **una segunda fuente de regiones que no es el sistema de archivos**, conviviendo con la primera. Hay que decidir si una región de usuario es una entidad más con una faceta, cómo se resuelve que un archivo caiga en dos, y qué manda al dibujar el cielo. Está emparentado con el hallazgo del dimensionado de regiones del informe del corpus real: si el usuario puede agrupar a mano, el peso por número de archivos deja de ser la única respuesta posible.
 - **¿Se indexa la papelera de reciclaje?** Hoy no: `$Recycle.Bin` está en `SYSTEM_DIRS` de [`obrain-scan/src/exclude.rs`](../core/obrain-scan/src/exclude.rs) y además cae por el atributo oculto/sistema. El usuario ha pedido amplitud de escaneo *«desde mis descargas hasta mi papelera de reciclaje»* (2026-08-10), así que deja de ser una exclusión obvia y pasa a ser una decisión. A favor: es exactamente donde vive lo que no recuerdas que tienes, que es la cuña F3. En contra: contenido que el usuario decidió borrar reapareciendo en las respuestas, con una tensión incómoda con I4 (nada se borra, se retracta) — I4 habla del grafo, y la papelera es el usuario ejerciendo lo contrario sobre sus archivos. Si se decide que sí, necesita ser opt-in explícito y visiblemente marcado en los resultados, no una exclusión menos en una lista.
 
+- **¿Observatorio o Instrumento?** La dirección visual sigue sin elegir, y es del usuario, no del sistema. Los tres prototipos están en [`prototypes/02-direcciones`](../prototypes/02-direcciones/index.html); Cartografía quedó descartada de hecho al elegir entre las otras dos. Aplazado a propósito hasta después de M5b: las dos finalistas comparten geometría y navegación, así que la diferencia es de tratamiento —luz, contención, adorno— y elegir paleta antes de que el explorador y el panel cambien las proporciones de la pantalla es maquillar una composición que todavía se mueve. La referencia de la que salió la intención visual está guardada en [`docs/referencias/`](referencias/), con la tensión anotada: la imagen sube la saturación, y §1 le tiene asignado un significado —codifica **confianza**—, así que subir el suelo estrecha el rango disponible para decir «esto es una inferencia dudosa». Si se sube, el margen se reserva antes, no después.
 - **¿Cómo se representa que un documento está *dentro* de otro?** Aparecido al auditar la prueba el 2026-08-12 ([ADR-0016](adr/0016-la-prueba-se-elige-el-indice-no-se-filtra.md)). En el corpus real, `Estados_de_Cuenta_Abuelo_Visa.pdf` contiene los tres estados de cuenta mensuales del banco, y `Documentos_Identidad_Respaldo_Visa.pdf` contiene otro — comprobado por hash, fragmento a fragmento, 6 de 6 idénticos al byte. A escala del corpus son **467 fragmentos, el 11,5 % del índice y de los vectores, en 44 documentos**. Hoy el sistema no tiene forma de decirlo: M3 modela `duplicate_of` para archivos enteros (44 en este corpus) pero no *«este documento es parte de aquel»*, y sin esa arista una búsqueda devuelve cinco filas donde hay tres documentos, sin poder explicar por qué se parecen tanto. Lo que hay que decidir: si es un predicado nuevo del vocabulario de §3.4 o un caso de los que ya hay; si lo detecta M3 al enlazar (comparando hashes de fragmento, que es determinista y barato) o M6 al inferir; y qué hace la interfaz con ello — colapsar las filas es lo obvio, pero **la razón por la que se colapsan es justo el tipo de cosa que un gestor de archivos no puede enseñar y este proyecto sí**, así que esconderlo sin más sería desaprovecharlo. Es contenido legítimo duplicado, no ruido: no se filtra.
 - ¿El escaneo debería distinguir *«no lo indexé»* de *«no existe»* de cara al usuario? Hoy un archivo podado por `exclude.rs` es indistinguible de uno que nunca estuvo, y con el explorador de [ADR-0014](adr/0014-dos-vistas-un-solo-estado.md) esa diferencia pasa a ser visible: el usuario podrá bajar hasta una carpeta y ver que falta algo.
 - Slug técnico: `orchestrator-brain` u `obrain`. El apóstrofo de `Orchestrator's-Brain` dará guerra en scripts, CI, rutas y URLs. **Ya no es una previsión:** M5a fijó `obrain` para paquetes e identificadores —`obrain-ui`, `obrain-app`, `dev.obrain.app`— pero la **carpeta** sigue llevando apóstrofo y ya ha costado un rodeo en `ui/src-tauri/build.rs`. Lo que queda por decidir es sólo eso: si se renombra el directorio. Ver el informe de M5a.

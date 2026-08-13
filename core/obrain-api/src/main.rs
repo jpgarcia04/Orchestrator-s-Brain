@@ -28,7 +28,10 @@ fn main() -> ExitCode {
                --radio <n>        saltos desde el foco (por defecto 1 con consulta, 2 con --foco)\n  \
                --presupuesto <n>  tope duro de nodos (por defecto 300)\n  \
                --foco <id>        abre la lente sobre una entidad concreta\n  \
-               --modelo           carga el modelo y enciende la rama semantica\n"
+               --modelo           carga el modelo y enciende la rama semantica\n  \
+               --explorar         que hay dentro: el explorador de ADR-0014\n  \
+               --dentro <id>      baja a esta entidad (sin el, las raices)\n  \
+               --limite <n>       filas a enseñar (por defecto 40)\n"
         );
         return ExitCode::from(2);
     }
@@ -167,6 +170,60 @@ fn main() -> ExitCode {
                 }
             }
             Err(e) => eprintln!("cielo: {e}"),
+        }
+        return ExitCode::SUCCESS;
+    }
+
+    // ── el explorador: qué hay dentro de esto ──
+    //
+    // Sin `--dentro` entra por las raíces, que es por donde entra el explorador
+    // cuando nadie ha enfocado nada. Con él, se baja: es el `--sample` de
+    // ADR-0014, y existe por lo mismo que los otros — un explorador que enseña
+    // mal se confunde con una decisión de diseño si no se puede mirar el dato
+    // que lo produjo.
+    if flag("--explorar") {
+        let foco = value("--dentro").map(EntityId);
+        let t = Instant::now();
+        match brain.children(foco.as_ref()) {
+            Ok(l) if flag("--json") => {
+                println!("{}", serde_json::to_string(&l).unwrap_or_default());
+            }
+            Ok(l) => {
+                let migas: Vec<&str> = l.trail.iter().map(|c| c.label.as_str()).collect();
+                println!(
+                    "\n── DENTRO DE «{}» ── {} carpetas · {} archivos · {:.1} ms ──",
+                    l.label,
+                    l.folders,
+                    l.files,
+                    t.elapsed().as_secs_f64() * 1000.0
+                );
+                if !migas.is_empty() {
+                    println!("  {}  ›  {}", migas.join("  ›  "), l.label);
+                }
+                println!();
+                for r in l.rows.iter().take(numero("--limite", 40)) {
+                    let marca = if r.sensitivity == "normal" { "  " } else { " ⚠" };
+                    // Lo que no se puede leer se dice **en la fila**, no en un
+                    // panel al final: es la señal que decide si algo se puede
+                    // previsualizar sin descargarlo.
+                    let nube = match r.availability.as_deref() {
+                        Some("local") | None => "",
+                        Some(_) => "  ☁ en la nube",
+                    };
+                    let peso = if r.kind == "folder" {
+                        format!("{:>6}", r.weight)
+                    } else {
+                        "      ".to_string()
+                    };
+                    let icono = if r.kind == "folder" { "▸" } else { " " };
+                    println!("  {icono} {peso}{marca}  {}{nube}", r.label);
+                }
+                if l.rows.len() > numero("--limite", 40) {
+                    println!("  … y {} más", l.rows.len() - numero("--limite", 40));
+                }
+                println!("\n  id del foco: {}", l.focus.as_deref().unwrap_or("(raíces)"));
+            }
+            Err(e) => eprintln!("explorar: {e}"),
         }
         return ExitCode::SUCCESS;
     }

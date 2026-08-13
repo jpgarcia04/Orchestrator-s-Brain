@@ -147,6 +147,44 @@ export interface Cielo {
   newest: number;
 }
 
+/** Un escalón de las migas de pan. */
+export interface Miga {
+  id: string;
+  label: string;
+}
+
+/**
+ * Una fila del explorador.
+ *
+ * `availability` es la guarda: `"local"` es lo único que se puede leer. `null`
+ * **no es lo mismo que local** — el núcleo devuelve `None` ante un valor que no
+ * reconoce, a propósito, porque ante la duda no se toca el archivo.
+ */
+export interface Fila {
+  id: string;
+  label: string;
+  path: string;
+  kind: "folder" | "file";
+  /** Archivos dentro, contando subcarpetas. `0` en un archivo. */
+  weight: number;
+  sensitivity: Sensibilidad;
+  availability: string | null;
+  recency: number;
+  facets: string[];
+}
+
+/** Lo que hay dentro de un contenedor, con la ruta hasta él. */
+export interface Listado {
+  focus: string | null;
+  label: string;
+  path: string;
+  /** De fuera hacia dentro. */
+  trail: Miga[];
+  rows: Fila[];
+  folders: number;
+  files: number;
+}
+
 export interface Estado {
   db: string;
   semantic: boolean;
@@ -174,6 +212,16 @@ export const lente = (focus: string[], radius = 2, budget = 300) =>
 
 /** Lo que se ve al abrir: el grafo entero a poca escala. */
 export const cielo = (target = 30) => invoke<Cielo>("cielo", { target });
+
+/**
+ * Qué hay dentro de esto. El explorador de ADR-0014.
+ *
+ * Sin foco entra por las raíces. **Es la misma lectura del árbol que `cielo`**,
+ * un escalón más abajo: por eso las dos vistas no pueden discrepar sobre a qué
+ * pertenece un archivo.
+ */
+export const explorar = (foco: string | null = null) =>
+  invoke<Listado>("explorar", { foco });
 
 export const entidad = (id: string) => invoke<VistaEntidad>("entidad", { id });
 

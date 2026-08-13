@@ -47,7 +47,7 @@ use std::time::Instant;
 
 pub use entity::{Claim, EntityView};
 pub use lens::{Edge, Lens, Node};
-pub use sky::{Bridge, Cluster, Region, Sky};
+pub use sky::{Bridge, Cluster, Crumb, Listing, Region, Row, Sky};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -269,6 +269,19 @@ impl Brain {
     pub fn sky(&self, target: usize) -> Result<Sky> {
         let (_, at) = Self::now();
         Ok(sky::regions(&self.store, target, at)?)
+    }
+
+    /// **Qué hay dentro de esto.** El explorador de [ADR-0014]. Ver
+    /// [`sky::children`].
+    ///
+    /// Con `focus` a `None` devuelve las raíces. Es la misma lectura del árbol
+    /// que [`Brain::sky`], un escalón más abajo — y es la misma a propósito: dos
+    /// vistas del mismo estado no pueden salir de dos cálculos distintos.
+    ///
+    /// [ADR-0014]: ../../../docs/adr/0014-dos-vistas-un-solo-estado.md
+    pub fn children(&self, focus: Option<&EntityId>) -> Result<Listing> {
+        let (_, at) = Self::now();
+        Ok(sky::children(&self.store, focus, at)?)
     }
 
     /// Abre la lente sobre una entidad. Ver [`lens`].

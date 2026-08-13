@@ -701,6 +701,248 @@ fn ancestry(store: &Store, from: &EntityId, at: TimePoint) -> Result<Vec<String>
     Ok(out)
 }
 
+// ────────────────────────────────────── el mismo árbol, bajado un escalón
+//
+// [ADR-0014] pide dos vistas sobre un solo estado, y da por hecho que el núcleo
+// ya las servía las dos. Casi: `regions` corta el árbol alto y `cluster` agrupa
+// **resultados de búsqueda**, que no es lo mismo que *«qué hay dentro de esto»*.
+// Sin esa tercera lectura no hay forma de bajar un nivel, y bajar un nivel es el
+// hito entero.
+//
+// Se apoya en el mismo [`read_tree`] que abre el cielo, y eso no es ahorro de
+// código: es la garantía de la consecuencia #4 del ADR. Con dos lecturas
+// distintas del árbol llegaría el día en que una estrella dice «229 archivos» y
+// al entrar hay 217, y en ese momento dejan de ser dos vistas del mismo estado.
+//
+// [ADR-0014]: ../../../docs/adr/0014-dos-vistas-un-solo-estado.md
+
+/// Relaciones que significan **«esto está dentro de aquello»**.
+///
+/// El ADR exige que el explorador navegue el grafo y no el disco: *«se baja por
+/// carpetas, y también por entidad → dónde aparece»*. Ese segundo eje nombra la
+/// mención de una entidad, que la crea M6 y hoy no existe. Lo que sí existe
+/// desde M3 es la **sesión de trabajo**: 961 aserciones que dicen qué tocaste a
+/// la vez. Es contención de verdad —agrupa por *cuándo*, no por *dónde*— y es lo
+/// que hace que esto no sea el explorador de Windows con pasos de más.
+pub const CONTAINMENT: &[&str] = &["contained_by", "occurred_during"];
+
+/// Un escalón de las migas de pan.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Crumb {
+    pub id: String,
+    pub label: String,
+}
+
+/// Una fila del explorador.
+///
+/// Trae ya resueltos los cuatro datos que la fila necesita para **decir la
+/// verdad sin volver a preguntar**: si se puede leer su contenido, cuánto pesa,
+/// qué retiene la puerta y cuándo se tocó. En particular [`Row::availability`],
+/// que es la señal que impide que una previsualización hidrate un archivo de la
+/// nube por accidente: la decide M1 y no se recalcula aquí.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Row {
+    pub id: String,
+    pub label: String,
+    pub path: String,
+    /// `folder` | `file`.
+    pub kind: &'static str,
+    /// Archivos dentro, contando subcarpetas. `0` en un archivo.
+    pub weight: usize,
+    pub sensitivity: &'static str,
+    /// `local` | `cloud_dehydrated`, o `None` si no se sabe.
+    ///
+    /// `None` es deliberadamente distinto de `local`: [`Availability::parse`]
+    /// devuelve `None` ante un valor desconocido *a propósito*, y ante la duda no
+    /// se toca el archivo. Un `unwrap_or(local)` en el cliente convertiría esa
+    /// prudencia en una descarga.
+    pub availability: Option<String>,
+    pub recency: i64,
+    pub facets: Vec<String>,
+}
+
+/// Lo que hay dentro de un contenedor, con la ruta hasta él.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Listing {
+    /// `None` en la raíz.
+    pub focus: Option<String>,
+    pub label: String,
+    pub path: String,
+    /// De fuera hacia dentro. Es la ruta que el conmutador tiene que traer ya
+    /// puesta al venir de la galaxia (consecuencia #4 del ADR).
+    pub trail: Vec<Crumb>,
+    pub rows: Vec<Row>,
+    pub folders: usize,
+    pub files: usize,
+}
+
+/// Lee un predicado entero y lo indexa por sujeto. Una consulta por predicado y
+/// no una por fila: es el mismo patrón que usan [`regions`] y
+/// `obrain_link::load_files`, y la diferencia entre 4 consultas y 900.
+fn by_subject(store: &Store, pred: &str, at: TimePoint) -> Result<HashMap<EntityId, Value>> {
+    let mut out = HashMap::new();
+    for a in store.query(None, Some(pred), at)? {
+        out.entry(a.subject).or_insert(a.object);
+    }
+    Ok(out)
+}
+
+/// **Qué hay dentro de esto.** El tercer corte del árbol de contención.
+///
+/// Con `focus` a `None` devuelve las raíces, que es por donde se entra cuando
+/// nadie ha enfocado nada todavía.
+pub fn children(store: &Store, focus: Option<&EntityId>, at: TimePoint) -> Result<Listing> {
+    let tree = read_tree(store, at)?;
+    let modificado = by_subject(store, "modified_at", at)?;
+    let ruta = by_subject(store, "path_observed_at", at)?;
+    let disponible = by_subject(store, "availability", at)?;
+    let nombres = obrain_link::Labels::load(store, at)?;
+
+    // Una faceta por fila sería otra consulta por fila. `has_facet` es el
+    // predicado más numeroso del log (1.919 sobre este corpus) y aun así leerlo
+    // entero una vez cuesta menos que preguntarlo doscientas.
+    let mut facetas: HashMap<EntityId, Vec<String>> = HashMap::new();
+    for a in store.query(None, Some("has_facet"), at)? {
+        if let Some(t) = a.object.as_text() {
+            facetas.entry(a.subject).or_default().push(t.to_string());
+        }
+    }
+
+    // La sensibilidad no es una aserción sino una columna (ADR-0006), así que
+    // se lee de la tabla y de una vez, como hace `audit` un poco más arriba.
+    let mut sensible: HashMap<String, &'static str> = HashMap::new();
+    {
+        let conn = store.conn();
+        let mut st = conn.prepare("SELECT id, sensitivity FROM entities")?;
+        let mut rows = st.query([])?;
+        while let Some(r) = rows.next()? {
+            let nivel: String = r.get(1)?;
+            sensible.insert(
+                r.get::<_, String>(0)?,
+                obrain_core::Sensitivity::parse(&nivel).map_or("vault", |s| s.as_str()),
+            );
+        }
+    }
+
+    let stamp = |e: &EntityId| -> i64 {
+        match modificado.get(e) {
+            Some(Value::Timestamp(t)) => *t,
+            _ => 0,
+        }
+    };
+    let sitio = |e: &EntityId| -> String {
+        tree.folders.get(e).cloned().unwrap_or_else(|| match ruta.get(e) {
+            Some(Value::Text(p)) => p.clone(),
+            _ => String::new(),
+        })
+    };
+
+    let fila = |e: &EntityId, carpeta: bool| -> Row {
+        Row {
+            // Sin nombre por ruta ni por carpeta sólo quedan las sesiones, que
+            // no aparecen como filas. Se paga la consulta suelta antes que
+            // enseñar un identificador.
+            label: nombres
+                .get(e)
+                .map_or_else(|| obrain_link::label(store, e, at), str::to_string),
+            path: sitio(e),
+            kind: if carpeta { "folder" } else { "file" },
+            weight: if carpeta {
+                tree.weight.get(e).copied().unwrap_or(0)
+            } else {
+                0
+            },
+            sensitivity: sensible.get(&e.0).copied().unwrap_or("vault"),
+            availability: match disponible.get(e) {
+                Some(Value::Text(t)) => Some(t.clone()),
+                _ => None,
+            },
+            recency: stamp(e),
+            facets: facetas.get(e).cloned().unwrap_or_default(),
+            id: e.0.clone(),
+        }
+    };
+
+    // ── qué cuelga de aquí ──
+    let (carpetas, archivos): (Vec<EntityId>, Vec<EntityId>) = match focus {
+        // La raíz: las carpetas sin madre. No hay ninguna entidad que las
+        // contenga, así que no hay nada que preguntar al log.
+        None => (
+            {
+                let mut v: Vec<EntityId> = tree
+                    .folders
+                    .keys()
+                    .filter(|f| !tree.parent.contains_key(*f))
+                    .cloned()
+                    .collect();
+                v.sort();
+                v
+            },
+            Vec::new(),
+        ),
+        Some(f) if tree.folders.contains_key(f) => (
+            tree.children.get(f).cloned().unwrap_or_default(),
+            tree.direct.get(f).cloned().unwrap_or_default(),
+        ),
+        // No es una carpeta: entonces es cualquier otra cosa que contenga, y lo
+        // que contiene es lo que la señala. Aquí es donde entran las sesiones —
+        // y donde entrarán las menciones de M6 sin tocar esta función.
+        Some(f) => {
+            let mut v: Vec<EntityId> = store
+                .query_by_object(f, at)?
+                .into_iter()
+                .filter(|a| CONTAINMENT.contains(&a.predicate.as_str()))
+                .map(|a| a.subject)
+                .collect();
+            v.sort();
+            v.dedup();
+            (Vec::new(), v)
+        }
+    };
+
+    // Las carpetas primero y por peso: lo que más tiene dentro es lo que más
+    // probablemente busca quien está bajando. Los archivos, por lo más reciente
+    // —que es como se busca un papel de verdad— y con el nombre de desempate
+    // para que dos ejecuciones den siempre el mismo orden.
+    let mut rows: Vec<Row> = Vec::with_capacity(carpetas.len() + archivos.len());
+    let mut cs: Vec<Row> = carpetas.iter().map(|c| fila(c, true)).collect();
+    cs.sort_by(|a, b| b.weight.cmp(&a.weight).then_with(|| a.label.cmp(&b.label)));
+    let mut fs: Vec<Row> = archivos.iter().map(|a| fila(a, false)).collect();
+    fs.sort_by(|a, b| b.recency.cmp(&a.recency).then_with(|| a.label.cmp(&b.label)));
+    let (folders, files) = (cs.len(), fs.len());
+    rows.append(&mut cs);
+    rows.append(&mut fs);
+
+    // ── las migas ── de fuera hacia dentro, con tope: una arista de contención
+    // mal formada no puede convertir esto en un bucle infinito.
+    let mut trail = Vec::new();
+    if let Some(f) = focus {
+        let mut cur = f.clone();
+        let mut vistos = HashSet::new();
+        while vistos.insert(cur.clone()) && trail.len() < 32 {
+            let Some(up) = tree.parent.get(&cur).cloned() else { break };
+            trail.push(Crumb {
+                label: nombres
+                    .get(&up)
+                    .map_or_else(|| obrain_link::label(store, &up, at), str::to_string),
+                id: up.0.clone(),
+            });
+            cur = up;
+        }
+        trail.reverse();
+    }
+
+    Ok(Listing {
+        label: focus.map_or_else(|| "todo".to_string(), |f| obrain_link::label(store, f, at)),
+        path: focus.map_or_else(String::new, sitio),
+        focus: focus.map(|f| f.0.clone()),
+        trail,
+        rows,
+        folders,
+        files,
+    })
+}
+
 /// Agrupa resultados por la carpeta que comparten.
 ///
 /// Es el mismo árbol de [`regions`] leído al ras en vez de alto. Y es la misma

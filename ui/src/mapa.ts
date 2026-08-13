@@ -409,10 +409,36 @@ export class Mapa {
     this.dibujar();
   }
 
+  /**
+   * Congela la galaxia: un fotograma, el bucle parado y el lienzo desenfocado.
+   *
+   * ADR-0014 §3. Detrás del explorador hay **una fotografía, no una escena
+   * viva**: se ve igual y respeta el compromiso de modo reposo de §2 — una
+   * galaxia animada bajo una ventana durante media hora es batería gastada en
+   * algo que nadie mira.
+   */
+  congelar(): void {
+    this.asiento = 1;
+    this.dibujar();
+    this.parar();
+    this.lienzo.classList.add("congelado");
+  }
+
+  descongelar(): void {
+    this.lienzo.classList.remove("congelado");
+    this.despertar();
+    if (!this.corriendo) this.dibujar();
+  }
+
   regionEn(x: number, y: number): Region | null {
     if (!this.cieloActual) return null;
-    const lx = x - this.mundo.x - this.paralaje.x;
-    const ly = y - this.mundo.y - this.paralaje.y;
+    // `mundo.position` **ya lleva el paralaje dentro** — lo mete `latir` en cada
+    // fotograma. Restarlo otra vez aquí lo contaba dos veces, y como el paralaje
+    // persigue al ratón, el error era máximo justo donde estaba el cursor: hasta
+    // 18 px por eje en los bordes, contra estrellas de 7 px de radio. Se picaba
+    // una y se abría la de al lado.
+    const lx = x - this.mundo.x;
+    const ly = y - this.mundo.y;
     let mejor: Region | null = null;
     let mejorD = Infinity;
     for (const r of this.cieloActual.regions) {
@@ -510,7 +536,13 @@ export class Mapa {
     const [w, h] = this.medidas();
     this.mundo.position.set(w / 2 + this.paralaje.x, h / 2 + this.paralaje.y);
     this.capaPolvo.position.set(this.paralaje.x * 0.9, this.paralaje.y * 0.9);
-    this.capaTexto.position.set(-this.paralaje.x * 0.35, -this.paralaje.y * 0.35);
+    // El polvo sí flota —es ambiente y no afirma nada—, pero **el nombre no se
+    // despega nunca de su estrella**. Llevaba un paralaje contrario (−0,35) que,
+    // sumado al de `mundo`, dejaba la etiqueta a ~6 px de su propio nodo y
+    // moviéndose con el ratón. Un nombre que flota entre dos estrellas no dice
+    // cuál de las dos nombra, y §1 no admite un movimiento que destruya la
+    // información que el texto es.
+    this.capaTexto.position.set(0, 0);
   }
 
   private ajustar(): void {

@@ -1044,6 +1044,7 @@ dependencies = [
  "obrain-extract",
  "obrain-guard",
  "obrain-link",
+ "obrain-scan",
  "serde",
  "serde_json",
  "thiserror",

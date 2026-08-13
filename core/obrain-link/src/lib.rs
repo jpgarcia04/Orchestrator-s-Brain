@@ -173,23 +173,80 @@ pub(crate) fn write_edge(
 /// concentradores son los más grandes de la pantalla, y `EXPERIENCE.md` §1 dice
 /// que la luz es información. Un nodo enorme llamado `<01KZHYVT>` es el
 /// contraejemplo perfecto.
+/// El nombre de un archivo: la hoja de su ruta.
+fn de_ruta(t: &str) -> String {
+    t.rsplit(['\\', '/']).next().unwrap_or(t).to_string()
+}
+
+/// El nombre de una carpeta: **dos** segmentos. Con uno solo, este mismo
+/// repositorio dibuja cinco nodos distintos llamados `src` y el mapa deja de
+/// poder leerse.
+fn de_carpeta(t: &str) -> String {
+    let mut partes = t.rsplit(['\\', '/']);
+    match (partes.next(), partes.next()) {
+        (Some(hoja), Some(padre)) if !padre.is_empty() => format!("{padre}/{hoja}"),
+        (Some(hoja), _) => hoja.to_string(),
+        _ => t.to_string(),
+    }
+}
+
+/// Los nombres de todo, leídos **de una vez**.
+///
+/// [`label`] resuelve un predicado por entidad y eso es lo correcto para nombrar
+/// treinta regiones. Nombrando filas de una lista es ruinoso: el explorador de
+/// [ADR-0014] tardaba **1.231 ms** en abrir una carpeta de 232 archivos y la
+/// mayor parte era esto, una consulta por nombre.
+///
+/// Misma regla —las funciones de formato son literalmente las mismas—, una sola
+/// pasada por el log. Lo que no cubre son las sesiones: su nombre sale de
+/// `session_span`, que vive en el eje de **validez** y no lo encuentra una
+/// consulta al presente. Para ésas sigue estando [`label`], y son una por
+/// pantalla, no doscientas.
+///
+/// [ADR-0014]: ../../../docs/adr/0014-dos-vistas-un-solo-estado.md
+pub struct Labels {
+    ruta: HashMap<EntityId, String>,
+    carpeta: HashMap<EntityId, String>,
+}
+
+impl Labels {
+    pub fn load(store: &Store, at: TimePoint) -> Result<Self> {
+        let mut ruta = HashMap::new();
+        for a in store.query(None, Some("path_observed_at"), at)? {
+            if let Some(t) = a.object.as_text() {
+                ruta.entry(a.subject).or_insert_with(|| de_ruta(t));
+            }
+        }
+        let mut carpeta = HashMap::new();
+        for a in store.query(None, Some("folder_path"), at)? {
+            if let Some(t) = a.object.as_text() {
+                carpeta.entry(a.subject).or_insert_with(|| de_carpeta(t));
+            }
+        }
+        Ok(Labels { ruta, carpeta })
+    }
+
+    /// El nombre, o `None` si esta entidad no se nombra por ruta ni por carpeta
+    /// — una sesión, por ejemplo. Devolver `Option` y no un `<01KZW5…>` de
+    /// relleno es lo que permite a quien llama pedirle el nombre a [`label`] en
+    /// vez de enseñar un identificador.
+    pub fn get(&self, e: &EntityId) -> Option<&str> {
+        self.ruta
+            .get(e)
+            .or_else(|| self.carpeta.get(e))
+            .map(String::as_str)
+    }
+}
+
 pub fn label(store: &Store, e: &EntityId, at: TimePoint) -> String {
     if let Ok(Some(a)) = store.resolve(e, "path_observed_at", at) {
         if let Some(t) = a.object.as_text() {
-            return t.rsplit(['\\', '/']).next().unwrap_or(t).to_string();
+            return de_ruta(t);
         }
     }
-    // Una carpeta se nombra con **dos** segmentos. Con uno solo, este mismo
-    // repositorio dibuja cinco nodos distintos llamados `src` y el mapa deja de
-    // poder leerse.
     if let Ok(Some(a)) = store.resolve(e, "folder_path", at) {
         if let Some(t) = a.object.as_text() {
-            let mut partes = t.rsplit(['\\', '/']);
-            return match (partes.next(), partes.next()) {
-                (Some(hoja), Some(padre)) if !padre.is_empty() => format!("{padre}/{hoja}"),
-                (Some(hoja), _) => hoja.to_string(),
-                _ => t.to_string(),
-            };
+            return de_carpeta(t);
         }
     }
     // `session_span` vive en el eje de **validez** —la sesión ocurrió entonces,

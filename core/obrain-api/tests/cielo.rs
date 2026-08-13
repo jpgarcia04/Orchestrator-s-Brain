@@ -82,8 +82,20 @@ fn el_cielo_se_abre_partiendo_siempre_la_region_mas_grande() {
 
     // Con tres: se abre la mayor de las dos... que es trabajo, y no tiene
     // hijas. Así que se abre viajes, que sí.
+    //
+    // `barcelona` y `roma` pesan **lo mismo**, así que entre ellas decide el
+    // desempate por identificador. `regions` promete que *«dos ejecuciones sobre
+    // la misma base abren exactamente el mismo cielo»* y lo cumple —los ids ya
+    // están escritos—, pero este fixture crea ids nuevos cada vez y
+    // `ulid::Ulid::new()` no es monótono dentro de un mismo milisegundo. Fijar
+    // aquí un orden entre las dos probaba la suerte del reloj: fallaba una de
+    // cada seis ejecuciones. Lo que el cielo promete es **cuáles** se abren.
     let tres = sky::regions(&store, 3, at()).unwrap();
-    assert_eq!(etiquetas(&tres), vec!["vida/trabajo", "viajes/barcelona", "viajes/roma"]);
+    let e = etiquetas(&tres);
+    assert_eq!(e[0], "vida/trabajo", "la mayor sigue mandando: {e:?}");
+    let mut empatadas = e[1..].to_vec();
+    empatadas.sort_unstable();
+    assert_eq!(empatadas, vec!["viajes/barcelona", "viajes/roma"]);
 }
 
 /// Coger «las N carpetas con más archivos» daría siempre la raíz y dentro de

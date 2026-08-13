@@ -26,6 +26,26 @@
       <ol id="resultados"></ol>
     </main>
 
+    <!--
+      El conmutador de EXPERIENCE.md §4.7. Visible y en un sitio fijo, porque el
+      explorador **nunca aparece solo**: en el momento en que apareciera por
+      tocar un nodo sería el modal que §4.4 prohíbe.
+    -->
+    <button id="conmutador" title="Explorador · Ctrl+E">explorador</button>
+
+    <!--
+      Centrado, grande y de tamaño fijo. Arrastrar y redimensionar están fuera
+      de esta versión por escrito (ADR-0014): el valor está en poder bajar por la
+      jerarquía sin escribir, y mover la ventana es acabado.
+    -->
+    <section id="explorador" tabindex="-1" hidden aria-label="Explorador">
+      <header>
+        <nav id="migas" aria-label="Ruta"></nav>
+        <span class="pista">↑↓ moverse · → entrar · ← volver · Esc cerrar</span>
+      </header>
+      <div id="columnas"></div>
+    </section>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

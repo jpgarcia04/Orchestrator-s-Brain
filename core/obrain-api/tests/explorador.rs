@@ -1,0 +1,257 @@
+//! El explorador de [ADR-0014]: bajar por el árbol sin escribir nada.
+//!
+//! Igual que en `cielo.rs`, el árbol lo monta el **enlazador real de M3** y no
+//! una mano: lo que se prueba es que se puede bajar por lo que el sistema
+//! escribe de verdad.
+//!
+//! Lo que estos tests protegen no es una función, es la consecuencia #4 del ADR
+//! —*«dos vistas de un solo estado»*—. En el momento en que el explorador y la
+//! galaxia calculen por su cuenta cuántos archivos hay dentro de una carpeta,
+//! dejan de ser dos vistas y pasan a ser dos aplicaciones compartiendo ventana.
+//!
+//! [ADR-0014]: ../../../docs/adr/0014-dos-vistas-un-solo-estado.md
+
+use obrain_api::sky;
+use obrain_core::{EntityId, Method, NewAssertion, Store, TimePoint, Value};
+use obrain_link::{FileView, LinkReport};
+
+const T: i64 = 1_700_000_000_000;
+
+fn at() -> TimePoint {
+    TimePoint::at(T + 10_000)
+}
+
+fn base() -> Store {
+    let store = Store::open_in_memory().unwrap();
+    obrain_extract::index::migrate(store.conn()).unwrap();
+    store
+}
+
+fn arbol(store: &Store, paths: &[&str]) -> Vec<EntityId> {
+    let files: Vec<FileView> = paths
+        .iter()
+        .map(|p| {
+            let e = store.create_entity(T).unwrap();
+            store
+                .assert(NewAssertion::new(
+                    e.clone(),
+                    "path_observed_at",
+                    *p,
+                    Method::Deterministic,
+                    T,
+                ))
+                .unwrap();
+            FileView {
+                entity: e,
+                path: (*p).to_string(),
+                hash: None,
+                modified_ms: T,
+                size: 1,
+                availability: "local".into(),
+            }
+        })
+        .collect();
+    let mut r = LinkReport::default();
+    obrain_link::structure::link(store, &files, T, &mut r).unwrap();
+    files.into_iter().map(|f| f.entity).collect()
+}
+
+/// La carpeta que se llama así, en la lista que sea.
+///
+/// Compara **la hoja de la ruta** y no la etiqueta. `obrain_link::label` da dos
+/// segmentos —`vida\viajes`, para que cinco carpetas `src` no sean cinco nodos
+/// idénticos—, así que buscar por texto dentro de la etiqueta encuentra la hija
+/// cuando se pide la madre, y el test baja un nivel de más sin enterarse.
+fn carpeta(l: &sky::Listing, nombre: &str) -> EntityId {
+    l.rows
+        .iter()
+        .find(|r| r.kind == "folder" && r.path.rsplit(['\\', '/']).next() == Some(nombre))
+        .map(|r| EntityId(r.id.clone()))
+        .unwrap_or_else(|| panic!("no hay carpeta «{nombre}» en {:?}", etiquetas(l)))
+}
+
+fn etiquetas(l: &sky::Listing) -> Vec<&str> {
+    l.rows.iter().map(|r| r.label.as_str()).collect()
+}
+
+/// La única raíz del árbol.
+///
+/// `obrain-link` **no crea un nodo para la unidad**: la raíz es la carpeta más
+/// alta que contiene algo, así que con todo bajo `C:\vida` la raíz es `C:/vida`
+/// y no `C:`. Los tests navegan desde lo que el enlazador produce, no desde lo
+/// que uno supone que produce.
+fn raiz(store: &Store) -> EntityId {
+    let l = sky::children(store, None, at()).unwrap();
+    assert_eq!(l.folders, 1, "este fixture tiene una sola raíz: {:?}", etiquetas(&l));
+    EntityId(l.rows[0].id.clone())
+}
+
+/// Baja hasta el fondo contando archivos. Es la cuenta que el explorador tiene
+/// que poder sostener: lo que promete una fila es lo que hay al entrar en ella.
+fn contando_hacia_abajo(store: &Store, id: &EntityId) -> usize {
+    let l = sky::children(store, Some(id), at()).unwrap();
+    let mut n = l.files;
+    for r in l.rows.iter().filter(|r| r.kind == "folder") {
+        n += contando_hacia_abajo(store, &EntityId(r.id.clone()));
+    }
+    n
+}
+
+// ─────────────────────────────────────────────────────────────── bajar un nivel
+
+/// Sin foco se entra por las raíces. Es el estado inicial del explorador cuando
+/// nadie ha enfocado nada todavía en la galaxia.
+#[test]
+fn sin_foco_se_entra_por_las_raices() {
+    let store = base();
+    arbol(&store, &["C:\\vida\\a.txt", "D:\\copias\\b.txt"]);
+
+    let raiz = sky::children(&store, None, at()).unwrap();
+    assert_eq!(raiz.focus, None);
+    assert_eq!(raiz.folders, 2, "dos volúmenes, dos raíces: {:?}", etiquetas(&raiz));
+    assert_eq!(raiz.files, 0, "de una raíz no cuelga ningún archivo suelto");
+    assert!(raiz.trail.is_empty(), "en la raíz no hay migas que enseñar");
+}
+
+/// Las carpetas van delante de los archivos, y por peso. Quien está bajando
+/// busca casi siempre la carpeta, no el archivo suelto de este nivel.
+#[test]
+fn las_carpetas_van_primero_y_por_peso() {
+    let store = base();
+    arbol(
+        &store,
+        &[
+            "C:\\vida\\suelto.txt",
+            "C:\\vida\\pocas\\a.txt",
+            "C:\\vida\\muchas\\a.txt",
+            "C:\\vida\\muchas\\b.txt",
+            "C:\\vida\\muchas\\c.txt",
+        ],
+    );
+
+    let l = sky::children(&store, Some(&raiz(&store)), at()).unwrap();
+
+    assert_eq!(l.folders, 2);
+    assert_eq!(l.files, 1);
+    assert_eq!(l.rows[0].kind, "folder");
+    assert!(l.rows[0].label.contains("muchas"), "la mayor primero: {:?}", etiquetas(&l));
+    assert!(l.rows[1].label.contains("pocas"));
+    assert_eq!(l.rows[2].kind, "file", "los archivos, detrás de las carpetas");
+    assert_eq!(l.rows[0].weight, 3, "el peso es lo que hay dentro de verdad");
+}
+
+// ───────────────────────────────────── la consecuencia #4: un solo estado
+
+/// **Lo que promete una fila es lo que hay al entrar.** Si el peso que enseña
+/// una carpeta no es el número de archivos que se alcanzan bajando por ella, la
+/// galaxia dice «229» y el explorador enseña 217 — y ahí se rompe el ADR.
+#[test]
+fn el_peso_de_una_fila_es_lo_que_se_encuentra_al_bajar() {
+    let store = base();
+    arbol(
+        &store,
+        &[
+            "C:\\vida\\viajes\\roma\\1.jpg",
+            "C:\\vida\\viajes\\roma\\2.jpg",
+            "C:\\vida\\viajes\\barcelona\\3.jpg",
+            "C:\\vida\\viajes\\suelta.jpg",
+            "C:\\vida\\trabajo\\informe.pdf",
+        ],
+    );
+
+    let l = sky::children(&store, Some(&raiz(&store)), at()).unwrap();
+    for fila in l.rows.iter().filter(|r| r.kind == "folder") {
+        let id = EntityId(fila.id.clone());
+        assert_eq!(
+            fila.weight,
+            contando_hacia_abajo(&store, &id),
+            "«{}» promete {} archivos y al bajar hay otra cosa",
+            fila.label,
+            fila.weight,
+        );
+    }
+}
+
+/// Las migas llevan de vuelta hasta la raíz, en orden y sin saltarse un nivel.
+/// Son la mitad de la continuidad de estado que el ADR exige: sin ellas, entrar
+/// al explorador desde la galaxia te deja sin saber dónde estás.
+#[test]
+fn las_migas_reconstruyen_el_camino_entero() {
+    let store = base();
+    arbol(&store, &["C:\\vida\\viajes\\roma\\foto.jpg"]);
+
+    let vida = raiz(&store);
+    let viajes = carpeta(&sky::children(&store, Some(&vida), at()).unwrap(), "viajes");
+    let roma = carpeta(&sky::children(&store, Some(&viajes), at()).unwrap(), "roma");
+
+    let l = sky::children(&store, Some(&roma), at()).unwrap();
+    let camino: Vec<&str> = l.trail.iter().map(|c| c.label.as_str()).collect();
+    assert_eq!(camino.len(), 2, "vida → viajes, de fuera hacia dentro: {camino:?}");
+    assert!(camino[0].ends_with("vida"), "la de fuera va primero: {camino:?}");
+    assert!(camino[1].ends_with("viajes"));
+    assert_eq!(l.files, 1, "y dentro, la foto");
+}
+
+// ──────────────────────────────────── navegar el grafo, no el disco
+
+/// **La diferencia que sostiene el proyecto.** Una sesión de trabajo no es una
+/// carpeta y aun así se baja por ella: agrupa por *cuándo* tocaste las cosas, y
+/// eso un explorador de archivos no lo puede enseñar.
+#[test]
+fn se_baja_por_una_sesion_igual_que_por_una_carpeta() {
+    let store = base();
+    let files = arbol(
+        &store,
+        &["C:\\vida\\trabajo\\informe.pdf", "C:\\vida\\viajes\\billete.pdf"],
+    );
+
+    // Una sesión que cruzó dos carpetas: exactamente el caso que el árbol de
+    // contención no sabe contar.
+    let sesion = store.create_entity(T).unwrap();
+    for f in &files {
+        store
+            .assert(NewAssertion::new(
+                f.clone(),
+                "occurred_during",
+                Value::Entity(sesion.clone()),
+                Method::Deterministic,
+                T,
+            ))
+            .unwrap();
+    }
+
+    let l = sky::children(&store, Some(&sesion), at()).unwrap();
+    assert_eq!(l.files, 2, "los dos archivos de la sesión, de dos carpetas distintas");
+    assert_eq!(l.folders, 0, "una sesión no tiene subcarpetas");
+    assert!(l.rows.iter().all(|r| r.kind == "file"));
+}
+
+// ─────────────────────────────────────────── la guarda de la previsualización
+
+/// `availability` viaja en cada fila. Es la señal que impide que una
+/// previsualización descargue un archivo de la nube sin querer, y por eso la
+/// trae el núcleo ya resuelta en vez de dejar que la interfaz la deduzca.
+#[test]
+fn cada_fila_dice_si_su_contenido_se_puede_leer() {
+    let store = base();
+    let files = arbol(&store, &["C:\\vida\\local.txt", "C:\\vida\\nube.txt"]);
+    for (f, v) in files.iter().zip(["local", "cloud_dehydrated"]) {
+        store
+            .assert(NewAssertion::new(f.clone(), "availability", v, Method::Deterministic, T))
+            .unwrap();
+    }
+
+    let l = sky::children(&store, Some(&raiz(&store)), at()).unwrap();
+
+    let nube = l.rows.iter().find(|r| r.label.contains("nube")).unwrap();
+    assert_eq!(nube.availability.as_deref(), Some("cloud_dehydrated"));
+    assert!(
+        !obrain_scan::triage::Availability::parse(nube.availability.as_deref().unwrap())
+            .unwrap()
+            .may_read_content(),
+        "leer este archivo lo descargaría: la fila tiene que poder decirlo"
+    );
+
+    let local = l.rows.iter().find(|r| r.label.contains("local")).unwrap();
+    assert_eq!(local.availability.as_deref(), Some("local"));
+}
