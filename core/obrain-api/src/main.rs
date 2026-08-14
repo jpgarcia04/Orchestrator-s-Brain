@@ -347,6 +347,14 @@ fn main() -> ExitCode {
     };
 
     match lente {
+        // La lente era la única superficie sin `--json`, y es la que dibuja el
+        // mapa. Sin esto no hay forma de mirar el dato que produjo un fotograma
+        // —que es la convención de este proyecto y ya ha desmentido dos
+        // diagnósticos escritos—: había que abrir la aplicación y creerse lo
+        // que se veía.
+        Ok(l) if flag("--json") => {
+            println!("{}", serde_json::to_string(&l).unwrap_or_default());
+        }
         Ok(l) => {
             println!("\n── LA LENTE ───────────────────────────────");
             println!("  focos                 {}", l.focus.len());

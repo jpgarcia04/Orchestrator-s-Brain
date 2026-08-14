@@ -30,6 +30,8 @@ const $estado = document.querySelector<HTMLDivElement>("#estado")!;
 const $resultados = document.querySelector<HTMLOListElement>("#resultados")!;
 const $lienzo = document.querySelector<HTMLCanvasElement>("#sustrato")!;
 const $barra = document.querySelector<HTMLElement>("#barra")!;
+const $lupa = document.querySelector<HTMLButtonElement>("#lupa")!;
+const $encuadre = document.querySelector<HTMLButtonElement>("#encuadre")!;
 const $conmutador = document.querySelector<HTMLButtonElement>("#conmutador")!;
 
 const $detalle = document.querySelector<HTMLElement>("#detalle")!;
@@ -89,9 +91,47 @@ let seleccion = 0;
 /** Filas navegables, aplanadas: cabeceras de grupo y resultados. */
 let filas: Array<{ grupo: number; hit?: string }> = [];
 
+/**
+ * La barra plegada, y por qué **no cuesta un gesto**.
+ *
+ * [ADR-0004](../../docs/adr/0004-punto-de-entrada-barra-no-galaxia.md) puso la
+ * barra delante con un argumento que sigue en pie: escribir es el camino de las
+ * cuarenta veces al día. [ADR-0013](../../docs/adr/0013-el-mapa-es-la-pantalla.md)
+ * la metió dentro del mapa. Lo que se descubrió al usarlo es que 560 px en
+ * medio de la pantalla **estorban al mapa**, y encogerla va a favor de 0013.
+ *
+ * El peligro era el gesto: un icono que hay que pulsar antes de escribir añade
+ * un paso a ese camino diario. Por eso el icono no es la única forma de
+ * abrirla — **escribir la abre**, y la primera letra no se pierde.
+ */
+function abrirBarra(semilla?: string): void {
+  document.body.classList.add("buscando");
+  $consulta.focus();
+  if (semilla === undefined) return;
+  $consulta.value = semilla;
+  window.clearTimeout(pendiente);
+  pendiente = window.setTimeout(() => void consultar(semilla), ESPERA);
+}
+
+/** Se repliega sola, y nunca con algo escrito dentro. */
+function cerrarBarra(): void {
+  if ($consulta.value !== "") return;
+  document.body.classList.remove("buscando");
+  $consulta.blur();
+}
+
+/** ¿Está el teclado ocupado en un campo? Entonces no es un atajo del mapa. */
+function escribiendo(): boolean {
+  const a = document.activeElement;
+  return (
+    a instanceof HTMLInputElement ||
+    a instanceof HTMLTextAreaElement ||
+    (a instanceof HTMLElement && a.isContentEditable)
+  );
+}
+
 async function arrancar(): Promise<void> {
   await mapa.init();
-  $consulta.focus();
   try {
     miCielo = await cielo(30);
     mapa.cielo(miCielo);
@@ -206,6 +246,7 @@ async function enfocar(): Promise<void> {
   ver(donde, true);
   const l = await lente([donde], 2, 300);
   mapa.mostrar(l);
+  mapa.seleccionar(donde);
   const nombre = fila.hit ? porId.get(fila.hit)?.label : g.label;
   const base = `${nombre} · ${l.nodes.length} nodos, ${l.edges.length} aristas`;
   // Un mapa que esconde que enseña una parte miente sobre el tamaño de tu vida.
@@ -280,7 +321,16 @@ $consulta.addEventListener("keydown", (e) => {
       break;
     case "Escape":
       e.preventDefault();
-      if ($consulta.value === "") alCielo();
+      // La escalera de §4.1 deshace un escalón cada vez: primero lo escrito,
+      // luego la barra. Lo que hay debajo —el panel, la cámara, el cielo— lo
+      // deshace el siguiente `Esc`.
+      //
+      // Y **se corta la propagación**: replegar la barra le quita el foco al
+      // campo, así que el manejador de la ventana —que se salta a sí mismo
+      // mientras escribes— veía el foco ya fuera y atendía el mismo `Esc`. Un
+      // solo golpe cerraba la barra y el panel: dos escalones de una vez.
+      e.stopPropagation();
+      if ($consulta.value === "") cerrarBarra();
       else {
         $consulta.value = "";
         void consultar("");
@@ -298,29 +348,39 @@ $resultados.addEventListener("click", (e) => {
   void enfocar();
 });
 
-// Clic en el mapa. **El nodo manda sobre la región**: si hay una lente abierta,
-// lo que está debajo del cursor es un nodo concreto, y tratarlo como región
-// devolvería a quien acaba de llegar al sitio de donde venía.
+// Picar en el mapa. **El mapa dice qué hay debajo; qué se hace con ello se
+// decide aquí.** Antes esto preguntaba por coordenadas —`nodoEn`, `regionEn`—
+// y eso obligaba a que la conversión de pantalla a mundo viviera en dos sitios;
+// con una cámara encima, dos sitios son dos oportunidades de picar la estrella
+// de al lado.
 //
 // §4.4 en su forma literal: seleccionar un nodo abre el panel lateral y el mapa
 // **sigue vivo detrás**. No es un modal, y por eso no hace falta la excepción
 // que ADR-0014 tuvo que escribir para el explorador.
-$lienzo.addEventListener("click", async (e) => {
-  const n = mapa.nodoEn(e.clientX, e.clientY);
-  if (n) {
+mapa.onElegir = async (p) => {
+  if (!p) return;
+  if (p.tipo === "nodo") {
+    const n = p.nodo;
     foco = n.id;
+    mapa.seleccionar(n.id);
     ver(n.id, true);
     decir(`${n.label} · ${n.degree} relaciones · Esc para volver`);
     return;
   }
-  const r = mapa.regionEn(e.clientX, e.clientY);
-  if (!r) return;
+  const r = p.region;
   foco = r.id;
   ver(r.id, true);
   const l = await lente([r.id], 2, 300);
   mapa.mostrar(l);
+  mapa.seleccionar(r.id);
   decir(`${r.path} · ${r.weight} archivos · ${l.nodes.length} nodos · Esc para volver`);
-});
+};
+
+// Volver a ver todo. Está en un botón **visible** y no sólo en una tecla porque
+// el mapa nuevo se deja llevar a cualquier sitio, y una forma de volver que hay
+// que adivinar no es una forma de volver.
+mapa.onCamara = (movida) => $encuadre.classList.toggle("visible", movida);
+$encuadre.addEventListener("click", () => mapa.encuadre());
 
 window.addEventListener("keydown", (e) => {
   if (explorador.visible) return; // el explorador tiene sus propias teclas
@@ -332,19 +392,48 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (e.key === "Escape" && document.activeElement !== $consulta) {
-    // Escape deshace un escalón, no todos: primero cierra el panel y el mapa se
-    // queda donde estaba. Volver al cielo de golpe perdería el sitio al que
-    // costó llegar.
+    // Escape deshace un escalón, no todos: primero el panel, después la cámara
+    // —el mapa vuelve a verse entero— y sólo al final el cielo. Volver de golpe
+    // perdería el sitio al que costó llegar.
     if (panel.visible) panel.ocultar();
-    else alCielo();
+    else if (!mapa.encuadre()) alCielo();
+    return;
   }
+  // **Escribir abre la barra**, y por eso plegarla no cuesta un gesto. La tecla
+  // no se pierde: entra como primera letra de la consulta.
+  if (
+    !escribiendo() &&
+    !e.ctrlKey &&
+    !e.metaKey &&
+    !e.altKey &&
+    e.key.length === 1 &&
+    e.key !== " "
+  ) {
+    e.preventDefault();
+    abrirBarra(e.key);
+  }
+});
+
+$lupa.addEventListener("click", () => abrirBarra());
+
+// Se repliega al salir de ella, y sólo si está vacía: replegar una barra con
+// algo escrito sería tirar lo que el usuario acaba de teclear.
+$barra.addEventListener("focusout", (e) => {
+  const va = e.relatedTarget as Node | null;
+  if (va && $barra.contains(va)) return;
+  cerrarBarra();
 });
 
 /** Ir a otra entidad desde una línea del panel: se enfoca y se enseña. */
 panel.onNavegar = (id) => {
   foco = id;
   ver(id, true);
-  if (!explorador.visible) void lente([id], 2, 300).then((l) => mapa.mostrar(l));
+  if (!explorador.visible) {
+    void lente([id], 2, 300).then((l) => {
+      mapa.mostrar(l);
+      mapa.seleccionar(id);
+    });
+  }
 };
 
 // ────────────────────────────────────────────────── el conmutador (§4.7)
@@ -362,6 +451,7 @@ async function conmutar(): Promise<void> {
   }
   mapa.congelar();
   $barra.style.visibility = "hidden";
+  $encuadre.style.visibility = "hidden";
   $conmutador.style.visibility = "hidden";
   // El panel se muda, no se duplica: dentro del explorador es la columna de
   // detalle (ADR-0014 §6), y sigue siendo el mismo elemento con el mismo estado.
@@ -371,14 +461,20 @@ async function conmutar(): Promise<void> {
 
 explorador.onCerrar = (donde) => {
   $barra.style.visibility = "";
+  $encuadre.style.visibility = "";
   $conmutador.style.visibility = "";
   panel.montar(document.body);
   mapa.descongelar();
   if (donde) {
     foco = donde;
-    void lente([donde], 2, 300).then((l) => mapa.mostrar(l));
+    void lente([donde], 2, 300).then((l) => {
+      mapa.mostrar(l);
+      // Al volver, el mapa dice **cuál** de los trescientos puntos es el que
+      // estabas mirando en el explorador. Sin esto, la continuidad de estado
+      // del ADR-0014 llega hasta la lente y se pierde justo en el último metro.
+      mapa.seleccionar(donde);
+    });
   }
-  $consulta.focus();
 };
 
 explorador.onFila = (f) => {

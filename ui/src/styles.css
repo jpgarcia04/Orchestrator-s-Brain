@@ -45,24 +45,74 @@ body {
 
 /* ─────────────────────────────────────────────────────────────── la barra ── */
 
+/*
+ * **Plegada es un icono; escribir la despliega** (ADR-0017).
+ *
+ * 560 px en medio del mapa eran 560 px de mapa que no se veían, y quitarlos de
+ * ahí va a favor de ADR-0013: el mapa es la pantalla. Lo que no se puede tocar
+ * es el camino de las cuarenta veces al día de ADR-0004, y por eso el icono no
+ * es la única forma de abrirla — cualquier tecla lo hace, y la letra no se
+ * pierde. El gesto que se añade es ninguno.
+ */
 #barra {
-  position: relative;
-  width: min(560px, calc(100vw - 64px));
-  /* Un tercio de la altura, no el centro: deja sitio a los resultados sin que
-     la lista tenga que empujar la barra hacia arriba al aparecer. Que la barra
-     salte al escribir es lo que hace que una interfaz se sienta barata. */
-  margin: min(24vh, 210px) auto 0;
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 2;
+  width: 44px;
   padding: 4px;
   background: var(--barra);
   /* Un borde superior más claro que el inferior: es de donde viene la luz en
      esta pantalla, y es lo que separa un panel de un rectángulo. */
   border: 1px solid var(--borde);
   border-top-color: rgba(150, 180, 225, 0.22);
-  border-radius: 16px;
+  border-radius: 15px;
   backdrop-filter: blur(24px) saturate(1.2);
   box-shadow:
     0 1px 0 rgba(190, 215, 255, 0.06) inset,
     0 32px 80px -12px rgba(0, 0, 0, 0.8);
+  transition: width 170ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+body.buscando #barra {
+  width: min(470px, calc(100vw - 32px));
+}
+
+#lupa {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--tinta-tenue);
+  cursor: pointer;
+}
+
+#lupa:hover {
+  color: var(--tinta);
+  background: rgba(120, 160, 220, 0.1);
+}
+
+#lupa svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+/* Plegada no enseña nada más que el icono, y desplegada el icono sobra. */
+body:not(.buscando) #consulta,
+body:not(.buscando) #resultados {
+  display: none;
+}
+
+body.buscando #lupa {
+  display: none;
 }
 
 #consulta {
@@ -85,13 +135,59 @@ body {
   font-weight: 300;
 }
 
+/* La línea de estado del mapa. Abajo a la izquierda y siempre: dice qué sabe
+   la aplicación de ti al arrancar, y qué acaba de encontrar al buscar. */
 #estado {
-  padding: 0 18px 10px;
-  min-height: 16px;
+  position: fixed;
+  left: 20px;
+  bottom: 14px;
+  max-width: min(560px, 60vw);
   color: #56687f;
   font-size: 11px;
   letter-spacing: 0.02em;
   font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+/*
+ * Sólo se ve cuando la cámara se ha ido del encuadre completo — y entonces se
+ * ve de verdad. `Esc` también vuelve, pero una tecla no es una salida
+ * **visible**, y el mapa nuevo se deja llevar a cualquier sitio.
+ */
+#encuadre {
+  position: fixed;
+  left: 18px;
+  bottom: 36px;
+  z-index: 2;
+  padding: 6px 13px;
+  border: 1px solid var(--borde);
+  border-top-color: rgba(150, 180, 225, 0.22);
+  border-radius: 999px;
+  background: var(--barra);
+  backdrop-filter: blur(24px);
+  color: var(--tinta);
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(4px);
+  visibility: hidden;
+  transition:
+    opacity 160ms ease-out,
+    transform 160ms ease-out,
+    visibility 160ms;
+}
+
+#encuadre.visible {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+}
+
+#encuadre:hover {
+  border-color: rgba(150, 180, 225, 0.34);
 }
 
 /* ──────────────────────────────────────────────────────── los resultados ── */
@@ -205,29 +301,62 @@ body {
   /* Por encima del panel: si el conmutador se puede tapar, deja de estar en un
      sitio fijo y ADR-0014 deja de sostenerse. */
   z-index: 3;
-  padding: 7px 14px;
-  border: 1px solid var(--borde);
-  border-top-color: rgba(150, 180, 225, 0.22);
+  /*
+   * **Esto es el arreglo, y es contra el ADR.** La consecuencia #2 de ADR-0014
+   * dice «un conmutador visible y un atajo de teclado, los dos», y el botón
+   * existía: 12 px en tinta tenue en una esquina de una pantalla negra. El
+   * usuario lo usó y aun así pidió «un botón visible en la galaxia» — que es el
+   * veredicto de que aquello no cumplía la palabra. Se arregla la presencia:
+   * más tinta, un icono que dice qué hace y el atajo a la vista en vez de
+   * escondido en un `title` que hay que descubrir parándose encima.
+   */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 8px 13px;
+  border: 1px solid rgba(150, 180, 225, 0.26);
+  border-top-color: rgba(160, 195, 240, 0.4);
   border-radius: 999px;
-  background: var(--barra);
+  background: rgba(17, 25, 40, 0.9);
   backdrop-filter: blur(24px);
+  color: var(--tinta);
+  font: inherit;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: 0 10px 30px -8px rgba(0, 0, 0, 0.85);
+}
+
+#conmutador svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  opacity: 0.75;
+}
+
+#conmutador kbd {
+  padding: 2px 5px;
+  border: 1px solid var(--borde);
+  border-radius: 5px;
   color: var(--tinta-tenue);
   font: inherit;
-  font-size: 12px;
-  letter-spacing: 0.03em;
-  cursor: pointer;
+  font-size: 10px;
+  letter-spacing: 0.04em;
 }
 
 #conmutador:hover {
-  color: var(--tinta);
+  border-color: rgba(170, 205, 250, 0.45);
+  background: rgba(24, 34, 52, 0.92);
 }
 
 #explorador {
   position: fixed;
   inset: 0;
   margin: auto;
-  width: min(1120px, calc(100vw - 96px));
-  height: min(680px, calc(100vh - 120px));
+  width: min(1240px, calc(100vw - 80px));
+  height: min(700px, calc(100vh - 110px));
   display: flex;
   flex-direction: column;
   background: rgba(9, 13, 22, 0.9);
@@ -302,15 +431,39 @@ body {
   min-height: 0;
 }
 
+/*
+ * **Los niveles de arriba se estrechan.** No es reabrir ADR-0014: las columnas
+ * siguen siendo columnas y la alternativa C sigue rechazada. Lo que se arregla
+ * es el síntoma que se vio al usarlo — que el ancestro ocupara lo mismo que el
+ * nivel activo, que a cuatro niveles hubiera que desplazarse en horizontal para
+ * ver dónde estás, y que entonces no cupiera nada.
+ *
+ * Lo de arriba se comprime como un acordeón hasta 62 px, así que **nunca hay
+ * desplazamiento horizontal**: el camino entero se ve siempre, con el sitio
+ * repartido según lo cerca que esté de donde estás mirando. Los nombres de los
+ * niveles comprimidos siguen enteros en las migas, que es justo lo que el
+ * usuario dijo que le gustaba.
+ */
 .columna {
-  flex: 0 0 268px;
+  flex: 0 1 232px;
   border-right: 1px solid var(--borde);
   overflow-y: auto;
   min-height: 0;
 }
 
 .columna:last-child {
-  flex-basis: 320px;
+  flex: 0 0 320px;
+}
+
+.columna:nth-last-child(n + 3) {
+  flex: 0 1 124px;
+  min-width: 62px;
+}
+
+/* En un nivel comprimido no cabe la fecha ni la cuenta, y meterlas a la fuerza
+   se come el nombre, que es lo único que hace falta ahí. */
+.columna:nth-last-child(n + 3) .fila-meta {
+  display: none;
 }
 
 .columna ul {
@@ -444,14 +597,8 @@ body > #panel {
    `margin: … auto`, así que fijarle el margen derecho la pegaría al panel en
    vez de recentrarla en lo que queda de pantalla. Medio ancho de panel es
    exactamente el centro del hueco. */
-body.con-panel #barra {
-  transform: translateX(calc(var(--ancho-panel) / -2));
-}
-
-#barra {
-  transition: transform 200ms ease-out;
-}
-
+/* La barra ya no se aparta al abrir el panel: vive en la esquina de arriba a la
+   izquierda y el panel entra por la derecha. Una cosa menos que coordinar. */
 body.con-panel #conmutador {
   right: calc(var(--ancho-panel) + 18px);
   transition: right 200ms ease-out;

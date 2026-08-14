@@ -2,7 +2,7 @@
 
 > Las aplicaciones actuales almacenan información. Orchestrator's Brain construye conocimiento.
 
-**Estado:** Fase 2 — Arquitectura · **Última revisión:** 2026-08-13 · **Documento vivo**
+**Estado:** Fase 2 — Arquitectura · **Última revisión:** 2026-08-14 · **Documento vivo**
 
 Este documento refleja siempre el estado *actual* del diseño. Se edita libremente.
 El *porqué* de las decisiones contestadas vive en [`adr/`](adr/) y no se edita nunca.
@@ -361,7 +361,8 @@ Cada hito se valida contra la pregunta de la visa.
 | ✅ **M4 — Entender** | Embeddings locales, búsqueda semántica, fusión RRF. → [`core/obrain-embed`](../core/obrain-embed) | **Hecho (2026-08-07).** 2.479 vectores, `universidad` encuentra un formulario de matrícula que no contiene la palabra. Rerank **diferido con la medición** ([ADR-0011](adr/0011-rerank-diferido.md)). Ver informe abajo. |
 | ✅ **M5a — La barra sobre el sustrato** | Superficie del núcleo, lente de I2, barra de ADR-0004. → [`core/obrain-api`](../core/obrain-api) + [`ui`](../ui) | **Hecho (2026-08-08).** Ver informe abajo. |
 | ✅ **M5b — Llegar y ver** | Dos cosas: el conmutador galaxia/explorador de [ADR-0014](adr/0014-dos-vistas-un-solo-estado.md), y el panel de entidad de [`EXPERIENCE.md`](EXPERIENCE.md) §4.4 **con previsualización**. Nada más. | **Hecho (2026-08-13).** Se abre la app, se baja hasta el PDF de la visa sin escribir su nombre, y se lee — con el párrafo que lo explica marcado. Ver informe abajo. |
-| **M5c — Enterarse** | Vigilancia continua: USN Change Journal para el volumen, `ReadDirectoryChangesW` para carpetas concretas (§4.1). El demonio de [ADR-0003](adr/0003-lenguaje-del-nucleo.md). | Se deja un archivo nuevo en una carpeta vigilada y **aparece en el mapa sin que nadie lance nada**. |
+| ✅ **M5d — Manejarlo** | La cámara del mapa —zoom y arrastre— y saber qué nodo vas a abrir antes de abrirlo. Sale de **usar M5b**, no de una lista. → [`m5d-manejarlo.md`](prompts/m5d-manejarlo.md) | **Hecho (2026-08-14).** Te acercas a donde quieras del mapa, y sabes qué vas a abrir antes de abrirlo. Ver informe abajo. |
+| **M5c — Enterarse** | Vigilancia continua: USN Change Journal para el volumen, `ReadDirectoryChangesW` para carpetas concretas (§4.1). El demonio de [ADR-0003](adr/0003-lenguaje-del-nucleo.md). **Confirmado por el usuario el 2026-08-14 que va detrás de M5d.** | Se deja un archivo nuevo en una carpeta vigilada y **aparece en el mapa sin que nadie lance nada**. |
 | **M6 — Construir conocimiento** | Extracción de entidades, detección de `Process`, enriquecimiento por atención. | La métrica de §0 es medible y positiva. |
 | **M7 — La pregunta** | Comprensión de consulta, resolución temporal, respuesta con citas. | **Responde la pregunta de la visa.** |
 
@@ -1780,6 +1781,184 @@ separada derivada de una frase de paso que no se almacena. Un PIN es la
 la única prueba que este proyecto no ha hecho nunca: no medir contra el corpus
 ni contra los invariantes, sino contra si el usuario lo abre solo.
 
+> **Se usó el mismo día, y funcionó.** De abrir la aplicación salió una lista
+> que ningún informe habría producido: *«sigue sin haber zoom, no te puedes
+> mover y ampliar a tu gusto… no se entiende qué es lo que estás intentando
+> abrir»*. Es **M5d**, y su hallazgo estaba delante desde hacía tres días — la
+> cámara existe entera y medida en
+> [`prototypes/02-direcciones`](../prototypes/02-direcciones/index.html) y nunca
+> se portó a `mapa.ts`, que no tiene ni un manejador de `wheel`. Ver
+> [`m5d-manejarlo.md`](prompts/m5d-manejarlo.md).
+>
+> Y un número que corrige el diagnóstico del 2026-08-12, cuando el maestro era
+> más largo que el producto: núcleo **16.744** líneas, aplicación **3.382**,
+> este documento **1.828**. La aplicación se ha duplicado y ya casi dobla al
+> documento. **La interfaz está alcanzando al motor**, que era el problema de
+> fondo.
+
+### Informe de M5d — manejarlo (2026-08-14)
+
+El hito salió de **usar M5b**, no de una lista, y se entregó entero: dos piezas
+y tres arreglos acotados. **No entró una sexta cosa**, que era la mitad del
+objetivo desde que el hito se encogió el 2026-08-12.
+
+#### El hallazgo, que no estaba en el prompt y reordena la mitad del hito
+
+El prompt decía que la pieza 2 era «sobre todo estados que faltan»: no había
+*encima*, no había *seleccionado*, y sólo el foco llevaba nombre. Todo cierto.
+Pero al portar la cámara y acercarse apareció esto:
+
+> **El layout divergía. 233 de los 271 nodos de una lente real estaban en el
+> mismo píxel.**
+
+Medido en aislamiento contra el corpus, con `disponer` sacado tal cual a un
+script: con 271 cuerpos las posiciones llegan a **1e+126** en cuarenta
+iteraciones, y `encuadrar` —que reescala lo que haya para que quepa en la
+ventana— aplasta ese rango astronómico en un punto. Con 30 regiones converge,
+y por eso el cielo siempre se vio bien y **el fallo vivía sólo en la lente**,
+que es justo donde el usuario dijo *«está muy extraña la selección de nodos…
+no se entiende qué es lo que estás intentando abrir»*.
+
+No era una impresión sobre el realce: **no había nodos que seleccionar, había
+un montón.** Ninguna cantidad de anillos y etiquetas habría arreglado eso.
+
+La causa: la repulsión `reposo²/d²` no tiene tope, y con 271 cuerpos que
+arrancan en un cuadrante hay pares muy juntos desde el primer paso; la
+velocidad se realimenta y la amortiguación de 0,82 no puede con una explosión
+superexponencial. Se arregla como lo arregla Fruchterman-Reingold desde 1991:
+**el paso tiene un máximo y el máximo se enfría**, más un suelo de distancia
+para que un par pegado no aporte una fuerza infinita.
+
+| Caso real | Antes | Ahora |
+|---|---|---|
+| Lente de 271 nodos | **32 posiciones distintas**, separación mínima 0, 82 ms | **271 distintas**, separación 19,4 px, 52 ms |
+| Lentes de 38 · 31 · 35 nodos | ya convergían | igual o algo mejor |
+| Cielo, 30 regiones | convergía | converge |
+
+**Esto no es el arreglo del O(n²).** Sigue siendo O(n²), sigue en el hilo
+principal y sacarlo a un worker sigue siendo otro trabajo. Se tocó porque el
+criterio del hito era imposible sin ello y porque la cámara lo destapó, que era
+la condición escrita para tocarlo.
+
+#### Pieza 1 — la cámara
+
+Un port, no una invención: `cam {x, y, z}`, zoom interpolado en logaritmo hacia
+**el cursor**, arrastre 1:1, y `z = 1` como encuadre completo —no hace falta el
+`zBase` del prototipo porque `recolocar` ya ajusta el layout a la ventana—.
+
+Lo que el prompt avisaba que se rompería, y cómo quedó:
+
+- **Una sola composición.** `pantalla = (mundo − cámara) · zoom + centro +
+  paralaje`, escrita una vez, y de ella salen el dibujo, el picado, los nombres
+  y los realces. `regionEn` y `nodoEn` —que repetían la conversión a mano y ya
+  habían costado un fallo de doble resta del paralaje— **desaparecen**: hay una
+  función que dice qué hay debajo y el mapa avisa con `onElegir`. La ventana
+  decide qué hacer; el mapa decide qué se ha tocado.
+- **El paralaje se congela mientras arrastras.** Persigue al ratón, así que
+  sumado al arrastre movería el mapa un poco más que la mano. Medido: se pide
+  `[120, −70]`, se mueve `[120, −70]`.
+- **I10 intacto.** El zoom se interpola, pero lo que se ve y lo que se puede
+  picar salen los dos de `cam`, que es el valor de **este** fotograma. Con el
+  bucle parado —movimiento reducido, o ventana sin foco— la cámara salta al
+  destino y se dibuja un fotograma: sin animación, la aplicación entera.
+- **El tamaño no escala con el zoom.** `z^0,34`, medido en la aplicación: de
+  zoom 1 a 6,82 una estrella pasa de 99,7 a 191,6 px, ×1,92 — que es
+  exactamente `6,82^0,34`. El tamaño sigue significando densidad de conexiones
+  y no distancia de cámara, que es lo que exige §1.
+- **Volver sin adivinar**: un botón que sólo aparece cuando la cámara se ha ido,
+  `Esc`, y dos clics en el vacío. Dos clics sobre algo, se acerca a ello.
+
+#### Pieza 2 — saber qué vas a abrir
+
+Los nombres pasan a decidirse **en coordenadas de pantalla**, que es donde dos
+nombres chocan o no chocan. No hay un umbral de zoom escrito: hay un radio en
+pantalla por debajo del cual un nombre no se gana su sitio, y una caja que ya
+está ocupada. Acercarse revela nombres porque acercarse separa las estrellas y
+agranda las pequeñas.
+
+Lo que está debajo del puntero y lo seleccionado **no piden permiso**: se
+colocan primero y el resto de los nombres les cede el sitio.
+
+Medido barriendo la aplicación entera con una lente de 271 nodos, de los que
+sólo 2 llevan nombre en reposo:
+
+| | |
+|---|---|
+| Puntos del mapa que caen sobre un nodo | **3.729** |
+| …que enseñan el nombre de ese nodo debajo | **3.729** |
+| Nodos distintos alcanzables con el ratón | **271 de 271** (antes, 4) |
+
+Es el criterio del hito, medido: *antes de pulsar puedes decir en voz alta qué
+vas a abrir.*
+
+#### Los tres arreglos
+
+1. **El conmutador se ve.** No es una función nueva: la consecuencia #2 de
+   [ADR-0014](adr/0014-dos-vistas-un-solo-estado.md) ya decía «visible», y 12 px
+   en tinta tenue en una esquina negra no cumplían la palabra. Ahora lleva la
+   tinta principal, 13 px, un icono que dice qué hace y el atajo a la vista en
+   vez de escondido en un `title`.
+2. **La barra se pliega a un icono** y **escribir la despliega**, elegido por el
+   usuario entre tres opciones. Es un ADR ([0017](adr/0017-la-barra-se-pliega.md))
+   porque mueve el punto de entrada, y la parte que lo hace legítimo es la
+   tecla: sin ella, un icono añade un gesto al camino de las cuarenta veces al
+   día y contradice a [ADR-0004](adr/0004-punto-de-entrada-barra-no-galaxia.md).
+   La línea de estado sale de la barra a la esquina inferior: es la línea del
+   mapa, y plegar la barra la habría escondido al arrancar.
+3. **Las columnas de arriba se estrechan** como un acordeón, sin reabrir
+   ADR-0014 —las columnas siguen siendo columnas y la alternativa C sigue
+   rechazada—. Medido bajando ocho niveles: `[232,320]` → `[124,232,320]` →
+   `[101,101,101,190,320]` → `[72,72,72,72,72,134,320]`, y **desplazamiento
+   horizontal 0 en todos los niveles**. El nivel activo nunca baja de 320 px y
+   las migas —lo único que el usuario dijo que le gustaba— no se tocaron.
+
+#### Dos fallos que sólo aparecieron manejando la interfaz
+
+**1 · El cursor prometía algo que no estaba debajo.** Al cambiar de escala se
+olvida lo que había bajo el puntero, pero el cursor se quedaba en forma de mano
+hasta que pasabas por otro nodo. Se veía sólo accionando la aplicación, nunca
+leyendo el código, y es de la misma familia que picar a ciegas: la interfaz
+afirmando algo que no es verdad.
+
+**2 · Un solo `Esc` deshacía dos escalones.** Replegar la barra le quita el foco
+al campo, y el manejador de la ventana —que se salta a sí mismo mientras
+escribes, comprobando quién tiene el foco— veía el foco ya fuera **en el mismo
+evento** y atendía el mismo `Esc`: se cerraban la barra y el panel de un golpe.
+Es exactamente el tipo de fallo que no existe hasta que dos estados se tocan.
+
+#### Una herramienta de auditoría que faltaba
+
+`obrain-api --foco <id> --json`. La lente era la **única** superficie sin
+`--json` —el cielo, el explorador y la previsualización ya lo tenían— y es la
+que dibuja el mapa: sin ella no había forma de mirar el dato que produjo un
+fotograma, que es la convención de este proyecto y ya ha desmentido dos
+diagnósticos escritos. Con ella se sacó el hallazgo del layout en un script de
+sesenta líneas, sin abrir la ventana.
+
+#### Lo que este informe NO cubre
+
+- **Nadie ha juzgado esto con los ojos todavía, y esa parte es del usuario.**
+  Lo verificado aquí es comportamiento: la composición, el picado, los nombres,
+  el arrastre, las columnas y la escalera de `Esc`, medidos contra respuestas
+  del núcleo capturadas del corpus real e inspeccionando el árbol de dibujo. Que
+  se **vea** bien no se ha comprobado: la aplicación está abierta contra
+  `vida.obrain` y ése es el siguiente paso del método, no de este informe.
+- **La dirección visual sigue sin elegir.** Se le enseñaron Observatorio e
+  Instrumento y pidió verlas moviéndose antes de decidir. Sigue en §10.
+- **El layout sigue siendo O(n²) y sigue en el hilo principal.** 52 ms con 271
+  nodos, antes 82.
+- **`prefers-reduced-motion` no se ha probado con el interruptor puesto.** El
+  camino existe y está escrito —la cámara salta, los nombres aparecen de una
+  vez— pero se ha ejercitado por la vía de «la ventana no tiene el foco», que
+  comparte código pero no es lo mismo.
+
+#### Y lo que dice el método
+
+**Se vuelve a usar antes de escribir otra línea.** Funcionó dos veces: M5b se
+cerró, se abrió la aplicación, y de ahí salió este hito entero — incluida la
+única cosa que ningún informe habría encontrado, que era que el mapa no tenía
+nodos que picar sino un montón.
+
 ---
 
 ## 10. Decisiones pendientes
@@ -1793,7 +1972,7 @@ ni contra los invariantes, sino contra si el usuario lo abre solo.
 - **¿Puede el usuario crear sus propias regiones y nombrarlas?** Pedido el 2026-08-10: *«quiero poder ordenar mis cosas a mi gusto y que el programa no pierda de vista qué es qué y con qué se relaciona»*. La mitad difícil ya está garantizada por **I5** —una aserción del usuario gana para siempre y ningún reescaneo la pisa— y `Brain::correct` ya la escribe con test. Lo que no está decidido es lo estructural: hoy las regiones salen del árbol de contención del disco, y esto introduce **una segunda fuente de regiones que no es el sistema de archivos**, conviviendo con la primera. Hay que decidir si una región de usuario es una entidad más con una faceta, cómo se resuelve que un archivo caiga en dos, y qué manda al dibujar el cielo. Está emparentado con el hallazgo del dimensionado de regiones del informe del corpus real: si el usuario puede agrupar a mano, el peso por número de archivos deja de ser la única respuesta posible.
 - **¿Se indexa la papelera de reciclaje?** Hoy no: `$Recycle.Bin` está en `SYSTEM_DIRS` de [`obrain-scan/src/exclude.rs`](../core/obrain-scan/src/exclude.rs) y además cae por el atributo oculto/sistema. El usuario ha pedido amplitud de escaneo *«desde mis descargas hasta mi papelera de reciclaje»* (2026-08-10), así que deja de ser una exclusión obvia y pasa a ser una decisión. A favor: es exactamente donde vive lo que no recuerdas que tienes, que es la cuña F3. En contra: contenido que el usuario decidió borrar reapareciendo en las respuestas, con una tensión incómoda con I4 (nada se borra, se retracta) — I4 habla del grafo, y la papelera es el usuario ejerciendo lo contrario sobre sus archivos. Si se decide que sí, necesita ser opt-in explícito y visiblemente marcado en los resultados, no una exclusión menos en una lista.
 
-- **¿Observatorio o Instrumento?** La dirección visual sigue sin elegir, y es del usuario, no del sistema. Los tres prototipos están en [`prototypes/02-direcciones`](../prototypes/02-direcciones/index.html); Cartografía quedó descartada de hecho al elegir entre las otras dos. Aplazado a propósito hasta después de M5b: las dos finalistas comparten geometría y navegación, así que la diferencia es de tratamiento —luz, contención, adorno— y elegir paleta antes de que el explorador y el panel cambien las proporciones de la pantalla es maquillar una composición que todavía se mueve. La referencia de la que salió la intención visual está guardada en [`docs/referencias/`](referencias/), con la tensión anotada: la imagen sube la saturación, y §1 le tiene asignado un significado —codifica **confianza**—, así que subir el suelo estrecha el rango disponible para decir «esto es una inferencia dudosa». Si se sube, el margen se reserva antes, no después.
+- **¿Observatorio o Instrumento?** **Se le enseñaron las dos el 2026-08-14 y pidió verlas moviéndose antes de decidir** — que es la respuesta correcta y no un aplazamiento: la diferencia entre las dos es de tratamiento de la luz, y la luz de este mapa cambia al acercarse. Ahora que la cámara existe, la comparación se puede hacer con el mapa en la mano en vez de con una captura. La dirección visual sigue sin elegir, y es del usuario, no del sistema. Los tres prototipos están en [`prototypes/02-direcciones`](../prototypes/02-direcciones/index.html); Cartografía quedó descartada de hecho al elegir entre las otras dos. Aplazado a propósito hasta después de M5b: las dos finalistas comparten geometría y navegación, así que la diferencia es de tratamiento —luz, contención, adorno— y elegir paleta antes de que el explorador y el panel cambien las proporciones de la pantalla es maquillar una composición que todavía se mueve. La referencia de la que salió la intención visual está guardada en [`docs/referencias/`](referencias/), con la tensión anotada: la imagen sube la saturación, y §1 le tiene asignado un significado —codifica **confianza**—, así que subir el suelo estrecha el rango disponible para decir «esto es una inferencia dudosa». Si se sube, el margen se reserva antes, no después.
 - **¿Cómo se representa que un documento está *dentro* de otro?** Aparecido al auditar la prueba el 2026-08-12 ([ADR-0016](adr/0016-la-prueba-se-elige-el-indice-no-se-filtra.md)). En el corpus real, `Estados_de_Cuenta_Abuelo_Visa.pdf` contiene los tres estados de cuenta mensuales del banco, y `Documentos_Identidad_Respaldo_Visa.pdf` contiene otro — comprobado por hash, fragmento a fragmento, 6 de 6 idénticos al byte. A escala del corpus son **467 fragmentos, el 11,5 % del índice y de los vectores, en 44 documentos**. Hoy el sistema no tiene forma de decirlo: M3 modela `duplicate_of` para archivos enteros (44 en este corpus) pero no *«este documento es parte de aquel»*, y sin esa arista una búsqueda devuelve cinco filas donde hay tres documentos, sin poder explicar por qué se parecen tanto. Lo que hay que decidir: si es un predicado nuevo del vocabulario de §3.4 o un caso de los que ya hay; si lo detecta M3 al enlazar (comparando hashes de fragmento, que es determinista y barato) o M6 al inferir; y qué hace la interfaz con ello — colapsar las filas es lo obvio, pero **la razón por la que se colapsan es justo el tipo de cosa que un gestor de archivos no puede enseñar y este proyecto sí**, así que esconderlo sin más sería desaprovecharlo. Es contenido legítimo duplicado, no ruido: no se filtra.
 - ¿El escaneo debería distinguir *«no lo indexé»* de *«no existe»* de cara al usuario? Hoy un archivo podado por `exclude.rs` es indistinguible de uno que nunca estuvo, y con el explorador de [ADR-0014](adr/0014-dos-vistas-un-solo-estado.md) esa diferencia pasa a ser visible: el usuario podrá bajar hasta una carpeta y ver que falta algo.
 - Slug técnico: `orchestrator-brain` u `obrain`. El apóstrofo de `Orchestrator's-Brain` dará guerra en scripts, CI, rutas y URLs. **Ya no es una previsión:** M5a fijó `obrain` para paquetes e identificadores —`obrain-ui`, `obrain-app`, `dev.obrain.app`— pero la **carpeta** sigue llevando apóstrofo y ya ha costado un rodeo en `ui/src-tauri/build.rs`. Lo que queda por decidir es sólo eso: si se renombra el directorio. Ver el informe de M5a.
@@ -1820,6 +1999,7 @@ ni contra los invariantes, sino contra si el usuario lo abre solo.
 | [0014](adr/0014-dos-vistas-un-solo-estado.md) | Dos vistas, un solo estado: la galaxia y el explorador | Aceptada — acota `EXPERIENCE.md` §4.4 |
 | [0015](adr/0015-el-cielo-reparte-por-anchura-no-por-peso.md) | El cielo reparte por anchura; el tamaño sigue siendo cuántos archivos hay | Aceptada |
 | [0016](adr/0016-la-prueba-se-elige-el-indice-no-se-filtra.md) | La prueba se elige; el índice no se filtra | Aceptada — corrige el hallazgo 2 de §9 |
+| [0017](adr/0017-la-barra-se-pliega.md) | La barra se pliega a un icono, y escribir la despliega | Aceptada — conserva el argumento de 0004 |
 
 ## Documentos
 
