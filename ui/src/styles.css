@@ -16,6 +16,9 @@
   --barra: rgba(11, 16, 26, 0.82);
   --borde: rgba(120, 150, 200, 0.14);
   --boveda: #b45f5f;
+  /* Lo usan el panel lateral y las dos cosas que aparta. Una sola definición
+     porque si se separan, un día el conmutador queda medio tapado. */
+  --ancho-panel: min(420px, 42vw);
 }
 
 * {
@@ -199,6 +202,9 @@ body {
   position: fixed;
   right: 18px;
   bottom: 16px;
+  /* Por encima del panel: si el conmutador se puede tapar, deja de estar en un
+     sitio fijo y ADR-0014 deja de sostenerse. */
+  z-index: 3;
   padding: 7px 14px;
   border: 1px solid var(--borde);
   border-top-color: rgba(150, 180, 225, 0.22);
@@ -366,6 +372,417 @@ body {
   color: #46566c;
   font-size: 12px;
   font-style: italic;
+}
+
+/* El cuerpo del explorador: columnas a la izquierda, detalle a la derecha.
+   El panel no es una cuarta columna con otro nombre — no se navega, se lee. */
+#cuerpo {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+#detalle {
+  flex: 0 0 384px;
+  border-left: 1px solid var(--borde);
+  display: flex;
+  min-height: 0;
+}
+
+#detalle:empty {
+  display: none;
+}
+
+/* ────────────────────────────────────────────── el panel de entidad (§4.4) ── */
+
+/*
+ * Sigue mandando §1: aquí no hay ni un color por relevancia, por confianza o
+ * por método. La confianza entra como `--confianza`, que la pone el panel a
+ * partir del dato que da el núcleo, y modula la opacidad de la línea. Una
+ * inferencia dudosa sale literalmente pálida **porque lo es**, no porque una
+ * categoría de esta hoja lo haya decidido.
+ */
+#panel {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--barra);
+  color: var(--tinta);
+}
+
+#panel[hidden] {
+  display: none;
+}
+
+/* En la galaxia es un lateral y **el mapa sigue vivo detrás**: §4.4 prohíbe que
+   tocar un nodo destruya el contexto espacial, y esa prohibición sigue entera —
+   la excepción de ADR-0014 es para el explorador, no para esto. */
+body > #panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--ancho-panel);
+  border-left: 1px solid var(--borde);
+  backdrop-filter: blur(28px) saturate(1.15);
+  box-shadow: -32px 0 80px -24px rgba(0, 0, 0, 0.8);
+}
+
+/*
+ * El panel **aparta** la barra y el conmutador; no los tapa. ADR-0014 exige que
+ * el conmutador esté visible en un sitio fijo, y un sitio fijo debajo de un
+ * panel no es un sitio: es el escalón por el que se sale del explorador
+ * quedándose sin puerta. Y una barra medio cubierta se lee como una ventana mal
+ * montada, que es justo el veredicto del que viene M5b.
+ *
+ * Se mueve al abrir el panel, no al escribir. §2 avisa de lo segundo —una barra
+ * que salta con cada tecla se siente barata— y esto es lo contrario: un gesto
+ * explícito del usuario, una vez.
+ */
+/* Se desplaza con `transform` y no tocando el margen: la barra se centra con
+   `margin: … auto`, así que fijarle el margen derecho la pegaría al panel en
+   vez de recentrarla en lo que queda de pantalla. Medio ancho de panel es
+   exactamente el centro del hueco. */
+body.con-panel #barra {
+  transform: translateX(calc(var(--ancho-panel) / -2));
+}
+
+#barra {
+  transition: transform 200ms ease-out;
+}
+
+body.con-panel #conmutador {
+  right: calc(var(--ancho-panel) + 18px);
+  transition: right 200ms ease-out;
+}
+
+/* Dentro del explorador ya estás en otro contexto y no hay mapa que destruir. */
+#detalle > #panel {
+  flex: 1;
+  background: transparent;
+  min-width: 0;
+}
+
+.panel-cabecera {
+  position: relative;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--borde);
+}
+
+.panel-cabecera h2 {
+  margin: 0 24px 6px 0;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.panel-cabecera .ruta {
+  margin-top: 6px;
+}
+
+.facetas {
+  margin-top: 6px;
+  color: #6f89aa;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
+.marcas {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Lo que decide si este archivo se puede tocar se ve **antes** de tocarlo. */
+.nube {
+  color: #6f8fb4;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+#panel .cerrar {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--tinta-tenue);
+  font: inherit;
+  cursor: pointer;
+}
+
+#panel .cerrar:hover {
+  background: rgba(120, 160, 220, 0.12);
+  color: var(--tinta);
+}
+
+.panel-aviso:empty {
+  display: none;
+}
+
+.panel-aviso {
+  margin: 8px 0 0;
+  color: var(--boveda);
+  font-size: 11px;
+}
+
+/* ── la previsualización: la mitad «y lo ves» del hito ── */
+
+.vista {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--borde);
+}
+
+.vista .texto {
+  margin: 0;
+  max-height: 34vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px/1.6 "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  color: #a7b8cd;
+  user-select: text;
+}
+
+/* El tramo que explica por qué este documento respondió. Es lo único de esta
+   hoja que resalta contenido, y resalta un dato —la ventana que eligió
+   `evidence::pick`—, no una opinión. */
+.vista mark {
+  background: rgba(120, 170, 235, 0.16);
+  color: #dce8f8;
+  border-radius: 3px;
+  padding: 1px 0;
+}
+
+.vista img {
+  display: block;
+  max-width: 100%;
+  max-height: 34vh;
+  margin: 0 auto;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
+.vista .pie {
+  margin-top: 8px;
+  color: var(--tinta-tenue);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* §4.6: «no lo sé» es una pantalla diseñada, no un hueco en blanco. */
+.nose {
+  margin: 0;
+  color: #6d7f96;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.revelar-contenido {
+  margin-top: 10px;
+}
+
+/* ── las dos salidas hacia el archivo real ── */
+
+.acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--borde);
+}
+
+.acciones:empty {
+  display: none;
+}
+
+#panel .acciones button,
+#panel .revelar-contenido {
+  padding: 6px 12px;
+  border: 1px solid var(--borde);
+  border-top-color: rgba(150, 180, 225, 0.2);
+  border-radius: 8px;
+  background: rgba(120, 160, 220, 0.06);
+  color: var(--tinta);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#panel .acciones button:hover,
+#panel .revelar-contenido:hover {
+  background: rgba(120, 160, 220, 0.14);
+}
+
+/* Abrir un puntero de OneDrive lo descarga. El botón lo dice con letras y
+   además no se parece al otro: es la única excepción a «hidratar jamás como
+   efecto secundario», y una excepción que se ve igual que la norma no es una
+   excepción. */
+#panel .acciones button.cuidado {
+  border-color: rgba(180, 140, 95, 0.4);
+  background: rgba(180, 140, 95, 0.1);
+  color: #d8b98e;
+}
+
+.acciones .nose {
+  flex-basis: 100%;
+  font-size: 11px;
+}
+
+/* ── observado e inferido: I9 hecho pantalla ── */
+
+#panel section {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--borde);
+}
+
+#panel h3 {
+  margin: 0 0 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #5d7186;
+}
+
+#panel ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+#panel li {
+  padding: 5px 0;
+}
+
+/* El bloque sólido y el desaturado. La diferencia se lee de un vistazo, que es
+   lo que pide §4.4: un hecho determinista y la sospecha de un clasificador no
+   pueden parecer lo mismo. */
+.observado li {
+  color: var(--tinta);
+}
+
+.inferido li {
+  opacity: var(--confianza, 1);
+}
+
+.claim {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.predicado {
+  flex: 0 0 auto;
+  min-width: 92px;
+  color: #6f89aa;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.valor {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+#panel .enlace {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #9fc0e8;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+#panel .enlace:hover {
+  text-decoration: underline;
+}
+
+/* §4.5: la autoridad del usuario tiene que verse, y no volver a cambiar. */
+.tuyo {
+  color: #8fbf9a;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.del-usuario {
+  opacity: 1 !important;
+}
+
+.claim-acciones {
+  display: flex;
+  gap: 10px;
+  margin: 3px 0 0 100px;
+}
+
+#panel .claim-acciones button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--tinta-tenue);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+#panel .claim-acciones button:hover {
+  color: #9fc0e8;
+}
+
+.sin-prueba {
+  color: #46566c;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* El «¿por qué?»: el fragmento exacto del documento origen. Plegado por
+   defecto porque el panel es para decidir, no para leer el log entero. */
+.prueba {
+  display: none;
+  margin: 6px 0 6px 100px;
+  padding-left: 10px;
+  border-left: 2px solid rgba(120, 160, 220, 0.25);
+  color: #8fa2bb;
+  font-size: 11px;
+  line-height: 1.6;
+  user-select: text;
+}
+
+li.abierto .prueba {
+  display: block;
+}
+
+.corregir {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0 6px 100px;
+}
+
+.corregir input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--borde);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--tinta);
+  font: inherit;
+  font-size: 12px;
+  user-select: text;
 }
 
 /* §3, disciplina: `prefers-reduced-motion` colapsa las animaciones y la

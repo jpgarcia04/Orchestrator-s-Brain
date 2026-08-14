@@ -243,3 +243,55 @@ pub fn chunks_of(conn: &Connection, entity: &EntityId) -> Result<Vec<(i64, Strin
     let rows = stmt.query_map([entity.as_str()], |r| Ok((r.get(0)?, r.get(1)?)))?;
     Ok(rows.collect::<obrain_core::rusqlite::Result<Vec<_>>>()?)
 }
+
+/// El texto entero de una entidad, recompuesto desde sus fragmentos.
+///
+/// **Concatenar los fragmentos no vale**: `paragraph-pack@1` deja 200 bytes de
+/// solape, así que pegarlos repetiría el final de cada uno al principio del
+/// siguiente. Se empalma por offset, y eso se puede hacer *exactamente* porque
+/// `text` **es** la rebanada `[byte_start, byte_end)` del documento y no una
+/// copia parecida — la misma igualdad de la que vive
+/// [`crate::evidence`](../evidence/index.html).
+///
+/// No abre ningún archivo: sale de la proyección que M2 escribió
+/// ([ADR-0005]). Es lo que hace que previsualizar texto no pueda hidratar un
+/// puntero de OneDrive ni por descuido, que es la trampa de M5b.
+///
+/// [ADR-0005]: ../../../docs/adr/0005-donde-vive-el-texto-extraido.md
+pub fn document_text(conn: &Connection, entity: &EntityId) -> Result<Option<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT byte_start, text FROM chunks WHERE entity = ?1 ORDER BY ordinal",
+    )?;
+    let rows = stmt.query_map([entity.as_str()], |r| {
+        Ok((r.get::<_, i64>(0)?.max(0) as usize, r.get::<_, String>(1)?))
+    })?;
+
+    let mut out = String::new();
+    let mut cursor = 0usize;
+    let mut hubo = false;
+    for row in rows {
+        let (start, text) = row?;
+        hubo = true;
+        let end = start + text.len();
+        if end <= cursor && !out.is_empty() {
+            continue; // enteramente dentro de lo que ya está puesto
+        }
+        let desde = cursor.saturating_sub(start);
+        if desde == 0 {
+            // Un hueco entre fragmentos no debería existir. Si lo hubiera, se
+            // marca con un salto en vez de pegar dos párrafos que no iban
+            // juntos: un texto mal cosido se lee como un archivo corrupto.
+            if start > cursor && !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(&text);
+        } else if desde < text.len() && text.is_char_boundary(desde) {
+            out.push_str(&text[desde..]);
+        } else if desde < text.len() {
+            out.push('\n');
+            out.push_str(&text);
+        }
+        cursor = cursor.max(end);
+    }
+    Ok(hubo.then_some(out))
+}

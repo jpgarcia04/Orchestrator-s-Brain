@@ -127,8 +127,12 @@ Con un modelo de inteligencia artificial **que corre en tu máquina** —se desc
 >
 > Y lo que marcaste como privado **no entra** en el índice de significado. Eso no es una opción de configuración: es una comprobación que el sistema aplica y que tiene tests.
 
-### 5. 🌌 Visualizar — *El mapa* *(próximamente)*
+### 5. 🌌 Visualizar — *El mapa*
 Todo ese conocimiento cobra vida en una visualización interactiva — tu galaxia personal de conocimiento, donde puedes explorar, navegar y descubrir conexiones que habías olvidado.
+
+Y cuando llegas a un archivo, **lo ves**: el texto que ya se había extraído —con el párrafo que explica *por qué* apareció, resaltado—, o la imagen si es una foto. Al lado, lo que el sistema sabe de él separado en dos bloques que no se pueden confundir: lo que es un hecho y lo que es una sospecha, cada sospecha con su «¿por qué?» y con un botón para corregirla.
+
+> Lo que está en tu nube **no se toca**. Un archivo de OneDrive que aún no se ha descargado se marca con ☁ y su previsualización no se genera, porque generarla lo bajaría a tu disco sin que lo hubieras pedido. Si quieres abrirlo, el botón te dice con todas las letras que hacerlo lo descargará.
 
 ---
 
@@ -145,7 +149,8 @@ El proyecto está en desarrollo activo. Cada hito se valida contra la pregunta d
 | **Privacidad** — La puerta | Clasificación de sensibilidad y control de egreso | ✅ Completo |
 | **M4** — Entender | Búsqueda por significado con IA local | ✅ Completo |
 | **M5a** — La barra | Buscar desde una barra, con el mapa vivo detrás | ✅ Completo |
-| **M5b** — El mapa | Tecla global, panel de entidad, exploración por foco | ⏳ Planificado |
+| **M5b** — Llegar y ver | Explorador por columnas y panel de entidad con previsualización | ✅ Completo |
+| **M5c** — Enterarse | Vigilancia continua: lo nuevo aparece sin lanzar nada | ⏳ Planificado |
 | **M6** — Construir conocimiento | Inferencia de procesos y enriquecimiento | ⏳ Planificado |
 | **M7** — La pregunta | Responder la pregunta de la visa | 🎯 Meta final |
 
@@ -221,7 +226,7 @@ Orchestrator's-Brain/
 │   ├── obrain-embed/              #   Embeddings locales y búsqueda semántica
 │   └── obrain-api/                #   La superficie: buscar, mirar y recorrer
 ├── ui/                            # Aplicación de escritorio (Tauri + TypeScript)
-│   ├── src/                       #   La barra y el mapa (PixiJS)
+│   ├── src/                       #   La barra, el mapa (PixiJS), el explorador y el panel
 │   └── src-tauri/                 #   El puente al núcleo
 ├── docs/                          # Documentación de diseño
 │   ├── PROJECT-MASTER.md          #   Documento maestro del proyecto

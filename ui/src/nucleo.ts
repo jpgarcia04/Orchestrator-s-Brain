@@ -185,6 +185,36 @@ export interface Listado {
   files: number;
 }
 
+/**
+ * Qué se ve del archivo.
+ *
+ * `readable` es la guarda de M1 **ya resuelta por el núcleo**. No la vuelvas a
+ * deducir de `availability` aquí: son dos definiciones de lo mismo, y el día
+ * que discrepen se hidrata un puntero de OneDrive sin que nadie lo note.
+ */
+export interface Vista {
+  id: string;
+  path: string | null;
+  availability: string | null;
+  readable: boolean;
+  sensitivity: Sensibilidad;
+  kind: "text" | "image" | "none";
+  text: string | null;
+  /** Byte del documento donde empieza `text`. */
+  offset: number;
+  /** Caracteres del documento **entero**, no del tramo que llegó. */
+  chars: number;
+  truncated: boolean;
+  /** `[inicio, fin)` dentro de `text`: el tramo que explica la consulta. */
+  highlight: [number, number] | null;
+  /** Ya como `data:` URI. La genera el núcleo, no la ventana. */
+  image: string | null;
+  width: number;
+  height: number;
+  /** Por qué no hay nada que enseñar. §4.6: se dice, no se deja en blanco. */
+  reason: string | null;
+}
+
 export interface Estado {
   db: string;
   semantic: boolean;
@@ -224,5 +254,32 @@ export const explorar = (foco: string | null = null) =>
   invoke<Listado>("explorar", { foco });
 
 export const entidad = (id: string) => invoke<VistaEntidad>("entidad", { id });
+
+/**
+ * Qué se ve del archivo.
+ *
+ * `consulta` sólo decide **dónde se abre** el texto —el tramo que explica lo
+ * que se buscó, igual que la prueba de cada fila de resultados— y nunca cuánto
+ * se puede leer.
+ */
+export const previsualizar = (id: string, consulta?: string) =>
+  invoke<Vista>("previsualizar", { id, consulta: consulta ?? null });
+
+/**
+ * Abre el archivo con el programa del sistema.
+ *
+ * **Va por identificador, no por ruta**, y no es un detalle de transporte: un
+ * comando que aceptara rutas sería un «abre esto» genérico expuesto a esta
+ * ventana, y la aplicación pasaría de poder tocar lo indexado a poder tocar
+ * cualquier cosa del disco.
+ */
+export const abrir = (id: string) => invoke<void>("abrir", { id });
+
+/** Lo revela en el explorador de Windows. Nunca lo ejecuta. */
+export const revelar = (id: string) => invoke<void>("revelar", { id });
+
+/** La corrección de I5. Gana para siempre y ningún reescaneo la pisa. */
+export const corregir = (subject: string, predicate: string, object: string) =>
+  invoke<string>("corregir", { subject, predicate, object });
 
 export const estado = () => invoke<Estado>("estado");

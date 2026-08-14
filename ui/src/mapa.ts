@@ -42,7 +42,7 @@ import {
   Texture,
   TextStyle,
 } from "pixi.js";
-import type { Arista, Cielo, Lente, Region } from "./nucleo";
+import type { Arista, Cielo, Lente, Nodo, Region } from "./nucleo";
 
 const FONDO = 0x05070c;
 
@@ -447,6 +447,34 @@ export class Mapa {
       const d = Math.hypot(lx - p.x, ly - p.y);
       if (d < radioRegion(r.weight) + 8 && d < mejorD) {
         mejor = r;
+        mejorD = d;
+      }
+    }
+    return mejor;
+  }
+
+  /**
+   * El nodo de la lente que hay bajo el cursor.
+   *
+   * Gemelo de [`regionEn`](Mapa#regionEn) y con el mismo cuidado con el
+   * paralaje: `mundo.position` ya lo lleva dentro, así que restarlo otra vez
+   * aquí lo contaría dos veces y se picaría el nodo de al lado.
+   *
+   * Existe porque sin esto la lente es una figura: se ve dónde cae la
+   * respuesta y no se puede llegar hasta ella sin volver a la lista.
+   */
+  nodoEn(x: number, y: number): Nodo | null {
+    if (!this.lenteActual) return null;
+    const lx = x - this.mundo.x;
+    const ly = y - this.mundo.y;
+    let mejor: Nodo | null = null;
+    let mejorD = Infinity;
+    for (const n of this.lenteActual.nodes) {
+      const p = this.pos.get(n.id);
+      if (!p) continue;
+      const d = Math.hypot(lx - p.x, ly - p.y);
+      if (d < radioNodo(n.degree) + 8 && d < mejorD) {
+        mejor = n;
         mejorD = d;
       }
     }

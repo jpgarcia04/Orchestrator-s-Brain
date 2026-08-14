@@ -31,6 +31,7 @@ fn main() -> ExitCode {
                --modelo           carga el modelo y enciende la rama semantica\n  \
                --explorar         que hay dentro: el explorador de ADR-0014\n  \
                --dentro <id>      baja a esta entidad (sin el, las raices)\n  \
+               --ver <id>         que se ve del archivo: la previsualizacion de M5b\n  \
                --limite <n>       filas a enseñar (por defecto 40)\n"
         );
         return ExitCode::from(2);
@@ -224,6 +225,65 @@ fn main() -> ExitCode {
                 println!("\n  id del foco: {}", l.focus.as_deref().unwrap_or("(raíces)"));
             }
             Err(e) => eprintln!("explorar: {e}"),
+        }
+        return ExitCode::SUCCESS;
+    }
+
+    // ── la previsualización: qué se ve del archivo ──
+    //
+    // El `--sample` de M5b, y hace falta más que los otros: lo que este hito
+    // entrega **es** lo que se le enseña a una persona, y el informe del corpus
+    // real ya dejó escrita la lección —se auditaron los contadores, se auditó
+    // el contenido, y lo que nunca se había auditado era lo que aparece en
+    // pantalla, que es una tercera cosa distinta de las dos—. Esto imprime,
+    // sin abrir ninguna ventana, exactamente lo que va a leer el panel.
+    if let Some(id) = value("--ver") {
+        let e = EntityId(id);
+        let t = Instant::now();
+        match brain.preview(&e, consulta.as_deref()) {
+            Ok(v) if flag("--json") => {
+                println!("{}", serde_json::to_string(&v).unwrap_or_default());
+            }
+            Ok(v) => {
+                println!("\n── QUÉ SE VE ── {:.1} ms ──", t.elapsed().as_secs_f64() * 1000.0);
+                println!("  ruta            {}", v.path.as_deref().unwrap_or("(sin ruta)"));
+                println!(
+                    "  disponibilidad  {}  →  {}",
+                    v.availability.as_deref().unwrap_or("(sin etiqueta)"),
+                    if v.readable { "se puede abrir" } else { "NO SE ABRE" }
+                );
+                println!("  sensibilidad    {}", v.sensitivity);
+                println!("  qué hay         {}", v.kind);
+                match v.kind {
+                    "text" => {
+                        println!(
+                            "  texto           {} caracteres · ventana desde el byte {}{}",
+                            v.chars,
+                            v.offset,
+                            if v.truncated { " · CORTADO" } else { "" }
+                        );
+                        if let Some((s, f)) = v.highlight {
+                            println!("  marcado         [{s}, {f}) dentro de la ventana");
+                        }
+                        // Las primeras líneas, que es lo que se ve sin
+                        // desplazar el panel.
+                        if let Some(t) = &v.text {
+                            println!("\n  ── lo que se lee al abrirlo ──");
+                            for linea in t.lines().filter(|l| !l.trim().is_empty()).take(6) {
+                                println!("  │ {}", linea.chars().take(100).collect::<String>());
+                            }
+                        }
+                    }
+                    "image" => println!(
+                        "  miniatura       {}×{} px · {} KB en base64",
+                        v.width,
+                        v.height,
+                        v.image.as_ref().map(|s| s.len() / 1024).unwrap_or(0)
+                    ),
+                    _ => println!("  por qué no      {}", v.reason.as_deref().unwrap_or("—")),
+                }
+            }
+            Err(e) => eprintln!("ver: {e}"),
         }
         return ExitCode::SUCCESS;
     }

@@ -38,6 +38,7 @@
 
 pub mod entity;
 pub mod lens;
+pub mod preview;
 pub mod sky;
 
 use obrain_core::{EntityId, Method, NewAssertion, Store, TimePoint, Value};
@@ -47,6 +48,7 @@ use std::time::Instant;
 
 pub use entity::{Claim, EntityView};
 pub use lens::{Edge, Lens, Node};
+pub use preview::Preview;
 pub use sky::{Bridge, Cluster, Crumb, Listing, Region, Row, Sky};
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -322,6 +324,20 @@ impl Brain {
             .sensitivity(id)
             .map_err(|_| Error::UnknownEntity(id.0.clone()))?;
         Ok(entity::view(&self.store, id, at)?)
+    }
+
+    /// **Qué se ve del archivo.** Ver [`preview`].
+    ///
+    /// `query` sólo decide **dónde se abre** el texto —el tramo que explica la
+    /// consulta, igual que la prueba de la lista de resultados— y nunca cuánto
+    /// se puede leer. Lo que se puede leer lo decide la guarda de M1, y no la
+    /// toca ningún argumento de esta función.
+    pub fn preview(&self, id: &EntityId, query: Option<&str>) -> Result<Preview> {
+        let (_, at) = Self::now();
+        self.store
+            .sensitivity(id)
+            .map_err(|_| Error::UnknownEntity(id.0.clone()))?;
+        Ok(preview::of(&self.store, id, query, at)?)
     }
 
     /// Corrige. Escribe una aserción del usuario, que gana para siempre (I5).

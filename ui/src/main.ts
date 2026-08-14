@@ -11,15 +11,17 @@
  *
  * ## Lo que deliberadamente NO hace
  *
- * No hay tecla global, ni panel de entidad, ni las seis animaciones de §3, ni
- * modo deriva. Es M5b. Lo que hay aquí es el bucle completo —ver, buscar,
- * acercarse, volver— porque un bucle incompleto no se puede juzgar.
+ * No hay tecla global, ni modo deriva, ni expansión, ni las seis animaciones de
+ * §3. Salieron de M5b por escrito cuando el hito se encogió. Lo que hay aquí es
+ * el bucle completo —ver, buscar, acercarse, **abrir**, volver— porque un bucle
+ * incompleto no se puede juzgar.
  *
  * [ADR-0004]: ../../docs/adr/0004-punto-de-entrada-barra-no-galaxia.md
  */
 
 import { Explorador } from "./explorador";
 import { Mapa } from "./mapa";
+import { Panel } from "./panel";
 import { cielo, estado, lente, vistazo } from "./nucleo";
 import type { Cielo, Grupo, Hit } from "./nucleo";
 
@@ -30,8 +32,37 @@ const $lienzo = document.querySelector<HTMLCanvasElement>("#sustrato")!;
 const $barra = document.querySelector<HTMLElement>("#barra")!;
 const $conmutador = document.querySelector<HTMLButtonElement>("#conmutador")!;
 
+const $detalle = document.querySelector<HTMLElement>("#detalle")!;
+
 const mapa = new Mapa($lienzo);
 const explorador = new Explorador(document.querySelector<HTMLElement>("#explorador")!);
+const panel = new Panel(document.querySelector<HTMLElement>("#panel")!);
+
+/**
+ * Lo último que se escribió. El panel lo usa para abrir el documento **donde
+ * está la respuesta** en vez de por el principio (ADR-0016).
+ */
+let ultimaConsulta = "";
+
+/**
+ * Espera antes de previsualizar.
+ *
+ * La flecha del explorador cambia de fila más rápido de lo que se lee, y cada
+ * fila puede costar una miniatura de 25 ms y 85 KB. Sin esto, recorrer una
+ * carpeta de capturas genera una imagen por pulsación para enseñar sólo la
+ * última. El número es más alto que el de la barra porque previsualizar es más
+ * caro que buscar, y porque nadie lee lo que pasa de largo.
+ */
+const ESPERA_PANEL = 140;
+let pendientePanel: number | undefined;
+
+/** Enseña una entidad en el panel, sin ahogarse si las peticiones se agolpan. */
+function ver(id: string, ya = false, consulta = ultimaConsulta): void {
+  window.clearTimeout(pendientePanel);
+  const mostrar = () => void panel.mostrar(id, consulta);
+  if (ya) mostrar();
+  else pendientePanel = window.setTimeout(mostrar, ESPERA_PANEL);
+}
 
 /**
  * Lo último que se enfocó. **Es la mitad de la continuidad del ADR-0014**: el
@@ -170,6 +201,9 @@ async function enfocar(): Promise<void> {
   const donde = fila.hit ?? g.hub;
   if (!donde) return;
   foco = donde;
+  // La mitad «y lo ves» del hito. Sin esto, acercarse enseña un vecindario de
+  // puntos sobre un archivo que sigue sin poder abrirse.
+  ver(donde, true);
   const l = await lente([donde], 2, 300);
   mapa.mostrar(l);
   const nombre = fila.hit ? porId.get(fila.hit)?.label : g.label;
@@ -185,6 +219,7 @@ function alCielo(): void {
 async function consultar(texto: string): Promise<void> {
   const mia = ++generacion;
   if (texto.trim() === "") {
+    ultimaConsulta = "";
     grupos = [];
     porId.clear();
     $resultados.replaceChildren();
@@ -200,6 +235,7 @@ async function consultar(texto: string): Promise<void> {
     const v = await vistazo(texto, 40);
     if (mia !== generacion) return; // llegó tarde
 
+    ultimaConsulta = texto;
     grupos = v.answer.clusters;
     porId = new Map(v.answer.hits.map((h) => [h.entity, h]));
     pintarGrupos();
@@ -262,12 +298,25 @@ $resultados.addEventListener("click", (e) => {
   void enfocar();
 });
 
-// Clic en una estrella: acercarse a esa región. El escalón del mapa que no
-// pasa por la barra — que es el motivo de que el mapa sea la pantalla.
+// Clic en el mapa. **El nodo manda sobre la región**: si hay una lente abierta,
+// lo que está debajo del cursor es un nodo concreto, y tratarlo como región
+// devolvería a quien acaba de llegar al sitio de donde venía.
+//
+// §4.4 en su forma literal: seleccionar un nodo abre el panel lateral y el mapa
+// **sigue vivo detrás**. No es un modal, y por eso no hace falta la excepción
+// que ADR-0014 tuvo que escribir para el explorador.
 $lienzo.addEventListener("click", async (e) => {
+  const n = mapa.nodoEn(e.clientX, e.clientY);
+  if (n) {
+    foco = n.id;
+    ver(n.id, true);
+    decir(`${n.label} · ${n.degree} relaciones · Esc para volver`);
+    return;
+  }
   const r = mapa.regionEn(e.clientX, e.clientY);
   if (!r) return;
   foco = r.id;
+  ver(r.id, true);
   const l = await lente([r.id], 2, 300);
   mapa.mostrar(l);
   decir(`${r.path} · ${r.weight} archivos · ${l.nodes.length} nodos · Esc para volver`);
@@ -282,8 +331,21 @@ window.addEventListener("keydown", (e) => {
     void conmutar();
     return;
   }
-  if (e.key === "Escape" && document.activeElement !== $consulta) alCielo();
+  if (e.key === "Escape" && document.activeElement !== $consulta) {
+    // Escape deshace un escalón, no todos: primero cierra el panel y el mapa se
+    // queda donde estaba. Volver al cielo de golpe perdería el sitio al que
+    // costó llegar.
+    if (panel.visible) panel.ocultar();
+    else alCielo();
+  }
 });
+
+/** Ir a otra entidad desde una línea del panel: se enfoca y se enseña. */
+panel.onNavegar = (id) => {
+  foco = id;
+  ver(id, true);
+  if (!explorador.visible) void lente([id], 2, 300).then((l) => mapa.mostrar(l));
+};
 
 // ────────────────────────────────────────────────── el conmutador (§4.7)
 
@@ -301,12 +363,16 @@ async function conmutar(): Promise<void> {
   mapa.congelar();
   $barra.style.visibility = "hidden";
   $conmutador.style.visibility = "hidden";
+  // El panel se muda, no se duplica: dentro del explorador es la columna de
+  // detalle (ADR-0014 §6), y sigue siendo el mismo elemento con el mismo estado.
+  panel.montar($detalle);
   await explorador.abrir(foco);
 }
 
 explorador.onCerrar = (donde) => {
   $barra.style.visibility = "";
   $conmutador.style.visibility = "";
+  panel.montar(document.body);
   mapa.descongelar();
   if (donde) {
     foco = donde;
@@ -317,6 +383,9 @@ explorador.onCerrar = (donde) => {
 
 explorador.onFila = (f) => {
   foco = f.id;
+  // Sin consulta: al explorador se llega navegando, no buscando, así que no hay
+  // término que centrar y el documento se abre por el principio.
+  ver(f.id, false, "");
 };
 
 $conmutador.addEventListener("click", () => void conmutar());

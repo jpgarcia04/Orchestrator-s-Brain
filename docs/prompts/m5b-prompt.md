@@ -146,12 +146,18 @@ El motivo está en el fragmento que enseña como prueba: un **sello digital del 
 
 No lo arregles a ciegas ni lo silencies filtrando por longitud o por entropía sin medir. Es el mismo patrón que M2 y M3 ya vivieron con las cachés de Chromium: los contadores decían éxito y **auditar el contenido** decía otra cosa. Audita primero.
 
-### 7. El panel de entidad tiene que enseñar el archivo, y eso toca el criterio de M1 — EN CURSO
+### 7. El panel de entidad tiene que enseñar el archivo, y eso toca el criterio de M1 — RESUELTO (2026-08-13)
 
-> Es la mitad de [`m5b-llegar-y-ver.md`](m5b-llegar-y-ver.md), que es el prompt
-> vivo. **M5b se encogió el 2026-08-12** a dos piezas —el explorador y este
-> panel con previsualización— y todo lo demás salió del hito. El porqué está en
-> `PROJECT-MASTER.md` §9, «Por qué M5b se encogió».
+> **Hecho, y el criterio de M1 aguanta.** El texto sale de `chunks` y no abre
+> ningún archivo; la miniatura sí abre, y por eso la guarda va delante y se
+> importa de `obrain-scan` en vez de reescribirse. Probado contra un `.docx`
+> real de OneDrive: `NO SE ABRE`. Ver el informe de M5b en
+> `PROJECT-MASTER.md` §9.
+>
+> Era la mitad de [`m5b-llegar-y-ver.md`](m5b-llegar-y-ver.md), que fue el
+> prompt vivo. **M5b se encogió el 2026-08-12** a dos piezas —el explorador y
+> este panel con previsualización— y todo lo demás salió del hito. El porqué
+> está en `PROJECT-MASTER.md` §9, «Por qué M5b se encogió».
 
 `EXPERIENCE.md` §4.1 lleva **previsualización** como escalón propio de la escalera desde el principio, y §4.4 describe el panel sin decir nunca qué se ve del archivo en sí. El usuario lo planteó sin rodeos el 2026-08-10: *«si no puedo ver los archivos, no va a tener mucho chiste la app»*. Tiene razón, y sin esto el explorador de [ADR-0014](../adr/0014-dos-vistas-un-solo-estado.md) es una lista de nombres.
 

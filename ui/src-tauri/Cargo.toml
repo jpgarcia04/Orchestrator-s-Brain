@@ -20,6 +20,12 @@ tauri-build = { version = "2", features = [] }
 obrain-api = { path = "../../core/obrain-api" }
 obrain-core = { path = "../../core/obrain-core" }
 tauri = { version = "2", features = [] }
+# Las dos salidas hacia el archivo real: abrirlo con el programa del sistema y
+# revelarlo en el explorador de Windows. Es la **única** ampliación de
+# capacidades de la aplicación, se pidió explícitamente, y viene con un coste
+# que se dice en pantalla y no sólo aquí: obrain es solo-lectura, pero el
+# programa que abra el archivo no tiene por qué serlo.
+tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 
 [profile.release]

@@ -2,7 +2,7 @@
 
 > Las aplicaciones actuales almacenan información. Orchestrator's Brain construye conocimiento.
 
-**Estado:** Fase 2 — Arquitectura · **Última revisión:** 2026-08-12 · **Documento vivo**
+**Estado:** Fase 2 — Arquitectura · **Última revisión:** 2026-08-13 · **Documento vivo**
 
 Este documento refleja siempre el estado *actual* del diseño. Se edita libremente.
 El *porqué* de las decisiones contestadas vive en [`adr/`](adr/) y no se edita nunca.
@@ -360,7 +360,7 @@ Cada hito se valida contra la pregunta de la visa.
 | 🔒 **Puerta de sensibilidad** | Clasificación `normal`/`sensitive`/`vault` y aplicación de §5.2. → [`core/obrain-guard`](../core/obrain-guard) | **Hecha (2026-08-07).** No es un hito: es el requisito previo de M4. Ver informe abajo. |
 | ✅ **M4 — Entender** | Embeddings locales, búsqueda semántica, fusión RRF. → [`core/obrain-embed`](../core/obrain-embed) | **Hecho (2026-08-07).** 2.479 vectores, `universidad` encuentra un formulario de matrícula que no contiene la palabra. Rerank **diferido con la medición** ([ADR-0011](adr/0011-rerank-diferido.md)). Ver informe abajo. |
 | ✅ **M5a — La barra sobre el sustrato** | Superficie del núcleo, lente de I2, barra de ADR-0004. → [`core/obrain-api`](../core/obrain-api) + [`ui`](../ui) | **Hecho (2026-08-08).** Ver informe abajo. |
-| **M5b — Llegar y ver** | Dos cosas: el conmutador galaxia/explorador de [ADR-0014](adr/0014-dos-vistas-un-solo-estado.md), y el panel de entidad de [`EXPERIENCE.md`](EXPERIENCE.md) §4.4 **con previsualización**. Nada más. | **Abres la app, llegas hasta un archivo sin escribir su nombre, y lo ves.** |
+| ✅ **M5b — Llegar y ver** | Dos cosas: el conmutador galaxia/explorador de [ADR-0014](adr/0014-dos-vistas-un-solo-estado.md), y el panel de entidad de [`EXPERIENCE.md`](EXPERIENCE.md) §4.4 **con previsualización**. Nada más. | **Hecho (2026-08-13).** Se abre la app, se baja hasta el PDF de la visa sin escribir su nombre, y se lee — con el párrafo que lo explica marcado. Ver informe abajo. |
 | **M5c — Enterarse** | Vigilancia continua: USN Change Journal para el volumen, `ReadDirectoryChangesW` para carpetas concretas (§4.1). El demonio de [ADR-0003](adr/0003-lenguaje-del-nucleo.md). | Se deja un archivo nuevo en una carpeta vigilada y **aparece en el mapa sin que nadie lance nada**. |
 | **M6 — Construir conocimiento** | Extracción de entidades, detección de `Process`, enriquecimiento por atención. | La métrica de §0 es medible y positiva. |
 | **M7 — La pregunta** | Comprensión de consulta, resolución temporal, respuesta con citas. | **Responde la pregunta de la visa.** |
@@ -1679,6 +1679,107 @@ en vez de que el sistema operativo le avise. Y recorrer el perfil entero cuesta
 0,60 s, así que la vigilancia ya es viable con un temporizador; el journal la pasa
 de barata a instantánea.
 
+### Informe de M5b — llegar y ver (2026-08-13)
+
+El hito se encogió el 2026-08-12 a dos piezas. **Se entregaron las dos**, en dos
+sesiones: el explorador (commit `M5b-A`) y el panel con previsualización. No
+entró nada más, que era la mitad del objetivo.
+
+#### Pieza 1 — el explorador
+
+Columnas, migas, teclado, el conmutador visible **y** `Ctrl+E`, la galaxia
+congelada detrás y la continuidad de estado en los dos sentidos. Las filas
+marcan ☁ y BÓVEDA **en la fila** y no en el panel: es la señal que decide si
+algo se puede previsualizar sin descargarlo, y esconderla hasta el detalle sería
+enterarte de que tocaste tu OneDrive después de tocarlo.
+
+#### Pieza 2 — el panel, y qué se ve del archivo
+
+Dos caminos con costes distintos, y el orden entre ellos **es** la respuesta a
+la trampa del hito:
+
+| | De dónde sale | ¿Abre un archivo? |
+|---|---|---|
+| Texto | `chunks`, la proyección de M2 ([ADR-0005](adr/0005-donde-vive-el-texto-extraido.md)) | **No.** No hace falta guarda: no hay nada que guardar. |
+| Miniatura | el archivo en disco | **Sí**, y por eso `Availability::may_read_content` va delante de `File::open`. |
+
+La guarda no se reescribió: `obrain-scan` pasó de `dev-dependency` a dependencia
+real de `obrain-api` para importar `Availability` de donde M1 la definió. Copiar
+aquí las cuatro cadenas habría dado dos definiciones de lo mismo, y basta con
+que un día discrepen para hidratar un puntero de OneDrive sin que nadie lo note.
+
+**Medido contra `vida.obrain` (1.130 archivos), build release:**
+
+| Caso real | Qué hace | Tiempo |
+|---|---|---|
+| `Documentos_Identidad_Respaldo_Visa.pdf` + «comprobante de ingresos» | 20.425 caracteres, ventana marcada en `[16536, 16779)` | **1,7 ms** |
+| `Captura de pantalla 2026-08-12.png` | miniatura 720×379, 85 KB en base64 | **25 ms** |
+| `REVISION y PROPUESTA…docx` (OneDrive) | `NO SE ABRE` · «los bytes están en tu nube» | **0,9 ms** |
+| `instructivo.pdf` (escaneado) | «se leyó y no tenía texto — haría falta OCR» | **0,4 ms** |
+
+#### Tres cosas que sólo aparecieron midiendo
+
+**1 · La miniatura pesaba 646 KB, y la causa no era el tamaño.** Preguntar por
+`color().has_alpha()` mandaba al PNG **el formato más común del disco**: una
+captura de Windows se decodifica como RGBA aunque sea opaca de punta a punta.
+Preguntar por los píxeles —un recorrido de la miniatura ya reducida— dejó en PNG
+sólo lo que se vería como un recuadro negro al aplastarlo. **646 KB → 85 KB**,
+7,6×, y el explorador puede generar una por pulsación de la flecha sin ahogarse.
+
+**2 · Concatenar los fragmentos habría enseñado cada párrafo dos veces.**
+`paragraph-pack@1` deja 200 bytes de solape y hay 11,6 fragmentos por archivo:
+no es un caso raro, son todos los archivos. `index::document_text` empalma por
+offset, y eso se puede hacer *exactamente* porque `text` **es** la rebanada
+`[byte_start, byte_end)` — la misma igualdad de la que ya vivía `evidence`.
+
+**3 · Un fallo que sólo se ve manejando la interfaz.** El panel marcaba el
+archivo revelado con el identificador del panel y lo comprobaba con el de la
+vista. En la aplicación real coinciden siempre —el núcleo devuelve el mismo que
+se le pide— así que ningún test lo habría cazado; pero eran dos variables para
+la misma cosa, y basta con que discrepen una vez para que un archivo en bóveda
+se enseñe solo. Apareció al accionar el botón contra datos capturados del
+corpus, no al leer el código.
+
+#### La decisión de bóveda, y la que se aplaza
+
+El contenido de lo `sensitive` y lo `vault` **no se enseña hasta que se pide con
+un clic.** La puerta de §5.2 gobierna el egreso y no la pantalla local, así que
+esto no es un control de seguridad: es que se te revele una contraseña por pasar
+la flecha por encima sea una sorpresa que no se quiere delante de nadie.
+
+El usuario planteó de paso lo que quiere de verdad —*«definir todas aquellas
+cosas que sean sensibles y si las quieres ver que te pida algún pin de 4
+dígitos»*— y eso **no es una pieza nueva**: §8.1 ya dice que `vault` lleva clave
+separada derivada de una frase de paso que no se almacena. Un PIN es la
+*interfaz* de ese mecanismo. Queda en §10 y fuera de este hito.
+
+#### Lo que este informe NO cubre
+
+- **La aplicación entera no se ha ejecutado en su ventana en esta sesión.** El
+  puerto de desarrollo estaba ocupado, así que la verificación se hizo contra el
+  servidor que ya corría, con las respuestas del núcleo **capturadas del corpus
+  real** por CLI e inyectadas. Es lo que confirma la mitad de arriba —el texto,
+  la miniatura decodificada a 720×379 por el navegador, el aviso de la nube, el
+  «¿por qué?», la opacidad por confianza—, y lo que **no** confirma es Tauri:
+  `abrir` y `revelar` compilan y no se han disparado nunca contra Windows.
+- **`obrain-guard` no interviene en la previsualización, y es correcto.** La
+  puerta decide egreso; enseñar un archivo local en la propia máquina no lo es.
+  Si algún día el panel llama a un modelo para resumir, ahí sí pasa por la
+  puerta.
+- **Corregir sólo funciona sobre literales.** Cambiar a qué entidad apunta una
+  arista necesita elegir la otra entidad, y ese selector no existe. Se dice en
+  vez de ofrecer un campo de texto que guardaría una cadena donde va un
+  identificador.
+- **Ni PDF renderizado ni OCR.** El texto de los PDF ya está extraído desde M2;
+  la primera página como imagen necesita un motor nativo y era la puerta por la
+  que el hito volvía a crecer.
+
+#### Y ahora, lo que dice el método
+
+**Se usa antes de escribir otra línea.** Está escrito desde el 2026-08-12 y es
+la única prueba que este proyecto no ha hecho nunca: no medir contra el corpus
+ni contra los invariantes, sino contra si el usuario lo abre solo.
+
 ---
 
 ## 10. Decisiones pendientes
@@ -1686,11 +1787,9 @@ de barata a instantánea.
 - ¿El conocimiento sobrevive al archivo que lo originó cuando ese archivo desaparece? (Postura provisional: sí — el nodo es *conocimiento sobre* el archivo, no el archivo.)
 - ¿Habrá alguna vez conocimiento compartido entre personas? No implementarlo ahora es correcto; ignorarlo en el modelo de datos, no.
 - ¿El sistema escribe alguna vez en los archivos del usuario? (Postura provisional: v1 estrictamente solo-lectura; el derecho a escribir se gana.)
-- **¿Qué pasa exactamente al tocar un nodo: previsualizar, abrir, o las dos?** Planteado por el usuario el 2026-08-10 con el argumento correcto: *«si no puedo ver los archivos, no va a tener mucho chiste la app»*. `EXPERIENCE.md` §4.1 ya pone **previsualización** como un escalón propio de la escalera, y la mitad de la infraestructura existe — `EntityView` lleva `path`, y el texto extraído de M2 está guardado como proyección ([ADR-0005](adr/0005-donde-vive-el-texto-extraido.md)). Lo que no existe es nada que lo enseñe. Tres decisiones distintas y conviene no confundirlas:
-  1. **Previsualizar dentro de la app** (texto ya extraído, miniatura de imagen, página de PDF). Es lo que pide §4.1 y lo que hace navegable el mapa.
-  2. **Abrir en la aplicación del sistema.** Barato en Tauri y probablemente esperado. Ojo: obrain sigue siendo solo-lectura, pero el programa que abra el archivo no tiene por qué serlo. Es solo-lectura *del sistema*, no del acto.
-  3. **Revelar en el explorador de Windows.**
-- **La previsualización choca con el criterio de M1, y hay que resolverlo antes de construirla.** Un archivo `cloud_dehydrated` —14 en el corpus real— es un puntero: **tocarlo lo descarga.** M1 se definió por no hidratar ni un solo archivo, y una miniatura generada al vuelo, o una previsualización al pasar el ratón, lo violaría en silencio y a escala. La regla que se deriva sola: **previsualizar sólo lo ya extraído y lo local; hidratar jamás como efecto secundario, sólo como acto explícito del usuario y dicho con todas las letras.** El triaje de `Availability` que M1 ya calcula es exactamente la señal que hace falta.
+- ~~**¿Qué pasa exactamente al tocar un nodo: previsualizar, abrir, o las dos?**~~ **Decidido por el usuario el 2026-08-13: las tres cosas.** Previsualizar dentro (texto ya extraído e imágenes locales), abrir con el programa del sistema, y revelar en la carpeta. Las dos últimas son la única ampliación de capacidades de la aplicación y van por comandos de Rust que reciben **un identificador de entidad, nunca una ruta**: un comando que aceptara rutas sería un «abre esto» genérico expuesto al webview. La página de PDF renderizada queda fuera —necesita un motor nativo y el texto ya está extraído desde M2—. Ver el informe de M5b.
+- ~~**La previsualización choca con el criterio de M1.**~~ **Resuelto en M5b (2026-08-13).** El texto sale de `chunks` y no abre ningún archivo, así que no necesita guarda; la miniatura sí abre, y por eso `Availability::may_read_content` va delante de `File::open` y se importa de `obrain-scan` en vez de reescribirse. Probado contra un `.docx` real de OneDrive: `NO SE ABRE`. El diagnóstico se conserva porque sigue siendo la razón de que el orden de esos dos caminos importe.
+- **¿Un PIN para ver lo sensible?** Planteado por el usuario el 2026-08-13: *«estaría bien ya más al final definir todas aquellas cosas que sean sensibles y si las quieres ver que te pida algún pin de 4 dígitos o algo así, por más que sea una app solo para mí»*. **No es una pieza nueva:** §8.1 ya dice que `vault` lleva clave separada derivada de una frase de paso que no se almacena, y §5.2 ya clasifica en tres niveles. Un PIN es la **interfaz** de ese mecanismo, y hoy sólo existe la mitad barata —M5b oculta el contenido hasta un clic, que es un gesto, no una llave—. Lo que hay que decidir: si el PIN protege *ver* o protege *descifrar* (son cosas muy distintas: lo segundo obliga a que la clave de bóveda no esté en DPAPI, que es lo que §8.1 ya prevé); si el usuario puede marcar a mano qué es sensible, lo que lo emparenta con las regiones de usuario y con I5; y qué pasa cuando se olvida el PIN, que en un diseño donde la frase de paso no se almacena tiene una única respuesta honesta y hay que decirla antes, no después.
 - **¿Puede el usuario crear sus propias regiones y nombrarlas?** Pedido el 2026-08-10: *«quiero poder ordenar mis cosas a mi gusto y que el programa no pierda de vista qué es qué y con qué se relaciona»*. La mitad difícil ya está garantizada por **I5** —una aserción del usuario gana para siempre y ningún reescaneo la pisa— y `Brain::correct` ya la escribe con test. Lo que no está decidido es lo estructural: hoy las regiones salen del árbol de contención del disco, y esto introduce **una segunda fuente de regiones que no es el sistema de archivos**, conviviendo con la primera. Hay que decidir si una región de usuario es una entidad más con una faceta, cómo se resuelve que un archivo caiga en dos, y qué manda al dibujar el cielo. Está emparentado con el hallazgo del dimensionado de regiones del informe del corpus real: si el usuario puede agrupar a mano, el peso por número de archivos deja de ser la única respuesta posible.
 - **¿Se indexa la papelera de reciclaje?** Hoy no: `$Recycle.Bin` está en `SYSTEM_DIRS` de [`obrain-scan/src/exclude.rs`](../core/obrain-scan/src/exclude.rs) y además cae por el atributo oculto/sistema. El usuario ha pedido amplitud de escaneo *«desde mis descargas hasta mi papelera de reciclaje»* (2026-08-10), así que deja de ser una exclusión obvia y pasa a ser una decisión. A favor: es exactamente donde vive lo que no recuerdas que tienes, que es la cuña F3. En contra: contenido que el usuario decidió borrar reapareciendo en las respuestas, con una tensión incómoda con I4 (nada se borra, se retracta) — I4 habla del grafo, y la papelera es el usuario ejerciendo lo contrario sobre sus archivos. Si se decide que sí, necesita ser opt-in explícito y visiblemente marcado en los resultados, no una exclusión menos en una lista.
 

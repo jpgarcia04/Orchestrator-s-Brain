@@ -1,10 +1,20 @@
-//! La aplicación de escritorio. **Seis comandos y ni una decisión.**
+//! La aplicación de escritorio. **Diez comandos y ni una decisión.**
 //!
 //! Todo lo que hay aquí es transporte: coger el cerrojo, llamar a
 //! [`obrain_api`] y aplastar el error a texto. Si algún comando tuviera lógica
 //! propia —qué es relevante, qué es un hecho, cómo se llama un nodo— sería
 //! lógica encerrada dentro de una aplicación de escritorio, y el contestador de
 //! M7 tendría que volver a escribirla.
+//!
+//! ## Las dos salidas hacia el archivo real, y por qué van por aquí
+//!
+//! [`abrir`] y [`revelar`] son lo único que esta aplicación hace **fuera de su
+//! propia ventana**, y las dos reciben un **identificador de entidad, nunca una
+//! ruta**. La diferencia no es de estilo: un comando que aceptara una ruta
+//! sería un «abre esto» genérico expuesto al webview, y la aplicación pasaría
+//! de poder tocar lo que está indexado a poder tocar cualquier cosa del disco.
+//! Por eso tampoco se le dan al webview los permisos del plugin: la decisión de
+//! qué se puede abrir se toma en Rust, contra el log.
 //!
 //! ## El modelo se carga en un hilo aparte, y es lo que decide la sensación
 //!
@@ -17,11 +27,12 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use obrain_api::{Brain, EntityView, Glance, Lens, Listing, Sky};
+use obrain_api::{Brain, EntityView, Glance, Lens, Listing, Preview, Sky};
 use obrain_core::EntityId;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{Manager, State};
+use tauri_plugin_opener::OpenerExt;
 
 struct Cerebro(Mutex<Brain>);
 
@@ -94,6 +105,56 @@ fn entidad(id: String, cerebro: State<'_, Cerebro>) -> Result<EntityView, String
     brain.entity(&EntityId(id)).map_err(texto)
 }
 
+/// Qué se ve del archivo. La segunda mitad de M5b.
+///
+/// `consulta` sólo decide **dónde se abre** el texto —el tramo que explica lo
+/// que se buscó— y nunca cuánto se puede leer. Lo que se puede leer lo decide
+/// la guarda de M1 dentro del núcleo, y no la toca ningún argumento de aquí.
+#[tauri::command]
+fn previsualizar(
+    id: String,
+    consulta: Option<String>,
+    cerebro: State<'_, Cerebro>,
+) -> Result<Preview, String> {
+    let brain = cerebro.0.lock().map_err(texto)?;
+    brain.preview(&EntityId(id), consulta.as_deref()).map_err(texto)
+}
+
+/// La ruta de una entidad, según el log. **La pone el núcleo, no la ventana.**
+fn ruta_de(cerebro: &State<'_, Cerebro>, id: String) -> Result<String, String> {
+    let brain = cerebro.0.lock().map_err(texto)?;
+    brain
+        .entity(&EntityId(id))
+        .map_err(texto)?
+        .path
+        .ok_or_else(|| "esta entidad no es un archivo con ruta".to_string())
+}
+
+/// Abre el archivo con el programa que el sistema tenga asociado.
+///
+/// Tiene dos costes y los dos se dicen en pantalla, no sólo aquí:
+///
+/// 1. **obrain es solo-lectura; Word no tiene por qué serlo.** Es solo-lectura
+///    *del sistema*, no *del acto*.
+/// 2. **Si el archivo está en la nube, abrirlo lo descarga.** No se impide, y
+///    es la única excepción que la regla de M5b permite: hidratar jamás como
+///    efecto secundario, **sólo como acto explícito del usuario y dicho con
+///    todas las letras**. Decirlo es responsabilidad del botón que llama aquí.
+#[tauri::command]
+fn abrir(id: String, app: tauri::AppHandle, cerebro: State<'_, Cerebro>) -> Result<(), String> {
+    let ruta = ruta_de(&cerebro, id)?;
+    app.opener().open_path(ruta, None::<&str>).map_err(texto)
+}
+
+/// Lo revela en el explorador de Windows: abre su carpeta y lo selecciona.
+///
+/// Nunca ejecuta el archivo, así que no hereda el primer coste de [`abrir`].
+#[tauri::command]
+fn revelar(id: String, app: tauri::AppHandle, cerebro: State<'_, Cerebro>) -> Result<(), String> {
+    let ruta = ruta_de(&cerebro, id)?;
+    app.opener().reveal_item_in_dir(ruta).map_err(texto)
+}
+
 /// La corrección de I5. Escribe una aserción del usuario, que gana para
 /// siempre. Es el único comando que **escribe**, y sólo en el log.
 #[tauri::command]
@@ -131,6 +192,9 @@ fn estado(cerebro: State<'_, Cerebro>) -> Result<Estado, String> {
 
 fn main() {
     tauri::Builder::default()
+        // Sin permisos para el webview a propósito: las dos salidas se invocan
+        // desde `abrir` y `revelar`, que son Rust y consultan el log.
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let db = ruta_de_la_base();
             if let Some(dir) = db.parent() {
@@ -159,7 +223,16 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            vistazo, lente, cielo, explorar, entidad, corregir, estado
+            vistazo,
+            lente,
+            cielo,
+            explorar,
+            entidad,
+            previsualizar,
+            abrir,
+            revelar,
+            corregir,
+            estado
         ])
         .run(tauri::generate_context!())
         .expect("no se pudo arrancar la ventana");

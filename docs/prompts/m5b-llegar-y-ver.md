@@ -1,5 +1,11 @@
 # Prompt para M5b — «Llegar y ver» · estado al 2026-08-12
 
+> **Cerrado el 2026-08-13.** Las dos piezas están entregadas y el criterio se
+> cumple. El informe con lo medido, los tres hallazgos y lo que **no** cubre
+> está en [`PROJECT-MASTER.md`](../PROJECT-MASTER.md) §9. Esto se conserva como
+> lo que fue: el alcance con el que se entró, para poder comprobar que no
+> creció por el camino.
+
 Copia todo lo de abajo en una conversación nueva de Claude Code, con working directory en este repo.
 
 ---

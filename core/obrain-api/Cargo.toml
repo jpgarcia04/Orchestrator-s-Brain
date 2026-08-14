@@ -14,6 +14,12 @@ obrain-guard = { path = "../obrain-guard" }
 # Sólo para reutilizar `label`: el nombre legible de una entidad ya se decide
 # en M3 y no puede decidirse otra vez aquí.
 obrain-link = { path = "../obrain-link" }
+# Por `Availability`, y por nada más. Era dev-dependency mientras sólo hacía
+# falta en un test; con la previsualización pasa a ser la guarda que decide si
+# se abre un archivo, y **eso tiene que venir de donde M1 lo definió**. Copiar
+# aquí las cuatro cadenas daría dos definiciones de lo mismo, y el día que
+# discreparan se hidrataría un puntero de OneDrive sin que nadie lo notara.
+obrain-scan = { path = "../obrain-scan" }
 thiserror = "2"
 # Los tipos de salida cruzan a TypeScript tal cual. Es la alternativa a una
 # capa de DTOs en el backend de Tauri que sería, palabra por palabra, estos
@@ -24,10 +30,18 @@ serde = { version = "1", features = ["derive"] }
 # se puede depurar, y un mapa que sale mal se confunde con una decisión de
 # diseño si no se puede mirar el dato que lo produjo.
 serde_json = "1"
-
-[dev-dependencies]
-# Sólo en los tests, y sólo para una cosa: comprobar que la señal que la fila
-# del explorador transporta es **la misma** que M1 calcula. Afirmar en el test
-# la cadena `"cloud_dehydrated"` a mano probaría que el texto viaja, no que la
-# guarda que impide hidratar un archivo sigue diciendo que no.
-obrain-scan = { path = "../obrain-scan" }
+# La miniatura de M5b. Sin formatos por defecto: cada decodificador que entra
+# se compila dentro del binario, y aquí sólo hacen falta los que produce una
+# cámara o una captura de pantalla — que son el 100 % de las imágenes del
+# corpus real y su región más grande (229 capturas).
+image = { version = "0.25", default-features = false, features = [
+    "png",
+    "jpeg",
+    "gif",
+    "webp",
+    "bmp",
+] }
+# La miniatura viaja como `data:` URI porque la alternativa —dejar que el
+# webview leyera el archivo por su cuenta— pondría la guarda de la nube dentro
+# de una ventana. Es el único uso de base64 en el proyecto.
+base64 = "0.22"

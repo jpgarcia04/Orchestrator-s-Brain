@@ -395,3 +395,49 @@ fn lo_no_soportado_no_escribe_en_el_log() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ═════════════════════════════════════════ recomponer el documento para verlo
+
+/// El texto que se enseña en el panel de M5b sale de aquí, y si los fragmentos
+/// se concatenaran a pelo el usuario leería cada párrafo dos veces. Con 200
+/// bytes de solape y 11,6 fragmentos por archivo de media, no es un caso raro:
+/// es todos los archivos.
+#[test]
+fn el_documento_se_recompone_sin_repetir_el_solape() {
+    let dir = temp_dir("recomponer");
+    let mut store = Store::open_in_memory().unwrap();
+
+    // Lo bastante largo para que el chunker parta de verdad y haya solape.
+    let parrafos: Vec<String> = (0..40)
+        .map(|i| format!("Parrafo numero {i} con suficiente texto como para que el empaquetador tenga que cerrar el fragmento antes de tiempo y dejar el solape puesto."))
+        .collect();
+    let original = parrafos.join("\n\n");
+    let p = escribir(&dir, "largo.txt", &original);
+    let e = ingerir(&store, &p, "local", 1_000);
+    correr(&mut store, 2_000);
+
+    let trozos = index::chunks_of(store.conn(), &e).unwrap();
+    assert!(trozos.len() > 1, "haria falta mas de un fragmento: {}", trozos.len());
+
+    let doc = index::document_text(store.conn(), &e).unwrap().expect("hay texto");
+    let pegados: usize = trozos.iter().map(|(_, t)| t.len()).sum();
+    assert!(doc.len() < pegados, "no se quito el solape: {} vs {pegados}", doc.len());
+
+    // La propiedad que importa: cada parrafo aparece **una vez**.
+    for (i, parrafo) in parrafos.iter().enumerate() {
+        assert_eq!(doc.matches(parrafo.as_str()).count(), 1, "el parrafo {i} sale repetido");
+    }
+    assert_eq!(doc, obrain_extract::text::normalize(&original).trim_end());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Una entidad sin fragmentos no devuelve una cadena vacia, que se leeria como
+/// «este archivo esta vacio». Devuelve `None`, y el panel dice por que.
+#[test]
+fn sin_fragmentos_no_hay_documento() {
+    let store = Store::open_in_memory().unwrap();
+    index::migrate(store.conn()).unwrap();
+    let e = store.create_entity(1_000).unwrap();
+    assert_eq!(index::document_text(store.conn(), &e).unwrap(), None);
+}
