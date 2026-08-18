@@ -150,22 +150,24 @@ El proyecto está en desarrollo activo. Cada hito se valida contra la pregunta d
 | **M4** — Entender | Búsqueda por significado con IA local | ✅ Completo |
 | **M5a** — La barra | Buscar desde una barra, con el mapa vivo detrás | ✅ Completo |
 | **M5b** — Llegar y ver | Explorador por columnas y panel de entidad con previsualización | ✅ Completo |
+| **M5d** — Manejarlo | Cámara del mapa —zoom y arrastre— y saber qué nodo vas a abrir antes de abrirlo | ✅ Completo |
 | **M5c** — Enterarse | Vigilancia continua: lo nuevo aparece sin lanzar nada | ⏳ Planificado |
 | **M6** — Construir conocimiento | Inferencia de procesos y enriquecimiento | ⏳ Planificado |
 | **M7** — La pregunta | Responder la pregunta de la visa | 🎯 Meta final |
 
 ### Números reales del último escaneo
 
-Sobre una carpeta real de OneDrive con documentos de trabajo y vida personal:
+Medidos el **2026-08-17** sobre el perfil real del usuario —OneDrive, descargas, capturas y documentos de vida personal—, con las herramientas del propio proyecto:
 
-- **35,583** archivos en disco → **815** relevantes después de filtrar basura
-- **1,699 relaciones** descubiertas — sin una sola llamada a inteligencia artificial
-- **2,507 fragmentos** de texto indexados y buscables
-- **2,479 vectores** de significado (los otros 28 son privados y se quedan fuera a propósito)
-- Búsqueda completa —texto y significado a la vez— en **43 milisegundos**
+- **3,821** archivos recorridos y **46 directorios podados** en **0.66 segundos**
+- **1,130** archivos en el índice, **1,429 entidades**, **16,424 aserciones** en el log
+- **2,410 relaciones** vivas descubiertas — sin una sola llamada a inteligencia artificial
+- **4,533 fragmentos** de texto indexados y buscables
+- **4,501 vectores** de significado (los otros **32 son privados** y se quedan fuera a propósito)
+- Búsqueda por significado sobre los 4,501 vectores en **8.21 ms** — el recorrido lineal aguanta hasta **~27,400** antes de necesitar otra cosa
 - **0 archivos** descargados innecesariamente de la nube
 
-> El salto de 2,066 a 815 archivos no es que se haya perdido nada: es que **más de la mitad del índice lo había escrito una máquina** —módulos de PowerShell instalados y el navegador incrustado de un lanzador de juegos, ambos dentro de `Documentos`— y se retiró antes de medir nada. Un buscador que compite contra la basura del disco no es un buscador.
+> El 86 % de lo indexable del perfil no era del usuario: eran **22,000 archivos de estado de herramientas** —`.codex`, `.vscode`, `.gemini`, `.m2`— dentro de la propia carpeta personal. La corrección no fue alargar la lista de exclusiones, que vuelve a romperse con la herramienta del mes que viene, sino añadir una señal: *un directorio con punto que cuelga de la raíz del perfil es estado de un programa, no contenido tuyo*. Un buscador que compite contra la basura del disco no es un buscador.
 
 ---
 

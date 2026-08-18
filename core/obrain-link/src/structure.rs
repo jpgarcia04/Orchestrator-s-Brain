@@ -12,6 +12,25 @@ use crate::{write_edge, Edge, FileView, LinkReport};
 use obrain_core::{EntityId, Facet, Method, NewAssertion, Result, Store, TimePoint, Value};
 use std::collections::{HashMap, HashSet};
 
+/// ¿Es esta carpeta un árbol de trabajo de git?
+///
+/// Cuesta un acceso al sistema de archivos por carpeta **distinta** —219 en el
+/// corpus real— y es la misma clase de señal que [`crate::provenance`] ya lee
+/// del disco para `downloaded_from`: está en el sistema de archivos, es
+/// determinista, y no la inventa nadie.
+///
+/// **Se mira `.git` y no un manifiesto** (`package.json`, `Cargo.toml`) por dos
+/// medidas sobre el corpus real: los manifiestos anidan —hay ocho `Cargo.toml`
+/// dentro de este mismo repositorio, y marcar cada uno partiría el proyecto en
+/// ocho— y dos de los siete repositorios del disco del usuario no tienen
+/// ninguno. `.git` está exactamente una vez, en la raíz, en los siete.
+///
+/// Se comprueba la existencia y no que sea un directorio: en un *worktree* o un
+/// submódulo, `.git` es un archivo, y sigue significando lo mismo.
+fn es_proyecto(path: &str) -> bool {
+    std::path::Path::new(path).join(".git").exists()
+}
+
 /// Encuentra o crea la entidad de una carpeta, identificada por su ruta.
 fn folder_entity(
     store: &Store,
@@ -24,26 +43,53 @@ fn folder_entity(
         return Ok(e.clone());
     }
     let tp = TimePoint::at(at);
-    if let Some(e) = store.find_subject_by_value("folder_path", path, tp)? {
-        cache.insert(path.to_string(), e.clone());
-        return Ok(e);
+    let e = match store.find_subject_by_value("folder_path", path, tp)? {
+        Some(e) => e,
+        None => {
+            let e = store.create_entity(at)?;
+            store.assert(
+                NewAssertion::new(e.clone(), "folder_path", path, Method::Deterministic, at)
+                    .source("linker:structure"),
+            )?;
+            store.assert(
+                NewAssertion::new(
+                    e.clone(),
+                    "has_facet",
+                    Facet::Container.as_str(),
+                    Method::Deterministic,
+                    at,
+                )
+                .source("linker:structure"),
+            )?;
+            report.hubs_created += 1;
+            e
+        }
+    };
+
+    // La faceta se comprueba también sobre carpetas que **ya existían**, y no
+    // sólo sobre las recién creadas: se añadió después de que se escribieran, y
+    // un índice no debería tener que borrarse para aprender algo nuevo. El log
+    // no crece por repetirlo —una aserción idéntica se cuenta como «sin
+    // cambio»— y `enlazar` es idempotente por diseño.
+    if es_proyecto(path) {
+        let ya = store
+            .query(Some(&e), Some("has_facet"), tp)?
+            .iter()
+            .any(|a| a.object.as_text() == Some(Facet::Project.as_str()));
+        if !ya {
+            store.assert(
+                NewAssertion::new(
+                    e.clone(),
+                    "has_facet",
+                    Facet::Project.as_str(),
+                    Method::Deterministic,
+                    at,
+                )
+                .source("linker:structure"),
+            )?;
+        }
     }
-    let e = store.create_entity(at)?;
-    store.assert(
-        NewAssertion::new(e.clone(), "folder_path", path, Method::Deterministic, at)
-            .source("linker:structure"),
-    )?;
-    store.assert(
-        NewAssertion::new(
-            e.clone(),
-            "has_facet",
-            Facet::Container.as_str(),
-            Method::Deterministic,
-            at,
-        )
-        .source("linker:structure"),
-    )?;
-    report.hubs_created += 1;
+
     cache.insert(path.to_string(), e.clone());
     Ok(e)
 }

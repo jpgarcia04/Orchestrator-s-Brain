@@ -57,6 +57,135 @@ fn etiquetas(c: &sky::Sky) -> Vec<&str> {
 
 // ────────────────────────────────────────────────────────── partir por el mayor
 
+/// Marca una carpeta ya creada con una faceta. En la aplicación lo hace M3 al
+/// ver un `.git` en el disco; aquí se pone a mano porque el fixture inventa
+/// rutas que no existen en ningún sitio.
+fn faceta(store: &Store, ruta: &str, facet: &str) {
+    let e = store.find_subject_by_value("folder_path", ruta, at()).unwrap().unwrap();
+    store
+        .assert(NewAssertion::new(e, "has_facet", facet, Method::Deterministic, T))
+        .unwrap();
+}
+
+/// Le da a un archivo un formato reconocido, que es lo que M2 escribe al triar.
+fn con_formato(store: &Store, e: &EntityId) {
+    store
+        .assert(NewAssertion::new(
+            e.clone(),
+            "mime_guess",
+            "application/pdf",
+            Method::Deterministic,
+            T,
+        ))
+        .unwrap();
+}
+
+// ─────────────────────────────────────────── lo que no se parte y lo que calla
+
+/// **Un proyecto de código es una sola estrella, y un taller de proyectos
+/// también.**
+///
+/// Medido sobre el corpus real antes de existir esta regla: los siete
+/// repositorios de `Documentos\GitHub` se llevaban **16 de las 30 regiones**, y
+/// la carpeta donde vive el trámite de la visa se quedaba en la decimosexta con
+/// 14 archivos. No es un problema de tamaño —ADR-0015 ya fijó que el tamaño es
+/// honesto— sino de que un árbol de código es hondo, ancho y uniforme, y gana
+/// el concurso de partirse siempre.
+#[test]
+fn un_proyecto_de_codigo_no_se_parte_y_un_taller_de_proyectos_tampoco() {
+    let store = base();
+    let mut rutas: Vec<String> = Vec::new();
+    for repo in ["uno", "dos"] {
+        for sub in ["src", "docs", "dist"] {
+            for i in 0..4 {
+                rutas.push(format!(r"C:\vida\GitHub\{repo}\{sub}\f{i}.rs"));
+            }
+        }
+    }
+    rutas.push(r"C:\vida\visa\ingresos.pdf".into());
+    let r: Vec<&str> = rutas.iter().map(String::as_str).collect();
+    let files = arbol(&store, &r);
+    for f in &files {
+        con_formato(&store, f);
+    }
+    faceta(&store, r"C:\vida\GitHub\uno", "project");
+    faceta(&store, r"C:\vida\GitHub\dos", "project");
+
+    // Se piden muchas más regiones de las que este árbol debería soltar.
+    let c = sky::regions(&store, 12, at()).unwrap();
+    let e = etiquetas(&c);
+
+    assert!(
+        !e.iter().any(|l| l.contains("src") || l.contains("dist") || l.contains("docs")),
+        "nada de dentro de un repositorio se gana una estrella: {e:?}"
+    );
+    assert!(
+        e.iter().any(|l| l.contains("GitHub")),
+        "el taller entero sale una vez: {e:?}"
+    );
+    assert!(
+        e.iter().any(|l| l.contains("visa")),
+        "y la vida del usuario recupera su sitio: {e:?}"
+    );
+    // Y siguen cubiertos todos: no se ha escondido nada, sólo agrupado.
+    assert_eq!(c.regions.iter().map(|r| r.weight).sum::<usize>(), 25);
+}
+
+/// **Una carpeta cuyo subárbol entero son formatos que el sistema no reconoce
+/// no gasta una plaza del cielo.**
+///
+/// Es la otra mitad del mismo problema, y sólo apareció al arreglar la primera:
+/// al dejar de partir los repositorios se liberaron quince plazas, y el reparto
+/// se metió a repartirlas **dentro de las partidas guardadas** —`GTA V/Profiles`,
+/// `twinkle/kvstore`, `Launcher/Profiles`—. El cielo quedó con más juegos que
+/// antes de tocarlo.
+///
+/// No se excluye nada: los archivos siguen en el índice y en el explorador, y su
+/// peso se queda agregado en la carpeta de arriba.
+#[test]
+fn una_carpeta_sin_un_solo_formato_reconocido_no_gasta_estrella() {
+    let store = base();
+    let files = arbol(
+        &store,
+        &[
+            r"C:\vida\papeles\visa.pdf",
+            r"C:\vida\papeles\banco.pdf",
+            r"C:\vida\juego\perfil\PROFSAVE",
+            r"C:\vida\juego\perfil\PROFSAVE_backup",
+            r"C:\vida\juego\cache\kv_uuid",
+        ],
+    );
+    // Sólo los papeles tienen formato: es exactamente lo que pasa en el disco.
+    con_formato(&store, &files[0]);
+    con_formato(&store, &files[1]);
+
+    let c = sky::regions(&store, 8, at()).unwrap();
+    let e = etiquetas(&c);
+    assert!(
+        !e.iter().any(|l| l.contains("perfil") || l.contains("cache")),
+        "el almacén interno de un programa no es un sitio de una vida: {e:?}"
+    );
+    assert!(e.iter().any(|l| l.contains("papeles")), "{e:?}");
+    // Y los tres archivos mudos siguen cubiertos por alguna región.
+    assert_eq!(c.regions.iter().map(|r| r.weight).sum::<usize>(), 5);
+}
+
+/// **La guarda.** Sin M2 ejecutado no hay un solo `mime_guess`, y entonces la
+/// regla de arriba no puede afirmar nada.
+///
+/// Distinguir «miré y no encontré» de «no miré nunca» es lo que evita que un
+/// índice recién escaneado y sin extraer se vea igual que uno lleno de basura:
+/// sin esta guarda el cielo entero sería mudo y no se abriría ni una región.
+#[test]
+fn sin_ningun_formato_conocido_la_regla_del_mudo_no_se_aplica() {
+    let store = base();
+    arbol(&store, &[r"C:\vida\uno\a.bin", r"C:\vida\dos\b.bin"]);
+    let c = sky::regions(&store, 2, at()).unwrap();
+    let mut e = etiquetas(&c);
+    e.sort_unstable();
+    assert_eq!(e, vec!["vida/dos", "vida/uno"], "se abre igual que siempre");
+}
+
 /// **La regla del cielo.** Se empieza por la raíz —una sola estrella que no
 /// dice nada— y se parte repetidamente la mayor. Es el gesto de acercarse en un
 /// mapa.

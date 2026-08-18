@@ -262,6 +262,15 @@ pub enum Facet {
     /// Añadida en M3 — ejemplo de que el modelo de facetas admite tipos nuevos
     /// sin migración, que era su razón de ser (§3.2).
     Container,
+    /// Un proyecto de código: una carpeta que es un árbol de trabajo de git.
+    ///
+    /// No dice que su contenido no valga —lo escribió el usuario y se indexa
+    /// entero—. Dice que **es una cosa, no doscientas**: un repositorio tiene
+    /// dentro la estructura profunda y uniforme que [ADR-0015] describe, y sin
+    /// esta faceta el cielo la confunde con la anchura de una vida.
+    ///
+    /// [ADR-0015]: ../../../docs/adr/0015-el-cielo-reparte-por-anchura-no-por-peso.md
+    Project,
 }
 
 impl Facet {
@@ -276,6 +285,7 @@ impl Facet {
             Facet::Process => "process",
             Facet::Confidential => "confidential",
             Facet::Container => "container",
+            Facet::Project => "project",
         }
     }
 }

@@ -35,33 +35,52 @@ pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport)
             let from = group[0].modified_ms;
             let to = group[group.len() - 1].modified_ms;
 
-            let session = store.create_entity(at)?;
-            for facet in [Facet::Temporal, Facet::Container] {
-                store.assert(
-                    NewAssertion::new(
-                        session.clone(),
-                        "has_facet",
-                        facet.as_str(),
-                        Method::Deterministic,
-                        at,
-                    )
-                    .source("linker:sessions"),
-                )?;
-            }
-            // El intervalo va en el eje de validez: la sesión *ocurrió* entonces,
-            // aunque el sistema se entere ahora (invariante I6).
-            store.assert(
-                NewAssertion::new(
-                    session.clone(),
-                    "session_span",
-                    Value::Timestamp(from),
-                    Method::Deterministic,
-                    at,
-                )
-                .valid(Some(from), Some(to.max(from + 1)))
-                .source("linker:sessions"),
-            )?;
-            report.hubs_created += 1;
+            // ¿Ya existía esta sesión? Enlazar es idempotente en todas partes menos
+            // aquí: `structure` busca la carpeta por su ruta antes de crearla, y
+            // esto creaba un concentrador nuevo en cada pasada. Medido sobre el
+            // corpus real, una segunda ejecución de `obrain-link` producía **80
+            // sesiones duplicadas y 961 `occurred_during` de más** — cada archivo
+            // colgando de dos sesiones idénticas.
+            //
+            // El intervalo identifica la sesión porque es lo que la define: los
+            // mismos archivos con los mismos `mtime` la reconstruyen igual. Y se
+            // busca por el eje de conocimiento y no por el de validez, porque
+            // `session_span` vive en el de validez (I6) y un `at.valid` de ahora
+            // no encontraría nunca una sesión del año pasado.
+            let existente = store.find_subject_by_timestamp_whenever("session_span", from, at)?;
+            let session = match existente {
+                Some(e) => e,
+                None => {
+                    let session = store.create_entity(at)?;
+                    for facet in [Facet::Temporal, Facet::Container] {
+                        store.assert(
+                            NewAssertion::new(
+                                session.clone(),
+                                "has_facet",
+                                facet.as_str(),
+                                Method::Deterministic,
+                                at,
+                            )
+                            .source("linker:sessions"),
+                        )?;
+                    }
+                    // El intervalo va en el eje de validez: la sesión *ocurrió*
+                    // entonces, aunque el sistema se entere ahora (I6).
+                    store.assert(
+                        NewAssertion::new(
+                            session.clone(),
+                            "session_span",
+                            Value::Timestamp(from),
+                            Method::Deterministic,
+                            at,
+                        )
+                        .valid(Some(from), Some(to.max(from + 1)))
+                        .source("linker:sessions"),
+                    )?;
+                    report.hubs_created += 1;
+                    session
+                }
+            };
 
             // Hub: N aristas contra la sesión, no N² entre archivos.
             for f in group.iter() {
@@ -113,6 +132,46 @@ mod tests {
             modified_ms: mtime,
             size: 1,
             availability: "local".into(),
+        }
+    }
+
+    /// **Enlazar dos veces no duplica nada.**
+    ///
+    /// `structure` busca la carpeta por su ruta antes de crearla; las sesiones
+    /// no buscaban nada y creaban un concentrador nuevo en cada pasada. Sobre el
+    /// corpus real eso eran **80 sesiones de más y 961 `occurred_during`
+    /// duplicados** en la segunda ejecución — cada archivo colgando de dos
+    /// sesiones idénticas— y no lo delataba ningún contador, porque el informe
+    /// dice cuántas aristas escribió, no cuántas sobraban.
+    ///
+    /// Importa más de lo que parece: reenlazar es lo que hay que hacer después
+    /// de cada escaneo, o sea siempre.
+    #[test]
+    fn enlazar_dos_veces_no_duplica_las_sesiones() {
+        let s = Store::open_in_memory().unwrap();
+        let base = 1_700_000_000_000i64;
+        let files = vec![
+            fv(&s, "a", base),
+            fv(&s, "b", base + 5 * MIN),
+            fv(&s, "c", base + 12 * MIN),
+        ];
+
+        let mut primera = LinkReport::default();
+        super::link(&s, &files, 9_000, &mut primera).unwrap();
+        assert_eq!(primera.hubs_created, 1);
+
+        let mut segunda = LinkReport::default();
+        super::link(&s, &files, 10_000, &mut segunda).unwrap();
+        assert_eq!(segunda.hubs_created, 0, "la sesion ya estaba escrita");
+
+        // Y cada archivo sigue colgando de **una** sesion, no de dos.
+        let tp = TimePoint::at(11_000);
+        for f in &files {
+            let cuantas = s
+                .query(Some(&f.entity), Some("occurred_during"), tp)
+                .unwrap()
+                .len();
+            assert_eq!(cuantas, 1, "un archivo, una sesion");
         }
     }
 

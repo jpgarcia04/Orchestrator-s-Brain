@@ -134,6 +134,21 @@ struct Tree {
     weight: HashMap<EntityId, usize>,
     /// Carpeta inmediata de cada archivo.
     home: HashMap<EntityId, EntityId>,
+    /// Carpetas con la faceta `project`: árboles de trabajo de git, marcados
+    /// por M3 al ver un `.git` en el disco.
+    projects: HashSet<EntityId>,
+    /// Archivos del subárbol **cuyo formato el sistema reconoce**, acumulado.
+    /// Cero significa que ahí dentro no hay nada que una persona haya escrito,
+    /// fotografiado o grabado. Ver [`Tree::muda`].
+    legible: HashMap<EntityId, usize>,
+    /// ¿Ha mirado alguien el formato de algo en este corpus?
+    ///
+    /// Separa **«miré y no encontré nada»** de **«no miré nunca»**, que es la
+    /// diferencia entre una conclusión y un vacío. Sin M2 ejecutado no hay un
+    /// solo `mime_guess` en el log, y sin esta guarda el cielo entero sería
+    /// mudo y no se abriría ninguna región — un índice recién escaneado y sin
+    /// extraer se vería igual que uno lleno de basura.
+    sabe_formatos: bool,
     files: usize,
 }
 
@@ -142,6 +157,36 @@ fn read_tree(store: &Store, at: TimePoint) -> Result<Tree> {
     for a in store.query(None, Some("folder_path"), at)? {
         if let Some(p) = a.object.as_text() {
             folders.entry(a.subject).or_insert_with(|| p.to_string());
+        }
+    }
+
+    // Qué archivos tienen un formato reconocido. `mime_guess` lo escribe M2 al
+    // triar, así que esto no calcula nada nuevo: lee lo que ya se sabía.
+    //
+    // **Menos los `.log`**, y no es una lista de exclusiones disfrazada: un
+    // registro lo escribe un programa, siempre, por definición — es la única
+    // extensión de la que eso se puede afirmar sin mirar dentro. Se descubrió
+    // arreglando lo de arriba: al dejar de partirse los repositorios, el reparto
+    // bajó dentro de `Rockstar Games`, que escapaba a la regla del mudo gracias a
+    // catorce `launcher.NN.log`. Los catorce `.log` con formato de todo el corpus
+    // real son esos catorce.
+    let mut es_registro: HashSet<EntityId> = HashSet::new();
+    for a in store.query(None, Some("path_observed_at"), at)? {
+        if a.object.as_text().is_some_and(|p| p.to_ascii_lowercase().ends_with(".log")) {
+            es_registro.insert(a.subject);
+        }
+    }
+    let mut con_formato: HashSet<EntityId> = HashSet::new();
+    for a in store.query(None, Some("mime_guess"), at)? {
+        if !es_registro.contains(&a.subject) {
+            con_formato.insert(a.subject);
+        }
+    }
+
+    let mut projects: HashSet<EntityId> = HashSet::new();
+    for a in store.query(None, Some("has_facet"), at)? {
+        if a.object.as_text() == Some("project") {
+            projects.insert(a.subject);
         }
     }
 
@@ -185,19 +230,97 @@ fn read_tree(store: &Store, at: TimePoint) -> Result<Tree> {
             stack.extend(cs.iter().cloned());
         }
     }
+    let mut legible: HashMap<EntityId, usize> = HashMap::new();
     for h in order.iter().rev() {
         let own = direct.get(h).map_or(0, Vec::len);
         let sub: usize = children
             .get(h)
             .map_or(0, |cs| cs.iter().map(|c| weight.get(c).copied().unwrap_or(0)).sum());
         weight.insert(h.clone(), own + sub);
+
+        let own_leg = direct
+            .get(h)
+            .map_or(0, |ds| ds.iter().filter(|d| con_formato.contains(*d)).count());
+        let sub_leg: usize = children
+            .get(h)
+            .map_or(0, |cs| cs.iter().map(|c| legible.get(c).copied().unwrap_or(0)).sum());
+        legible.insert(h.clone(), own_leg + sub_leg);
     }
 
     let files = home.len();
-    Ok(Tree { folders, parent, children, direct, weight, home, files })
+    let sabe_formatos = !con_formato.is_empty();
+    Ok(Tree {
+        folders,
+        parent,
+        children,
+        direct,
+        weight,
+        home,
+        projects,
+        legible,
+        sabe_formatos,
+        files,
+    })
 }
 
 impl Tree {
+    /// Una carpeta que **no se parte**: se lleva una estrella y se entra en
+    /// ella con el explorador.
+    ///
+    /// Dos casos, y el segundo sale del primero:
+    ///
+    /// 1. **Un proyecto de código.** Un repositorio es *una cosa*, no
+    ///    doscientas. Su interior es hondo, ancho y uniforme —exactamente el
+    ///    árbol que gana el concurso de peso que describe [ADR-0015]— y sus
+    ///    dieciséis subcarpetas dicen todas lo mismo: *aquí hay código*.
+    /// 2. **Un taller**: una carpeta cuyas hijas son *todas* proyectos.
+    ///    `Documentos\GitHub` es eso y nada más, y partirlo devuelve una
+    ///    estrella por repositorio en lugar de una por vida.
+    ///
+    /// **Esto no filtra nada.** Los archivos siguen en el índice, siguen
+    /// buscándose y siguen alcanzándose por el explorador; lo único que cambia
+    /// es cuántas plazas del cielo se llevan. Es la distinción de
+    /// [ADR-0016](../../../docs/adr/0016-la-prueba-se-elige-el-indice-no-se-filtra.md):
+    /// se elige qué se enseña, no qué se sabe.
+    ///
+    /// Y no toca el tamaño, que sigue siendo el número de archivos como fijó
+    /// [ADR-0015]: una carpeta atomica se dibuja con todo su peso. Lo que se
+    /// decide aquí es si es **divisible**, que es el otro eje de esa misma ADR.
+    ///
+    /// [ADR-0015]: ../../../docs/adr/0015-el-cielo-reparte-por-anchura-no-por-peso.md
+    fn atomica(&self, h: &EntityId) -> bool {
+        if self.projects.contains(h) {
+            return true;
+        }
+        match self.children.get(h) {
+            Some(cs) if !cs.is_empty() => cs.iter().all(|c| self.projects.contains(c)),
+            _ => false,
+        }
+    }
+
+    /// Una carpeta que **no se gana una estrella**: su subárbol entero son
+    /// formatos que el sistema no reconoce.
+    ///
+    /// No es un juicio sobre la importancia —§1 prohíbe eso— sino sobre si hay
+    /// algo ahí que una persona haya escrito, fotografiado o grabado. Un
+    /// `PROFSAVE_backup_profile_synced`, un `kv_hubble-uuid` y una `httpcache`
+    /// llena de números no son sitios de una vida: son el almacén interno de un
+    /// programa, y ocupan una plaza del cielo que le hace falta a otra cosa.
+    ///
+    /// **La medida que la justifica**, sobre el corpus real: de los 18 archivos
+    /// de `Battlefield 1` y los 6 de `My Games`, **ninguno** tiene formato
+    /// reconocido. En cambio `GTA Videos` sí —dos `image/jpeg`— porque ahí
+    /// están los clips que grabó el usuario, y por eso conserva su estrella.
+    /// La regla se apoya en esa asimetría y no en una lista de nombres de
+    /// juegos, que volvería a fallar con el juego del mes que viene.
+    ///
+    /// **No se excluye nada.** Los archivos siguen en el índice y en el
+    /// explorador; lo que pierden es el derecho a una estrella. Su peso se
+    /// queda agregado en la carpeta de arriba, que sigue cubriéndolos.
+    fn muda(&self, h: &EntityId) -> bool {
+        self.sabe_formatos && self.legible.get(h).copied().unwrap_or(0) == 0
+    }
+
     fn depth<'a>(&'a self, mut h: &'a EntityId) -> u8 {
         let mut d = 0u8;
         while let Some(up) = self.parent.get(h) {
@@ -390,9 +513,30 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
     // Hijas por peso. Se pide varias veces y el orden tiene que ser idéntico
     // siempre: es de donde sale que dos ejecuciones abran el mismo cielo.
     let hijas_de = |h: &EntityId| -> Vec<EntityId> {
-        let mut v: Vec<EntityId> = tree.children.get(h).into_iter().flatten().cloned().collect();
+        let mut v: Vec<EntityId> = tree
+            .children
+            .get(h)
+            .into_iter()
+            .flatten()
+            .filter(|c| !tree.muda(c))
+            .cloned()
+            .collect();
         v.sort_by(|a, b| tree.weight.get(b).cmp(&tree.weight.get(a)).then_with(|| a.cmp(b)));
         v
+    };
+
+    // Lo que se queda en la madre pase lo que pase: todo lo que cuelga de una
+    // hija muda. Sin sumarlo, el resto pesaría menos de lo que cubre y dejaría
+    // de competir antes de tiempo — el mismo fallo que el test de los 100
+    // archivos cazó con las hijas no promovidas.
+    let peso_mudo = |h: &EntityId| -> usize {
+        tree.children
+            .get(h)
+            .into_iter()
+            .flatten()
+            .filter(|c| tree.muda(c))
+            .map(|c| tree.weight.get(c).copied().unwrap_or(0))
+            .sum()
     };
 
     let mut open: Vec<Abierta> = tree
@@ -414,6 +558,7 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
             // tenían que salir 10.
             Zoom::Remainder => {
                 tree.direct.get(&a.id).map_or(0, Vec::len)
+                    + peso_mudo(&a.id)
                     + hijas_de(&a.id)
                         .iter()
                         .skip(a.tomadas)
@@ -449,7 +594,7 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
         let Some(i) = open
             .iter()
             .enumerate()
-            .filter(|(_, a)| hijas_de(&a.id).len() > a.tomadas)
+            .filter(|(_, a)| !tree.atomica(&a.id) && hijas_de(&a.id).len() > a.tomadas)
             .max_by(|(_, a), (_, b)| {
                 let ia = peso(a) as u64 * (1 + b.nivel as u64);
                 let ib = peso(b) as u64 * (1 + a.nivel as u64);
@@ -502,8 +647,9 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
         // diferencia de antes, **puede volver a competir**: el resto sigue
         // siendo abrible mientras le queden hijas dentro.
         let tomadas = madre.tomadas + promovidas;
-        let queda =
-            tomadas < hijas.len() || tree.direct.get(&madre.id).is_some_and(|d| !d.is_empty());
+        let queda = tomadas < hijas.len()
+            || tree.direct.get(&madre.id).is_some_and(|d| !d.is_empty())
+            || peso_mudo(&madre.id) > 0;
         if queda {
             open.push(Abierta {
                 id: madre.id,

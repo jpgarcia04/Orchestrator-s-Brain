@@ -457,6 +457,42 @@ impl Store {
             .optional()?)
     }
 
+    /// La entidad cuyo `predicate` vale este instante, **sin filtrar por el eje
+    /// de validez**.
+    ///
+    /// Es a [`Self::find_subject_by_value`] lo que [`Self::resolve_whenever`] es
+    /// a [`Self::resolve`], y existe por el mismo motivo: un `session_span` vive
+    /// en el eje de validez —la sesión *ocurrió* entonces— así que buscarlo con
+    /// un `at.valid` de ahora no lo encuentra nunca. Sin esto, quien quiera
+    /// saber si una sesión ya estaba escrita no puede preguntarlo, y la única
+    /// salida es crearla otra vez.
+    pub fn find_subject_by_timestamp_whenever(
+        &self,
+        predicate: &str,
+        value: i64,
+        known: i64,
+    ) -> Result<Option<EntityId>> {
+        let sql = "SELECT subject FROM assertions
+             WHERE predicate = :predicate
+               AND object_kind = 'timestamp'
+               AND object_number = :value
+               AND asserted_at <= :known
+               AND (retracted_at IS NULL OR retracted_at > :known)
+             LIMIT 1";
+        Ok(self
+            .conn
+            .query_row(
+                sql,
+                named_params! {
+                    ":predicate": predicate,
+                    ":value":     value as f64,
+                    ":known":     known,
+                },
+                |r| Ok(EntityId(r.get(0)?)),
+            )
+            .optional()?)
+    }
+
     /// **Todas** las entidades que tienen `predicate = value` vigente.
     ///
     /// La versión en singular aplica precedencia y devuelve una. Ésta existe
