@@ -132,3 +132,9 @@ export function saludo(d = new Date()): string {
   if (h < 20) return "Buenas tardes";
   return "Buenas noches";
 }
+
+/** Un error del núcleo, como frase: con mayúscula al principio. */
+export function frase(e: unknown): string {
+  const s = String(e).replace(/^Error:\s*/, "");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}

@@ -205,3 +205,57 @@ kbd {
   scrollbar-width: thin;
   scrollbar-color: var(--linea) transparent;
 }
+
+/* Botones y campos de las ventanas de seguridad (ADR-0021): los mismos radios
+   y colores que los de la vista previa. */
+.boton-prim,
+.boton-sec {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.boton-prim {
+  background: var(--prim);
+  color: var(--prim-tinta);
+}
+.boton-sec {
+  border: 1px solid var(--linea);
+  background: var(--tarjeta);
+}
+.boton-prim:disabled,
+.boton-sec:disabled {
+  opacity: 0.45;
+  cursor: default;
+  filter: none;
+}
+.campo {
+  height: 44px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid var(--linea);
+  background: var(--tarjeta);
+  color: var(--tinta);
+  font-size: 15px;
+  outline: none;
+}
+.campo:focus {
+  border-color: var(--acento);
+}
+.campo::placeholder {
+  color: var(--tenue);
+}
+.enlace-sec {
+  align-self: flex-start;
+  font-size: 13px;
+  color: var(--acento);
+}
+.error-campo {
+  font-size: 13px;
+  color: var(--peligro);
+}

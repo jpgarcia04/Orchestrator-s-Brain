@@ -14,9 +14,13 @@
   import BarraLateral from "./componentes/BarraLateral.svelte";
   import Buscador from "./componentes/Buscador.svelte";
   import Cabecera from "./componentes/Cabecera.svelte";
+  import Pin from "./componentes/Pin.svelte";
+  import Recuperacion from "./componentes/Recuperacion.svelte";
+  import Seguridad from "./componentes/Seguridad.svelte";
   import VistaPrevia from "./componentes/VistaPrevia.svelte";
   import { app } from "./lib/app.svelte";
   import Carpeta from "./vistas/Carpeta.svelte";
+  import Cerrada from "./vistas/Cerrada.svelte";
   import Inicio from "./vistas/Inicio.svelte";
   import Mapa from "./vistas/Mapa.svelte";
   import Sensibles from "./vistas/Sensibles.svelte";
@@ -43,7 +47,7 @@
       app.abrirBuscador();
       return;
     }
-    if (app.buscando || escribiendo(e.target)) return; // el buscador tiene sus teclas
+    if (app.buscando || app.enModal || app.info?.cerrada || escribiendo(e.target)) return; // tienen sus teclas
     if (e.key === "Escape") {
       if (app.seleccion) app.cerrarPanel();
       else if (app.vista === "mapa" && app.lente) app.lente = null;
@@ -59,6 +63,9 @@
 
 <svelte:window onkeydown={tecla} />
 
+{#if app.info?.cerrada}
+  <Cerrada />
+{:else}
 <div class="escritorio">
   <BarraLateral />
 
@@ -92,11 +99,22 @@
     <Buscador />
   {/if}
 
-  <div class="avisos" aria-live="polite">
-    {#if app.aviso}
-      <p class="aviso entra">{app.aviso}</p>
-    {/if}
-  </div>
+  {#if app.mostrarRecuperacion}
+    <Recuperacion />
+  {/if}
+  {#if app.panelSeguridad}
+    <Seguridad />
+  {/if}
+  {#if app.pidiendoPin}
+    <Pin />
+  {/if}
+</div>
+{/if}
+
+<div class="avisos" aria-live="polite">
+  {#if app.aviso}
+    <p class="aviso entra">{app.aviso}</p>
+  {/if}
 </div>
 
 <style>

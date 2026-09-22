@@ -102,6 +102,10 @@ pub struct Preview {
     pub height: u32,
     /// Por qué no hay nada que enseñar, dicho con todas las letras.
     pub reason: Option<String>,
+    /// Es sensible, hay PIN y no está desbloqueado: el contenido **no ha
+    /// salido del núcleo** (ADR-0021). No es un borroso: no hay nada que
+    /// destapar hasta que se escriba el PIN.
+    pub locked: bool,
 }
 
 /// Qué se puede enseñar de esta entidad.
@@ -112,6 +116,7 @@ pub fn of(
     id: &EntityId,
     query: Option<&str>,
     at: TimePoint,
+    locked: bool,
 ) -> Result<Preview> {
     let texto_de = |p: &str| -> Result<Option<String>> {
         Ok(store
@@ -139,8 +144,17 @@ pub fn of(
         width: 0,
         height: 0,
         reason: None,
+        locked: false,
         path,
     };
+
+    // ── 0. Con el PIN puesto y sin desbloquear, lo sensible no se lee: ni el
+    //       texto de la base ni, sobre todo, el archivo para la miniatura.
+    if locked && p.sensitivity != "normal" {
+        p.locked = true;
+        p.reason = Some("protegido con tu PIN".to_string());
+        return Ok(p);
+    }
 
     // ── 1. El texto. No abre ningún archivo: sale de la proyección de M2.
     if let Some(doc) = obrain_extract::index::document_text(store.conn(), id)? {

@@ -40,8 +40,42 @@ impl Store {
         Ok(store)
     }
 
+    /// Abre una base del disco.
+    ///
+    /// **Si tiene llave, está cifrada** (ADR-0021) y se abre con la llave que
+    /// guarda el sistema —DPAPI en Windows—, sin preguntar nada. Si no la
+    /// tiene, se abre en claro, como siempre. Crear la llave de una base nueva
+    /// o cifrar una que estaba en claro no pasa aquí: es una decisión del
+    /// producto y la toma `obrain_api::cifrado::abrir`.
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self> {
+        let path = path.as_ref();
+        let key = if obrain_keys::exists(path) {
+            Some(obrain_keys::unlock(path)?)
+        } else {
+            None
+        };
+        Self::open_with(path, key.as_ref())
+    }
+
+    /// Abre una base con esta llave, o en claro con `None`.
+    pub fn open_with(
+        path: impl AsRef<std::path::Path>,
+        key: Option<&obrain_keys::DataKey>,
+    ) -> Result<Self> {
         let conn = Connection::open(path)?;
+        if let Some(k) = key {
+            // La llave tiene que ser lo primero que se le dice a la conexión.
+            // En crudo (`x'…'`) no hay derivación: son 256 bits de azar.
+            conn.execute_batch(&format!("PRAGMA key = \"{}\";", k.sqlcipher_literal().as_str()))?;
+            // SQLCipher no comprueba la llave hasta leer la primera página.
+            // Se lee aquí para que una llave equivocada sea este error y no un
+            // «file is not a database» tres llamadas más tarde.
+            conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get::<_, i64>(0))
+                .map_err(|_| Error::WrongKey)?;
+        }
+        // Lo temporal, en memoria: un archivo temporal de SQLite en claro al
+        // lado de una base cifrada sería una fuga por la puerta de atrás.
+        conn.execute_batch("PRAGMA temp_store = MEMORY;")?;
         // WAL: la aplicación lee mientras el indexador escribe desde otra
         // conexión. Sin esto, cualquier lectura durante un reindexado fallaría
         // con «database is locked». Y la espera cubre a dos escritores que
@@ -51,6 +85,32 @@ impl Store {
         let store = Store { conn };
         store.migrate()?;
         Ok(store)
+    }
+
+    /// Copia una base **en claro** a `destino`, **cifrada** con esta llave.
+    ///
+    /// Es `sqlcipher_export`: esquema, datos, índices y triggers —los de I1 e
+    /// I4 incluidos—. No toca el origen; sustituirlo es cosa de quien migra.
+    pub fn export_encrypted(
+        origen: impl AsRef<std::path::Path>,
+        destino: impl AsRef<std::path::Path>,
+        key: &obrain_keys::DataKey,
+    ) -> Result<()> {
+        let conn = Connection::open(origen)?;
+        // Que el WAL quede volcado en el archivo principal antes de copiar.
+        conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
+        conn.execute(
+            "ATTACH DATABASE ?1 AS cifrada KEY ?2",
+            rusqlite::params![
+                destino.as_ref().to_string_lossy(),
+                key.sqlcipher_literal().as_str()
+            ],
+        )?;
+        conn.query_row("SELECT sqlcipher_export('cifrada')", [], |_| Ok(()))?;
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        conn.execute_batch(&format!("PRAGMA cifrada.user_version = {version};"))?;
+        conn.execute_batch("DETACH DATABASE cifrada;")?;
+        Ok(())
     }
 
     fn migrate(&self) -> Result<()> {

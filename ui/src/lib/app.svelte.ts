@@ -14,8 +14,10 @@ import {
   estado as pedirEstado,
   explorar,
   marcarCarpeta as pedirMarca,
+  pinBloquear,
+  seguridad as pedirSeguridad,
 } from "./nucleo";
-import type { Estado, Indexado, Listado } from "./nucleo";
+import type { Estado, Indexado, Listado, Seguridad } from "./nucleo";
 
 export type Vista = "inicio" | "carpeta" | "mapa" | "sensibles";
 export type Tema = "noche" | "dia";
@@ -62,8 +64,27 @@ class App {
   /** Sube cada vez que termina un reindexado: lo que se pinta con datos vuelve a pedirlos. */
   version = $state(0);
   error = $state("");
+  /** Cifrado y PIN (ADR-0021). `null` hasta saberlo, o con la base cerrada. */
+  seguridad = $state<Seguridad | null>(null);
+  /** El panel de Seguridad, abierto. */
+  panelSeguridad = $state(false);
+  /** Se está pidiendo el PIN para enseñar algo sensible. */
+  pidiendoPin = $state(false);
+  /** «Más tarde» en el aviso de la clave de recuperación: vuelve al abrir la app. */
+  recuperacionAplazada = $state(false);
 
   private temporizador: number | undefined;
+  private resolverPin: ((ok: boolean) => void) | null = null;
+
+  /** ¿Hay que enseñar la clave de recuperación? Hasta que digas que la guardaste. */
+  get mostrarRecuperacion(): boolean {
+    return !!this.seguridad?.recuperacion_pendiente && !this.recuperacionAplazada && !this.info?.cerrada;
+  }
+
+  /** Hay una ventana encima: las teclas sueltas no abren el buscador. */
+  get enModal(): boolean {
+    return this.pidiendoPin || this.panelSeguridad || this.mostrarRecuperacion;
+  }
 
   /** ¿La bóveda está sin empezar? */
   get vacia(): boolean {
@@ -80,6 +101,14 @@ class App {
     try {
       this.info = await pedirEstado();
       this.indexando = this.info.indexing;
+      if (this.info.cerrada) {
+        // Sin la llave no hay nada más que pedir: la ventana pide la clave.
+        this.seguridad = null;
+        this.error = "";
+        this.version++;
+        return;
+      }
+      await this.recargarSeguridad();
       this.raiz = await explorar(null);
       if (this.vista === "carpeta" && this.listado) {
         try {
@@ -177,6 +206,51 @@ class App {
     } catch (e) {
       this.avisar(`No se pudo marcar la carpeta — ${e}`);
     }
+  }
+
+  async recargarSeguridad(): Promise<void> {
+    try {
+      this.seguridad = await pedirSeguridad();
+    } catch {
+      this.seguridad = null;
+    }
+  }
+
+  /**
+   * Pide el PIN si hace falta. Resuelve `true` cuando se puede ver lo
+   * sensible —ya estaba desbloqueado, no hay PIN, o se acaba de escribir— y
+   * `false` si se canceló.
+   */
+  pedirPin(): Promise<boolean> {
+    if (!this.seguridad?.pin) return Promise.resolve(true);
+    return new Promise((resolver) => {
+      this.resolverPin?.(false);
+      this.resolverPin = resolver;
+      this.pidiendoPin = true;
+    });
+  }
+
+  /** Lo llama la ventana del PIN al terminar. */
+  async pinResuelto(ok: boolean): Promise<void> {
+    this.pidiendoPin = false;
+    const r = this.resolverPin;
+    this.resolverPin = null;
+    if (ok) {
+      await this.recargarSeguridad();
+      this.version++; // lo que estaba bloqueado se vuelve a pedir
+    }
+    r?.(ok);
+  }
+
+  /** Vuelve a tapar lo sensible ya, sin esperar a que caduque. */
+  async bloquear(): Promise<void> {
+    try {
+      await pinBloquear();
+    } catch {
+      // con la base cerrada no hay nada que bloquear
+    }
+    await this.recargarSeguridad();
+    this.version++;
   }
 
   /** Enseña algo en la vista previa sin moverse de donde estás. */

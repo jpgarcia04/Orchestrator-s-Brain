@@ -14,7 +14,8 @@
 //! sería un «abre esto» genérico expuesto al webview, y la aplicación pasaría
 //! de poder tocar lo que está indexado a poder tocar cualquier cosa del disco.
 //! Por eso tampoco se le dan al webview los permisos del plugin: la decisión de
-//! qué se puede abrir se toma en Rust, contra el log.
+//! qué se puede abrir se toma en Rust, contra el log. Y con PIN (ADR-0021), lo
+//! sensible sólo se abre desbloqueado: abrirlo fuera sería saltarse el PIN.
 //!
 //! ## El modelo se carga en un hilo aparte, y es lo que decide la sensación
 //!
@@ -32,9 +33,18 @@
 //! propia conexión** a la base: la ventana sigue leyendo mientras tanto (la
 //! base está en modo WAL), y el modelo se presta al indexador en vez de cargarse
 //! dos veces. Al terminar se avisa a la ventana con el evento `indexado`.
+//!
+//! ## La base está cifrada, y puede estar cerrada
+//!
+//! Al abrir, la base se cifra si venía en claro (ADR-0021) y se abre con la
+//! llave que guarda Windows. Si este equipo no tiene esa llave —otro equipo,
+//! Windows reinstalado—, la aplicación **arranca igual, con la base cerrada**, y
+//! la ventana pide la clave de recuperación ([`recuperar`]). Todo lo demás
+//! responde «la base está cerrada» hasta entonces.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use obrain_api::seguridad::{self, Estado as EstadoSeguridad};
 use obrain_api::{
     default_db_path, Brain, Embedder, EntityView, FolderMarked, Glance, IndexReport, Lens, Listing,
     MarkedFolder, Preview, Row, Sky,
@@ -47,15 +57,21 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
-struct Cerebro(Mutex<Brain>);
+/// El cerebro, o `None` si la base está cerrada (falta su llave).
+struct Cerebro(Mutex<Option<Brain>>);
 
 /// ¿Hay un reindexado en marcha? Dos a la vez escribirían lo mismo dos veces.
 struct Indexando(AtomicBool);
+
+const CERRADA: &str = "la base está cerrada: escribe tu clave de recuperación";
 
 /// Lo que la barra enseña al abrir, antes de que nadie escriba nada.
 #[derive(serde::Serialize)]
 struct Estado {
     db: String,
+    /// Windows no tiene la llave de la base: hace falta la clave de
+    /// recuperación. Con la base cerrada, el resto de campos van vacíos.
+    cerrada: bool,
     semantic: bool,
     entities: i64,
     assertions: i64,
@@ -76,10 +92,20 @@ fn texto<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
 }
 
+/// El único acceso al cerebro desde los comandos: con el cerrojo, y con la
+/// base abierta.
+fn con<T>(
+    cerebro: &State<'_, Cerebro>,
+    f: impl FnOnce(&mut Brain) -> obrain_api::Result<T>,
+) -> Result<T, String> {
+    let mut guarda = cerebro.0.lock().map_err(texto)?;
+    let brain = guarda.as_mut().ok_or_else(|| CERRADA.to_string())?;
+    f(brain).map_err(texto)
+}
+
 #[tauri::command]
 fn vistazo(query: String, limit: usize, cerebro: State<'_, Cerebro>) -> Result<Glance, String> {
-    let brain = cerebro.0.lock().map_err(texto)?;
-    brain.glance(&query, limit).map_err(texto)
+    con(&cerebro, |b| b.glance(&query, limit))
 }
 
 #[tauri::command]
@@ -90,15 +116,13 @@ fn lente(
     cerebro: State<'_, Cerebro>,
 ) -> Result<Lens, String> {
     let focus: Vec<EntityId> = focus.into_iter().map(EntityId).collect();
-    let brain = cerebro.0.lock().map_err(texto)?;
-    brain.lens(&focus, radius, budget).map_err(texto)
+    con(&cerebro, |b| b.lens(&focus, radius, budget))
 }
 
 /// El cielo: lo que se ve al abrir, antes de que nadie escriba nada.
 #[tauri::command]
 fn cielo(target: usize, cerebro: State<'_, Cerebro>) -> Result<Sky, String> {
-    let brain = cerebro.0.lock().map_err(texto)?;
-    brain.sky(target).map_err(texto)
+    con(&cerebro, |b| b.sky(target))
 }
 
 /// El explorador de ADR-0014: qué hay dentro de esto.
@@ -108,29 +132,25 @@ fn cielo(target: usize, cerebro: State<'_, Cerebro>) -> Result<Sky, String> {
 #[tauri::command]
 fn explorar(foco: Option<String>, cerebro: State<'_, Cerebro>) -> Result<Listing, String> {
     let foco = foco.map(EntityId);
-    let brain = cerebro.0.lock().map_err(texto)?;
-    brain.children(foco.as_ref()).map_err(texto)
+    con(&cerebro, |b| b.children(foco.as_ref()))
 }
 
 /// Lo último que tocaste: el «Recientes» del inicio.
 #[tauri::command]
 fn recientes(limit: usize, cerebro: State<'_, Cerebro>) -> Result<Vec<Row>, String> {
-    let brain = cerebro.0.lock().map_err(texto)?;
-    brain.recent(limit).map_err(texto)
+    con(&cerebro, |b| b.recent(limit))
 }
 
 /// Lo que la puerta retiene: la vista «Sensibles».
 #[tauri::command]
 fn sensibles(cerebro: State<'_, Cerebro>) -> Result<Vec<Row>, String> {
-    let brain = cerebro.0.lock().map_err(texto)?;
-    brain.sensitive().map_err(texto)
+    con(&cerebro, |b| b.sensitive())
 }
 
 /// Las carpetas que marcaste como sensibles, para la vista «Sensibles».
 #[tauri::command]
 fn carpetas_marcadas(cerebro: State<'_, Cerebro>) -> Result<Vec<MarkedFolder>, String> {
-    let brain = cerebro.0.lock().map_err(texto)?;
-    brain.marked_folders().map_err(texto)
+    con(&cerebro, |b| b.marked_folders())
 }
 
 /// El botón de la cabecera de una carpeta: marcarla como sensible —todo lo
@@ -148,14 +168,12 @@ fn marcar_carpeta(
         None => None,
         Some(n) => Some(Sensitivity::parse(n).ok_or_else(|| format!("nivel desconocido: {n}"))?),
     };
-    let mut brain = cerebro.0.lock().map_err(texto)?;
-    brain.mark_folder(&EntityId(carpeta), nivel).map_err(texto)
+    con(&cerebro, |b| b.mark_folder(&EntityId(carpeta), nivel))
 }
 
 #[tauri::command]
 fn entidad(id: String, cerebro: State<'_, Cerebro>) -> Result<EntityView, String> {
-    let brain = cerebro.0.lock().map_err(texto)?;
-    brain.entity(&EntityId(id)).map_err(texto)
+    con(&cerebro, |b| b.entity(&EntityId(id)))
 }
 
 /// Qué se ve del archivo. La segunda mitad de M5b.
@@ -163,24 +181,27 @@ fn entidad(id: String, cerebro: State<'_, Cerebro>) -> Result<EntityView, String
 /// `consulta` sólo decide **dónde se abre** el texto —el tramo que explica lo
 /// que se buscó— y nunca cuánto se puede leer. Lo que se puede leer lo decide
 /// la guarda de M1 dentro del núcleo, y no la toca ningún argumento de aquí.
+/// Con PIN, lo sensible llega vacío hasta desbloquear (ADR-0021).
 #[tauri::command]
 fn previsualizar(
     id: String,
     consulta: Option<String>,
     cerebro: State<'_, Cerebro>,
 ) -> Result<Preview, String> {
-    let brain = cerebro.0.lock().map_err(texto)?;
-    brain.preview(&EntityId(id), consulta.as_deref()).map_err(texto)
+    con(&cerebro, |b| b.preview(&EntityId(id), consulta.as_deref()))
 }
 
-/// La ruta de una entidad, según el log. **La pone el núcleo, no la ventana.**
-fn ruta_de(cerebro: &State<'_, Cerebro>, id: String) -> Result<String, String> {
-    let brain = cerebro.0.lock().map_err(texto)?;
-    brain
-        .entity(&EntityId(id))
-        .map_err(texto)?
-        .path
-        .ok_or_else(|| "esta entidad no es un archivo con ruta".to_string())
+/// La ruta de una entidad, según el log. **La pone el núcleo, no la ventana**,
+/// y sólo si se puede abrir: con PIN, lo sensible pide desbloquear antes.
+fn ruta_para_abrir(cerebro: &State<'_, Cerebro>, id: String) -> Result<String, String> {
+    con(cerebro, |b| {
+        let id = EntityId(id);
+        if !b.may_open(&id)? {
+            return Err(obrain_api::Error::Bloqueado);
+        }
+        Ok(b.entity(&id)?.path)
+    })?
+    .ok_or_else(|| "esta entidad no es un archivo con ruta".to_string())
 }
 
 /// Abre el archivo con el programa que el sistema tenga asociado.
@@ -195,7 +216,7 @@ fn ruta_de(cerebro: &State<'_, Cerebro>, id: String) -> Result<String, String> {
 ///    todas las letras**. Decirlo es responsabilidad del botón que llama aquí.
 #[tauri::command]
 fn abrir(id: String, app: tauri::AppHandle, cerebro: State<'_, Cerebro>) -> Result<(), String> {
-    let ruta = ruta_de(&cerebro, id)?;
+    let ruta = ruta_para_abrir(&cerebro, id)?;
     app.opener().open_path(ruta, None::<&str>).map_err(texto)
 }
 
@@ -204,12 +225,13 @@ fn abrir(id: String, app: tauri::AppHandle, cerebro: State<'_, Cerebro>) -> Resu
 /// Nunca ejecuta el archivo, así que no hereda el primer coste de [`abrir`].
 #[tauri::command]
 fn revelar(id: String, app: tauri::AppHandle, cerebro: State<'_, Cerebro>) -> Result<(), String> {
-    let ruta = ruta_de(&cerebro, id)?;
+    let ruta = ruta_para_abrir(&cerebro, id)?;
     app.opener().reveal_item_in_dir(ruta).map_err(texto)
 }
 
 /// La corrección de I5. Escribe una aserción del usuario, que gana para
-/// siempre. Es el único comando que **escribe**, y sólo en el log.
+/// siempre. Es el único comando que **escribe** en el log, además de marcar
+/// una carpeta.
 #[tauri::command]
 fn corregir(
     subject: String,
@@ -217,26 +239,34 @@ fn corregir(
     object: String,
     cerebro: State<'_, Cerebro>,
 ) -> Result<String, String> {
-    let brain = cerebro.0.lock().map_err(texto)?;
-    brain
-        .correct(
-            &EntityId(subject),
-            &predicate,
-            obrain_core::Value::Text(object),
-        )
-        .map_err(texto)
+    con(&cerebro, |b| {
+        b.correct(&EntityId(subject), &predicate, obrain_core::Value::Text(object))
+    })
 }
 
 #[tauri::command]
 fn estado(cerebro: State<'_, Cerebro>, indexando: State<'_, Indexando>) -> Result<Estado, String> {
-    let brain = cerebro.0.lock().map_err(texto)?;
+    let guarda = cerebro.0.lock().map_err(texto)?;
+    let db = default_db_path().display().to_string();
+    let Some(brain) = guarda.as_ref() else {
+        return Ok(Estado {
+            db,
+            cerrada: true,
+            semantic: false,
+            entities: 0,
+            assertions: 0,
+            libraries: Vec::new(),
+            indexing: false,
+        });
+    };
     let store = brain.store();
     let entities: i64 = store
         .conn()
         .query_row("SELECT COUNT(*) FROM entities", [], |r| r.get(0))
         .map_err(texto)?;
     Ok(Estado {
-        db: default_db_path().display().to_string(),
+        db,
+        cerrada: false,
         semantic: brain.semantic_ready(),
         entities,
         assertions: store.log_len().map_err(texto)?,
@@ -245,17 +275,94 @@ fn estado(cerebro: State<'_, Cerebro>, indexando: State<'_, Indexando>) -> Resul
     })
 }
 
+// ───────────────────────────────────────────────────── seguridad (ADR-0021)
+
+/// Cómo está la seguridad: cifrado, clave de recuperación pendiente, PIN.
+#[tauri::command]
+fn seguridad(cerebro: State<'_, Cerebro>) -> Result<EstadoSeguridad, String> {
+    con(&cerebro, |b| b.security())
+}
+
+/// La clave de recuperación, para enseñarla. Con PIN, desbloqueado.
+#[tauri::command]
+fn clave_recuperacion(cerebro: State<'_, Cerebro>) -> Result<Option<String>, String> {
+    con(&cerebro, |b| b.recovery_code())
+}
+
+/// «Ya la guardé»: la app deja de enseñarla al abrir.
+#[tauri::command]
+fn recuperacion_guardada(cerebro: State<'_, Cerebro>) -> Result<(), String> {
+    con(&cerebro, |b| b.confirm_recovery_saved())
+}
+
+/// Abre la base con la clave de recuperación cuando Windows no tiene su
+/// llave, y la deja otra vez en manos de Windows. Después, todo arranca como
+/// si se hubiera abierto normal.
+#[tauri::command]
+fn recuperar(codigo: String, app: AppHandle, cerebro: State<'_, Cerebro>) -> Result<(), String> {
+    let db = default_db_path();
+    {
+        let mut guarda = cerebro.0.lock().map_err(texto)?;
+        if guarda.is_some() {
+            return Ok(());
+        }
+        seguridad::recuperar(&db, &codigo).map_err(texto)?;
+        *guarda = Some(Brain::open(&db).map_err(texto)?);
+    }
+    app.state::<Indexando>().0.store(true, Ordering::SeqCst);
+    arrancar_en_fondo(app);
+    Ok(())
+}
+
+#[tauri::command]
+fn pin_desbloquear(pin: String, cerebro: State<'_, Cerebro>) -> Result<(), String> {
+    con(&cerebro, |b| b.unlock(&pin))
+}
+
+#[tauri::command]
+fn pin_bloquear(cerebro: State<'_, Cerebro>) -> Result<(), String> {
+    con(&cerebro, |b| {
+        b.lock();
+        Ok(())
+    })
+}
+
+#[tauri::command]
+fn pin_poner(nuevo: String, actual: Option<String>, cerebro: State<'_, Cerebro>) -> Result<(), String> {
+    con(&cerebro, |b| b.set_pin(&nuevo, actual.as_deref()))
+}
+
+#[tauri::command]
+fn pin_quitar(actual: String, cerebro: State<'_, Cerebro>) -> Result<(), String> {
+    con(&cerebro, |b| b.remove_pin(&actual))
+}
+
+/// Olvidé el PIN: con la clave de recuperación se pone otro (o ninguno).
+#[tauri::command]
+fn pin_restablecer(
+    codigo: String,
+    nuevo: Option<String>,
+    cerebro: State<'_, Cerebro>,
+) -> Result<(), String> {
+    con(&cerebro, |b| b.reset_pin(&codigo, nuevo.as_deref()))
+}
+
+// ───────────────────────────────────────────────────────────── indexar
+
 /// Vuelve a leer tus bibliotecas. **Vuelve al instante**: el trabajo va en un
 /// hilo y el resultado llega con el evento `indexado`. Devuelve `false` si ya
-/// había uno en marcha.
+/// había uno en marcha (o si la base está cerrada).
 #[tauri::command]
 fn actualizar(app: AppHandle, cerebro: State<'_, Cerebro>, indexando: State<'_, Indexando>) -> bool {
+    if cerebro.0.lock().map(|g| g.is_none()).unwrap_or(true) {
+        return false;
+    }
     if indexando.0.swap(true, Ordering::SeqCst) {
         return false;
     }
     // El modelo se presta: vectorizar con el cerebro cogido dejaría la barra
     // sin responder. Mientras tanto la búsqueda sigue, en léxico.
-    let modelo = cerebro.0.lock().ok().and_then(|mut b| b.take_embedder());
+    let modelo = cerebro.0.lock().ok().and_then(|mut g| g.as_mut().and_then(Brain::take_embedder));
     std::thread::spawn(move || indexar_en_fondo(&app, None, modelo));
     true
 }
@@ -271,6 +378,9 @@ fn actualizar(app: AppHandle, cerebro: State<'_, Cerebro>, indexando: State<'_, 
 async fn anadir_biblioteca(app: AppHandle) -> Result<bool, String> {
     if app.state::<Indexando>().0.load(Ordering::SeqCst) {
         return Ok(false);
+    }
+    if app.state::<Cerebro>().0.lock().map(|g| g.is_none()).unwrap_or(true) {
+        return Err(CERRADA.to_string());
     }
     // El diálogo bloquea hasta que se elige: fuera del hilo de la ventana.
     let a = app.clone();
@@ -294,7 +404,7 @@ async fn anadir_biblioteca(app: AppHandle) -> Result<bool, String> {
         .0
         .lock()
         .ok()
-        .and_then(|mut b| b.take_embedder());
+        .and_then(|mut g| g.as_mut().and_then(Brain::take_embedder));
     std::thread::spawn(move || indexar_en_fondo(&app, Some(vec![ruta]), modelo));
     Ok(true)
 }
@@ -302,7 +412,8 @@ async fn anadir_biblioteca(app: AppHandle) -> Result<bool, String> {
 /// El indexado de verdad. Siempre en un hilo aparte, con su propia conexión.
 ///
 /// `raices` a `None` vuelve a leer todas las bibliotecas; con carpetas, las
-/// añade (y deja las demás como estaban).
+/// añade (y deja las demás como estaban). La conexión propia abre la base
+/// cifrada igual que la de la ventana: la llave la da Windows.
 fn indexar_en_fondo(
     app: &AppHandle,
     raices: Option<Vec<PathBuf>>,
@@ -318,8 +429,10 @@ fn indexar_en_fondo(
     });
     // El modelo vuelve al cerebro pase lo que pase.
     if let Some(m) = modelo {
-        if let Ok(mut b) = app.state::<Cerebro>().0.lock() {
-            b.set_embedder(m);
+        if let Ok(mut g) = app.state::<Cerebro>().0.lock() {
+            if let Some(b) = g.as_mut() {
+                b.set_embedder(m);
+            }
         }
     }
     app.state::<Indexando>().0.store(false, Ordering::SeqCst);
@@ -333,6 +446,30 @@ fn indexar_en_fondo(
     let _ = app.emit("indexado", aviso);
 }
 
+/// El modelo, fuera del cerrojo, y después **tus bibliotecas al día**: lo que
+/// añadiste a la carpeta mientras la aplicación estaba cerrada aparece sin
+/// pulsar nada. Si el modelo no está descargado, se indexa igual y la barra
+/// sigue respondiendo en léxico.
+fn arrancar_en_fondo(handle: AppHandle) {
+    std::thread::spawn(move || {
+        let modelo = match obrain_api::load_model(None) {
+            Ok(Some(m)) => Some(m),
+            Ok(None) => {
+                eprintln!(
+                    "sin modelo local: la busqueda va en lexico. \
+                     `obrain-embed <db> --descargar-modelo` lo enciende."
+                );
+                None
+            }
+            Err(e) => {
+                eprintln!("no se pudo cargar el modelo: {e}");
+                None
+            }
+        };
+        indexar_en_fondo(&handle, None, modelo);
+    });
+}
+
 fn main() {
     tauri::Builder::default()
         // Sin permisos para el webview a propósito: las dos salidas se invocan
@@ -344,33 +481,23 @@ fn main() {
             if let Some(dir) = db.parent() {
                 std::fs::create_dir_all(dir).ok();
             }
-            app.manage(Cerebro(Mutex::new(Brain::open(&db)?)));
+            // Abre (y cifra, si venía en claro). Sin la llave de Windows no es
+            // un fallo de arranque: la ventana pedirá la clave de recuperación.
+            let brain = match Brain::open(&db) {
+                Ok(b) => Some(b),
+                Err(e) if e.is_key_unavailable() => {
+                    eprintln!("{e}");
+                    None
+                }
+                Err(e) => return Err(e.into()),
+            };
+            let abierta = brain.is_some();
+            app.manage(Cerebro(Mutex::new(brain)));
             // Arranca marcado: el hilo de abajo reindexa en cuanto tenga modelo.
-            app.manage(Indexando(AtomicBool::new(true)));
-
-            // El modelo, fuera del cerrojo, y después **tus bibliotecas al
-            // día**: lo que añadiste a la carpeta mientras la aplicación estaba
-            // cerrada aparece sin pulsar nada. Si el modelo no está descargado,
-            // se indexa igual y la barra sigue respondiendo en léxico.
-            let handle = app.handle().clone();
-            std::thread::spawn(move || {
-                let modelo = match obrain_api::load_model(None) {
-                    Ok(Some(m)) => Some(m),
-                    Ok(None) => {
-                        eprintln!(
-                            "sin modelo local: la busqueda va en lexico. \
-                             `obrain-embed <db> --descargar-modelo` lo enciende."
-                        );
-                        None
-                    }
-                    Err(e) => {
-                        eprintln!("no se pudo cargar el modelo: {e}");
-                        None
-                    }
-                };
-                indexar_en_fondo(&handle, None, modelo);
-            });
-
+            app.manage(Indexando(AtomicBool::new(abierta)));
+            if abierta {
+                arrancar_en_fondo(app.handle().clone());
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -388,6 +515,15 @@ fn main() {
             revelar,
             corregir,
             estado,
+            seguridad,
+            clave_recuperacion,
+            recuperacion_guardada,
+            recuperar,
+            pin_desbloquear,
+            pin_bloquear,
+            pin_poner,
+            pin_quitar,
+            pin_restablecer,
             actualizar,
             anadir_biblioteca
         ])

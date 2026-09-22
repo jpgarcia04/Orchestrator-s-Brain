@@ -1,6 +1,6 @@
 ﻿[workspace]
 resolver = "3"
-members = ["obrain-core", "obrain-scan", "obrain-link", "obrain-extract", "obrain-guard", "obrain-embed", "obrain-api"]
+members = ["obrain-keys", "obrain-core", "obrain-scan", "obrain-link", "obrain-extract", "obrain-guard", "obrain-embed", "obrain-api"]
 
 [workspace.package]
 edition = "2024"
@@ -10,3 +10,10 @@ rust-version = "1.85"
 [profile.release]
 lto = true
 codegen-units = 1
+
+# Argon2id deriva la clave de recuperación y el hash del PIN (ADR-0021). Sin
+# optimizar, 64 MiB de Argon2 tardan segundos en los tests y en `tauri dev`.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3

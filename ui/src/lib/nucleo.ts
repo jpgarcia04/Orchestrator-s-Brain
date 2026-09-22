@@ -279,10 +279,17 @@ export interface Vista {
   height: number;
   /** Por qué no hay nada que enseñar. §4.6: se dice, no se deja en blanco. */
   reason: string | null;
+  /**
+   * Es sensible, hay PIN y no está desbloqueado: el contenido **no ha salido
+   * del núcleo** (ADR-0021). No hay nada que destapar hasta escribir el PIN.
+   */
+  locked: boolean;
 }
 
 export interface Estado {
   db: string;
+  /** Windows no tiene la llave de la base: hace falta la clave de recuperación. */
+  cerrada: boolean;
   semantic: boolean;
   entities: number;
   assertions: number;
@@ -290,6 +297,21 @@ export interface Estado {
   libraries: string[];
   /** Hay un reindexado en marcha. */
   indexing: boolean;
+}
+
+/** Cómo está la seguridad de la base (ADR-0021). */
+export interface Seguridad {
+  /** La base está cifrada en el disco. */
+  cifrada: boolean;
+  /** Quién guarda la llave: `dpapi` (Windows) o `sin-proteger` (banco de pruebas). */
+  proteccion: string | null;
+  /** Hay una clave de recuperación que todavía no has confirmado haber guardado. */
+  recuperacion_pendiente: boolean;
+  pin: boolean;
+  /** Con PIN: lo sensible se puede ver ahora mismo. */
+  desbloqueada: boolean;
+  /** Tras varios fallos: cuánto falta para volver a probar. */
+  espera_ms: number;
 }
 
 /** Lo que hizo un reindexado. Ver `obrain_api::IndexReport`. */
@@ -393,6 +415,28 @@ export const corregir = (subject: string, predicate: string, object: string) =>
   invoke<string>("corregir", { subject, predicate, object });
 
 export const estado = () => invoke<Estado>("estado");
+
+// ── seguridad (ADR-0021) ──
+
+export const seguridad = () => invoke<Seguridad>("seguridad");
+
+/** La clave de recuperación, para enseñarla. Con PIN, sólo desbloqueado. */
+export const claveRecuperacion = () => invoke<string | null>("clave_recuperacion");
+
+/** «Ya la guardé»: la app deja de enseñarla al abrir. */
+export const recuperacionGuardada = () => invoke<void>("recuperacion_guardada");
+
+/** Abre la base con la clave de recuperación cuando Windows no tiene su llave. */
+export const recuperar = (codigo: string) => invoke<void>("recuperar", { codigo });
+
+export const pinDesbloquear = (pin: string) => invoke<void>("pin_desbloquear", { pin });
+export const pinBloquear = () => invoke<void>("pin_bloquear");
+export const pinPoner = (nuevo: string, actual: string | null) => invoke<void>("pin_poner", { nuevo, actual });
+export const pinQuitar = (actual: string) => invoke<void>("pin_quitar", { actual });
+
+/** Olvidé el PIN: con la clave de recuperación se pone otro (o ninguno, con `null`). */
+export const pinRestablecer = (codigo: string, nuevo: string | null) =>
+  invoke<void>("pin_restablecer", { codigo, nuevo });
 
 /**
  * Vuelve a leer tus bibliotecas. Vuelve al instante —`false` si ya había un

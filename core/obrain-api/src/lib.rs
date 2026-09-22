@@ -41,6 +41,7 @@ pub mod indexar;
 pub mod lens;
 pub mod marks;
 pub mod preview;
+pub mod seguridad;
 pub mod sky;
 
 use obrain_core::{EntityId, Method, NewAssertion, Sensitivity, Store, TimePoint, Value};
@@ -68,7 +69,33 @@ pub enum Error {
 
     #[error("no hay ninguna entidad con identificador {0}")]
     UnknownEntity(String),
+
+    #[error(transparent)]
+    Seguridad(#[from] seguridad::Error),
+
+    #[error("está protegido con tu PIN: desbloquéalo para verlo o abrirlo")]
+    Bloqueado,
 }
+
+impl Error {
+    /// ¿Es «este equipo no puede abrir la llave de la base»? Es el único error
+    /// de apertura con salida: la clave de recuperación ([`seguridad::recuperar`]).
+    pub fn is_key_unavailable(&self) -> bool {
+        use obrain_keys::Error::SistemaNoDisponible;
+        matches!(
+            self,
+            Error::Core(obrain_core::Error::Key(SistemaNoDisponible(_)))
+                | Error::Seguridad(seguridad::Error::Keys(SistemaNoDisponible(_)))
+                | Error::Seguridad(seguridad::Error::Core(obrain_core::Error::Key(
+                    SistemaNoDisponible(_)
+                )))
+        )
+    }
+}
+
+/// Cuánto dura un desbloqueo con PIN desde la última vez que se enseñó algo
+/// sensible (ADR-0021).
+pub const DESBLOQUEO: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 
 /// Un resultado de búsqueda, ya con todo lo que hace falta para enseñarlo.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -166,6 +193,9 @@ pub struct Brain {
     /// Es la restricción que hace posible que [`Brain::warm`] no sea una espera
     /// delante del usuario.
     embedder: Option<Box<dyn Embedder + Send>>,
+    /// Con PIN: cuándo se usó por última vez el desbloqueo. `Cell` porque
+    /// enseñar algo sensible lo renueva, y enseñar es una lectura (`&self`).
+    desbloqueo: std::cell::Cell<Option<Instant>>,
 }
 
 impl Brain {
@@ -176,11 +206,18 @@ impl Brain {
     /// y BM25 ya responde en 0,5–1,9 ms sin ningún modelo cargado. Cargarlo por
     /// adelantado convertiría 2,5 s de arranque en 2,5 s de espera delante del
     /// usuario, para una rama que quizá no necesite en esa consulta.
+    ///
+    /// La base **siempre queda cifrada** ([ADR-0021]): si no existe se crea
+    /// cifrada, y si estaba en claro se cifra aquí. Si este equipo no puede
+    /// abrir su llave, el error lo dice ([`Error::is_key_unavailable`]) y la
+    /// salida es la clave de recuperación.
+    ///
+    /// [ADR-0021]: ../../../docs/adr/0021-cifrado-en-reposo-y-pin.md
     pub fn open(db: impl AsRef<Path>) -> Result<Self> {
-        let store = Store::open(db)?;
+        let store = seguridad::abrir(db.as_ref())?;
         obrain_extract::index::migrate(store.conn())?;
         obrain_embed::index::migrate(store.conn())?;
-        Ok(Brain { store, embedder: None })
+        Ok(Self::from_store(store))
     }
 
     /// Carga el modelo. Pensado para llamarse **en segundo plano** justo
@@ -220,12 +257,19 @@ impl Brain {
     /// Sobre una base ya abierta. El caso de una base en memoria en los tests,
     /// y el de quien ya tiene un `Store` montado.
     pub fn from_store(store: Store) -> Self {
-        Brain { store, embedder: None }
+        // Las tablas de las proyecciones y la de seguridad, por si la base es
+        // nueva. Son `IF NOT EXISTS`: en una base ya hecha no cuestan nada.
+        let _ = obrain_extract::index::migrate(store.conn());
+        let _ = obrain_embed::index::migrate(store.conn());
+        let _ = seguridad::migrate(store.conn());
+        Brain { store, embedder: None, desbloqueo: std::cell::Cell::new(None) }
     }
 
     /// Para los tests y para cualquier otro `Embedder` de §5.1.
     pub fn with_embedder(store: Store, embedder: Box<dyn Embedder + Send>) -> Self {
-        Brain { store, embedder: Some(embedder) }
+        let mut b = Self::from_store(store);
+        b.embedder = Some(embedder);
+        b
     }
 
     pub fn store(&self) -> &Store {
@@ -299,6 +343,15 @@ impl Brain {
                 (hits, vec!["bm25"], false)
             }
         };
+
+        // Con el PIN puesto y sin desbloquear, lo sensible sale en la lista
+        // —su nombre ya está en el explorador— pero sin su fragmento de texto.
+        let mut hits = hits;
+        if !self.contenido_visible()? {
+            for h in hits.iter_mut().filter(|h| h.sensitivity != "normal") {
+                h.snippet.clear();
+            }
+        }
 
         Ok(Answer {
             clusters: sky::cluster(&self.store, &hits, at)?,
@@ -432,7 +485,123 @@ impl Brain {
         self.store
             .sensitivity(id)
             .map_err(|_| Error::UnknownEntity(id.0.clone()))?;
-        Ok(preview::of(&self.store, id, query, at)?)
+        let visible = self.contenido_visible()?;
+        let p = preview::of(&self.store, id, query, at, !visible)?;
+        if visible && p.sensitivity != "normal" && self.tiene_pin()? {
+            self.tocar();
+        }
+        Ok(p)
+    }
+
+    // ─────────────────────────────────────────────────────── seguridad (0021)
+
+    fn ahora_ms() -> i64 {
+        Self::now().0
+    }
+
+    fn tiene_pin(&self) -> Result<bool> {
+        Ok(seguridad::tiene_pin(self.store.conn())?)
+    }
+
+    /// ¿Está desbloqueado? Caduca a los [`DESBLOQUEO`] sin enseñar nada.
+    fn desbloqueada(&self) -> bool {
+        match self.desbloqueo.get() {
+            Some(t) if t.elapsed() < DESBLOQUEO => true,
+            Some(_) => {
+                self.desbloqueo.set(None);
+                false
+            }
+            None => false,
+        }
+    }
+
+    fn tocar(&self) {
+        self.desbloqueo.set(Some(Instant::now()));
+    }
+
+    /// ¿Puede salir del núcleo el contenido de lo sensible? Sin PIN, sí: se
+    /// enseña borroso hasta un clic, como siempre. Con PIN, sólo desbloqueado.
+    fn contenido_visible(&self) -> Result<bool> {
+        Ok(!self.tiene_pin()? || self.desbloqueada())
+    }
+
+    /// ¿Se puede abrir este archivo con su programa? Lo sensible, con el PIN
+    /// puesto, sólo desbloqueado: abrirlo fuera sería saltarse el PIN.
+    pub fn may_open(&self, id: &EntityId) -> Result<bool> {
+        let sensible = self
+            .store
+            .sensitivity(id)
+            .map_err(|_| Error::UnknownEntity(id.0.clone()))?
+            != Sensitivity::Normal;
+        if !sensible || self.contenido_visible()? {
+            if sensible && self.tiene_pin()? {
+                self.tocar();
+            }
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// Cómo está la seguridad de la base, para enseñarlo.
+    pub fn security(&self) -> Result<seguridad::Estado> {
+        let mut e = seguridad::estado(self.store.conn(), Self::ahora_ms())?;
+        e.desbloqueada = e.pin && self.desbloqueada();
+        Ok(e)
+    }
+
+    /// Desbloquea con el PIN. Tras tres fallos, espera creciente.
+    pub fn unlock(&self, pin: &str) -> Result<()> {
+        seguridad::comprobar_pin(self.store.conn(), pin, Self::ahora_ms())?;
+        self.tocar();
+        Ok(())
+    }
+
+    /// Vuelve a bloquear ya, sin esperar a que caduque.
+    pub fn lock(&self) {
+        self.desbloqueo.set(None);
+    }
+
+    /// Pone o cambia el PIN. Si ya había uno, hay que saberlo.
+    pub fn set_pin(&self, nuevo: &str, actual: Option<&str>) -> Result<()> {
+        if self.tiene_pin()? {
+            seguridad::comprobar_pin(self.store.conn(), actual.unwrap_or(""), Self::ahora_ms())?;
+        }
+        seguridad::poner_pin(self.store.conn(), nuevo)?;
+        self.tocar();
+        Ok(())
+    }
+
+    /// Quita el PIN. Hay que saberlo.
+    pub fn remove_pin(&self, actual: &str) -> Result<()> {
+        seguridad::comprobar_pin(self.store.conn(), actual, Self::ahora_ms())?;
+        seguridad::quitar_pin(self.store.conn())?;
+        self.lock();
+        Ok(())
+    }
+
+    /// **Olvidé el PIN.** Con la clave de recuperación se pone uno nuevo (o
+    /// ninguno, con `None`).
+    pub fn reset_pin(&self, codigo: &str, nuevo: Option<&str>) -> Result<()> {
+        seguridad::comprobar_recuperacion(self.store.conn(), codigo)?;
+        match nuevo {
+            Some(p) => seguridad::poner_pin(self.store.conn(), p)?,
+            None => seguridad::quitar_pin(self.store.conn())?,
+        }
+        self.tocar();
+        Ok(())
+    }
+
+    /// La clave de recuperación, para volver a verla. Con PIN, desbloqueado.
+    pub fn recovery_code(&self) -> Result<Option<String>> {
+        if !self.contenido_visible()? {
+            return Err(Error::Bloqueado);
+        }
+        Ok(seguridad::clave_de_recuperacion(self.store.conn())?)
+    }
+
+    /// Ya la guardaste: la app deja de enseñarla al abrir.
+    pub fn confirm_recovery_saved(&self) -> Result<()> {
+        Ok(seguridad::confirmar_recuperacion(self.store.conn())?)
     }
 
     /// Corrige. Escribe una aserción del usuario, que gana para siempre (I5).

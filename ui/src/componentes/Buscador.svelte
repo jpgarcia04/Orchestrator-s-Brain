@@ -154,7 +154,8 @@
             <Tipo tipo={tipoDe(h.label)} />
             <span class="texto">
               <span class="nombre">{tituloDe(h.label).titulo}</span>
-              <span class="sub">{carpetaDe(h.path)}{h.snippet ? ` · ${h.snippet}` : ""}</span>
+              <!-- Lo sensible sale en la lista, pero no su texto: la vista previa lo tapa, y aquí también. -->
+              <span class="sub">{carpetaDe(h.path)}{h.sensitivity !== "normal" ? " · contenido sensible" : h.snippet ? ` · ${h.snippet}` : ""}</span>
             </span>
             <span class="como" class:significado={como(h) === "por significado"}>{como(h)}</span>
           </button>

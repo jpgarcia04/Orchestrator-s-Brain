@@ -10,7 +10,7 @@
 //! ([`obrain_api::default_db_path`]). Las herramientas de cada etapa
 //! (`obrain-scan`, `obrain-extract`…) siguen ahí para auditarlas.
 
-use obrain_api::{default_db_path, indexar, load_model, Brain, Embedder, IndexReport};
+use obrain_api::{default_db_path, indexar, load_model, seguridad, Brain, Embedder, IndexReport};
 use obrain_core::{Sensitivity, Store};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -27,6 +27,12 @@ USO:
   obrain sensible <carpeta> --boveda         lo mismo, pero como bóveda
   obrain sensible <carpeta> --quitar         le quita la marca
   obrain sensibles                           lista las carpetas marcadas
+  obrain clave                               enseña la clave de recuperación de la base
+  obrain clave --guardada                    dice que ya la guardaste (la app deja de pedirlo)
+  obrain recuperar <clave>                   abre la base en un equipo que no tiene su llave
+
+La base está siempre cifrada (SQLCipher). La primera vez que se abre —o si
+venía de una versión en claro— se cifra y se enseña su clave de recuperación.
 
 OPCIONES:
   --db <archivo>   usar otra base (por defecto, la misma que la aplicación)
@@ -45,6 +51,7 @@ fn main() -> ExitCode {
     let mut sin_modelo = false;
     let mut boveda = false;
     let mut quitar = false;
+    let mut guardada = false;
     let mut sueltos: Vec<&str> = Vec::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -53,6 +60,7 @@ fn main() -> ExitCode {
             "--sin-modelo" => sin_modelo = true,
             "--boveda" => boveda = true,
             "--quitar" => quitar = true,
+            "--guardada" => guardada = true,
             otro if otro.starts_with("--") => {
                 eprintln!("opción desconocida: {otro}\n\n{AYUDA}");
                 return ExitCode::from(2);
@@ -69,13 +77,35 @@ fn main() -> ExitCode {
     if let Some(dir) = db.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let mut store = match Store::open(&db) {
+    // Recuperar va antes de abrir: es justo lo que hace falta cuando no se puede.
+    if *orden == "recuperar" {
+        let [codigo] = carpetas else {
+            eprintln!("uso: obrain recuperar <clave-de-recuperación>");
+            return ExitCode::from(2);
+        };
+        return match seguridad::recuperar(&db, codigo) {
+            Ok(()) => {
+                println!("▸ la base vuelve a abrirse en este equipo: {}", db.display());
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+
+    let mut store = match seguridad::abrir(&db) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("no se pudo abrir la base {}: {e}", db.display());
+            if obrain_api::Error::from(e).is_key_unavailable() {
+                eprintln!("\nSi tienes la clave de recuperación:\n  obrain recuperar XXXXX-XXXXX-XXXXX-XXXXX-XXXXX");
+            }
             return ExitCode::FAILURE;
         }
     };
+    avisar_recuperacion(&store, *orden == "clave");
 
     match *orden {
         "bibliotecas" => match indexar::libraries(&store) {
@@ -94,6 +124,39 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        "clave" => {
+            let b = Brain::from_store(store);
+            if guardada {
+                return match b.confirm_recovery_saved() {
+                    Ok(()) => {
+                        println!("▸ anotado: la app ya no te la volverá a pedir");
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => {
+                        eprintln!("{e}");
+                        ExitCode::FAILURE
+                    }
+                };
+            }
+            match b.recovery_code() {
+                Ok(Some(c)) => {
+                    println!("  clave de recuperación de {}:\n\n      {c}\n", db.display());
+                    ExitCode::SUCCESS
+                }
+                Ok(None) => {
+                    println!("esta base no tiene clave de recuperación guardada");
+                    ExitCode::SUCCESS
+                }
+                Err(obrain_api::Error::Bloqueado) => {
+                    eprintln!("tienes PIN: mira la clave desde la app, en «Seguridad»");
+                    ExitCode::FAILURE
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         "sensible" => {
             let [carpeta] = carpetas else {
                 eprintln!("uso: obrain sensible <carpeta> [--boveda | --quitar]");
@@ -173,6 +236,25 @@ fn main() -> ExitCode {
             eprintln!("orden desconocida: {otra}\n\n{AYUDA}");
             ExitCode::from(2)
         }
+    }
+}
+
+/// Si la base acaba de cifrarse (o nadie ha confirmado todavía que guardó la
+/// clave), se enseña. Con PIN no: la clave se mira en la app, desbloqueada.
+fn avisar_recuperacion(store: &Store, ya_la_pide: bool) {
+    if ya_la_pide {
+        return;
+    }
+    let Ok(estado) = seguridad::estado(store.conn(), 0) else { return };
+    if !estado.recuperacion_pendiente || estado.pin {
+        return;
+    }
+    if let Ok(Some(c)) = seguridad::clave_de_recuperacion(store.conn()) {
+        println!(
+            "🔐 Tu base está cifrada. Apunta su clave de recuperación y guárdala en un sitio seguro:\n\n      \
+             {c}\n\n   Sin ella, si Windows pierde la llave (otro equipo, Windows reinstalado), la base no se\n   \
+             abre. Cuando la tengas guardada: obrain clave --guardada\n"
+        );
     }
 }
 

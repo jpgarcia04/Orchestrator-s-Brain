@@ -19,7 +19,7 @@ computadora.
 | Funciona | Falta |
 |---|---|
 | Escanear una carpeta y reconocer cada archivo aunque lo muevas o renombres | **Leer fotos y PDF escaneados (OCR)**: hoy una foto de tu pasaporte no tiene texto que buscar |
-| Leer el texto de PDF, Word, HTML y texto plano | **Cifrado de la base**: hoy es un SQLite sin cifrar |
+| Leer el texto de PDF, Word, HTML y texto plano | |
 | Buscar por palabras y por significado (con el modelo local descargado) | Vigilar la carpeta en vivo: hoy se pone al día al abrir la app o con «actualizar» |
 | Marcar lo sensible y no dejarlo salir de la máquina | Vencimientos (*¿qué me caduca pronto?*) |
 | **Bibliotecas**: el explorador empieza en tu carpeta, no en la raíz del disco | |
@@ -27,15 +27,23 @@ computadora.
 | **La interfaz nueva** (Svelte 5): escritorio con barra lateral, Inicio, carpetas en cuadrícula o lista, vista previa, Sensibles, buscador `Ctrl K`, el Mapa enlazado, noche y día | |
 | «Añadir carpeta» desde la app, o `obrain indexar <carpeta>` desde la terminal | |
 | **Sensibilidad por carpeta**: marcas `01 Identidad` y todo lo de dentro es sensible, también lo que llegue después (la foto de la TIE incluida) | |
+| **Base cifrada** (SQLCipher) con la llave en Windows y una clave de recuperación; **PIN** opcional para ver lo sensible | Probarlo en tu Windows: DPAPI sólo se ha comprobado que compila |
 | La app se pone al día sola al abrirse, y tiene botón «actualizar» | |
 
-Núcleo en Rust con 302 tests (uno de ellos sólo corre en Windows), interfaz en
+Núcleo en Rust con 328 tests (uno de ellos sólo corre en Windows), interfaz en
 Tauri + Svelte 5, con el mapa en PixiJS.
 
 ## Cómo usarlo hoy (Windows)
 
-Hace falta [Rust](https://rustup.rs) y [Node.js](https://nodejs.org). Desde la
-carpeta del repositorio, en PowerShell:
+Hace falta [Rust](https://rustup.rs), [Node.js](https://nodejs.org) y, **desde la
+Fase 3, Perl** —la base se cifra con SQLCipher y OpenSSL se compila dentro del
+programa, y eso pide Perl una vez—. En PowerShell:
+
+```powershell
+winget install StrawberryPerl.StrawberryPerl   # una vez; luego cierra y abre la terminal
+```
+
+Desde la carpeta del repositorio:
 
 ```powershell
 # 1 · Abrir la aplicación (la primera vez compila; tarda unos minutos)
@@ -43,6 +51,12 @@ cd ui
 npm install
 npm run app
 ```
+
+**La primera vez que abras esta versión, la base se cifra** (también la de
+agosto, si la tienes) y la app te enseña tu **clave de recuperación**: apúntala
+en tu gestor de contraseñas o en un papel. Te la seguirá enseñando al abrir hasta
+que marques «Ya la guardé». Con ella se abre la base si Windows pierde su llave
+(otro equipo, Windows reinstalado).
 
 Con la base vacía, el Inicio te ofrece **«Elegir carpeta»**: eliges tu bóveda y
 la app la lee en segundo plano (verás «Leyendo tu bóveda…» abajo a la
@@ -68,7 +82,12 @@ La base vive en `%LOCALAPPDATA%\obrain\brain.obrain` y la comparten la orden
 ```powershell
 cargo run --release --bin obrain -- bibliotecas   # qué carpetas tienes registradas
 cargo run --release --bin obrain -- indexar       # volver a leer todas
+cargo run --release --bin obrain -- clave         # tu clave de recuperación
+cargo run --release --bin obrain -- recuperar XXXXX-XXXXX-XXXXX-XXXXX-XXXXX   # en otro equipo
 ```
+
+Junto a la base vive `brain.obrain.llave`: **van juntas**. Una copia de
+seguridad de la base sin su clave de recuperación no se abre en otro equipo.
 
 ### La aplicación, en dos minutos
 
@@ -87,6 +106,11 @@ cargo run --release --bin obrain -- indexar       # volver a leer todas
   `obrain sensible "C:\...\01 Identidad"` (y `--quitar` para deshacerlo).
   Ojo: si renombras o mueves una carpeta marcada, la marca se queda en la ruta
   vieja; «Sensibles» te lo avisa en rojo y basta con volver a marcarla.
+- **Seguridad:** el escudo de abajo a la izquierda. Ahí ves que la base está
+  cifrada, vuelves a ver tu clave de recuperación y pones un **PIN**: con PIN,
+  lo sensible no se enseña —ni en la vista previa, ni en la búsqueda, ni al
+  abrirlo— hasta escribirlo, y se queda a la vista 5 minutos desde la última vez
+  que lo miras. ¿Olvidaste el PIN? Se restablece con la clave de recuperación.
 - El sol/luna de abajo a la izquierda cambia entre **noche** y **día**.
 
 ## Cómo organizar tu bóveda
@@ -115,7 +139,7 @@ Y nombres que se lean solos, con la fecha delante:
 | 0 | Limpieza: documentación a la medida, README honesto | ✅ Hecha |
 | 1 | El núcleo para tu carpeta: bibliotecas, nombres, `obrain indexar`, «actualizar» | ✅ Hecha |
 | 2 | La interfaz nueva en Svelte 5: el explorador como escritorio estilo sistema operativo, la galaxia como vista «Mapa» enlazada, `Ctrl+K`, vista previa rápida | ✅ Hecha |
-| **3** | **Documentos personales**: ✅ sensibilidad por carpeta · cifrado y PIN (a decidir contigo) · OCR · vencimientos | ◐ En curso |
+| **3** | **Documentos personales**: ✅ sensibilidad por carpeta · ✅ cifrado y PIN · OCR · vencimientos | ◐ En curso |
 | 4 | La visión original: trámites reconstruidos, la pregunta de la visa | Congelada |
 
 **Congelado** (no se borra, no se sigue): sesiones de trabajo y puentes,
@@ -130,15 +154,23 @@ defecto (el de día, a un clic). Queda escrito en
 Falta probarla en tu Windows de verdad: hasta hoy sólo se ha visto en el
 navegador del banco de pruebas (el 2026-09-22 aún no la habías corrido).
 
-**Antes de meter tu pasaporte de verdad:** la base todavía no está cifrada. Marcar
-una carpeta como sensible la tapa en pantalla y la deja fuera de cualquier modelo
-remoto, pero no cifra nada en el disco. El cifrado es la siguiente pieza.
+**Antes de meter tu pasaporte de verdad**, tres cosas:
+
+1. **Corre la app una vez en tu Windows** y mira en «Seguridad» que diga *«Tu
+   base está cifrada»* (con la llave de Windows). El código de DPAPI sólo se ha
+   podido comprobar que compila; que funcione, se ve ahí.
+2. **Guarda la clave de recuperación** que te enseña la app.
+3. **Activa el Cifrado de dispositivo** de Windows si tu laptop lo tiene
+   (Configuración › Privacidad y seguridad): cifrar la base de obrain **no
+   cifra tus archivos originales**, y lo que hubo en claro puede seguir en el
+   espacio libre del SSD hasta que se sobrescriba.
 
 ## Mapa del repositorio
 
 ```
 core/            el núcleo en Rust
-  obrain-core/     el log de aserciones (la verdad)
+  obrain-keys/     la llave de la base: DPAPI y la clave de recuperación
+  obrain-core/     el log de aserciones (la verdad), cifrado con SQLCipher
   obrain-scan/     recorrer el disco, identidad de archivos, bibliotecas
   obrain-link/     relaciones sin IA (carpetas, duplicados, descargas)
   obrain-extract/  leer texto y el índice de búsqueda por palabras

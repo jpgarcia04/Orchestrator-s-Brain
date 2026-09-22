@@ -90,7 +90,8 @@ Esto no es negociable:
 |-----------|-----------------|
 | **Local primero** | Tus datos viven en tu computadora. El procesamiento ocurre en tu máquina. |
 | **Nada sale sin tu permiso** | Cada archivo tiene un nivel de sensibilidad. Los documentos sensibles nunca se envían a ningún servicio externo. |
-| **Cifrado en reposo** *(planificado)* | Tu base de conocimiento estará cifrada en tu disco. **Hoy todavía no lo está**: llega en la Fase 3, antes de guardar documentos de identidad. |
+| **Cifrado en reposo** | Tu base de conocimiento está cifrada en tu disco (SQLCipher), y la llave la guarda Windows para tu cuenta. Una copia de la base no se puede leer. Te damos una clave de recuperación por si Windows pierde la llave. **No cifra tus archivos originales**: para eso está el Cifrado de dispositivo de Windows. |
+| **Un PIN para ver** | Si pones un PIN, lo sensible no se enseña —ni en la vista previa ni en la búsqueda— hasta escribirlo. Lo impone el núcleo, no la ventana. |
 | **Sin cuenta, sin nube obligatoria** | Funciona completamente offline. La sincronización entre dispositivos es opcional y cifrada de extremo a extremo. |
 
 Si vas a guardar tu pasaporte, tus contratos y tus documentos médicos en un sistema, ese sistema **no puede tener acceso a tus datos**. Esta es la razón por la que el procesamiento es local — no por dogma, sino por responsabilidad.
@@ -158,7 +159,7 @@ El proyecto está en desarrollo activo. Cada hito se valida contra la pregunta d
 | **Fase 1** — Tu bóveda | Bibliotecas: el explorador empieza en tu carpeta, nombres limpios, `obrain indexar`, la app se pone al día sola | ✅ Completo |
 | **M5c** — Enterarse | Lo nuevo aparece sin lanzar nada | ◐ Al abrir la app y con «actualizar»; falta vigilar la carpeta en vivo |
 | **Fase 2** — La interfaz nueva | Svelte 5: escritorio tipo sistema operativo con vista previa, buscador `Ctrl K`, la galaxia como vista «Mapa» enlazada, aspecto de noche y de día | ✅ Completo |
-| **Fase 3** — Documentos personales | Sensibilidad por carpeta ✅ · cifrado y PIN · OCR · vencimientos | ◐ En curso |
+| **Fase 3** — Documentos personales | Sensibilidad por carpeta ✅ · cifrado en reposo y PIN ✅ · OCR · vencimientos | ◐ En curso |
 | **M6** — Construir conocimiento | Inferencia de procesos y enriquecimiento | ⏳ Planificado |
 | **M7** — La pregunta | Responder la pregunta de la visa | 🎯 Meta final |
 
@@ -227,7 +228,8 @@ El repositorio contiene un registro formal de decisiones arquitectónicas (ADRs)
 ```
 Orchestrator's-Brain/
 ├── core/                          # Núcleo del sistema (Rust)
-│   ├── obrain-core/               #   Modelo de datos y almacenamiento
+│   ├── obrain-keys/               #   La llave de la base (DPAPI) y la clave de recuperación
+│   ├── obrain-core/               #   Modelo de datos y almacenamiento (cifrado con SQLCipher)
 │   ├── obrain-scan/               #   Descubrimiento e identidad de archivos
 │   ├── obrain-extract/            #   Extracción de texto y búsqueda léxica
 │   ├── obrain-link/               #   Relaciones automáticas entre archivos

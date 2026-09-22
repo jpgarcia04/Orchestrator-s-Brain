@@ -23,6 +23,7 @@
   import Eye from "@lucide/svelte/icons/eye";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import Lock from "@lucide/svelte/icons/lock";
+  import LockOpen from "@lucide/svelte/icons/lock-open";
   import Orbit from "@lucide/svelte/icons/orbit";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import X from "@lucide/svelte/icons/x";
@@ -83,7 +84,14 @@
   const tamano = $derived(buscar("file_size")?.value ?? "");
   const modificado = $derived(buscar("modified_at")?.value_time ?? 0);
   const enLaNube = $derived(!!vista && vista.availability !== null && vista.availability !== "local");
-  const oculto = $derived(!!ficha && ficha.sensitivity !== "normal" && !revelados.has(id));
+  /**
+   * Sin PIN, lo sensible llega y se tapa hasta «Mostrar». Con PIN, o no llega
+   * (bloqueado) o llega porque ya lo desbloqueaste: el PIN fue el gesto.
+   */
+  const bloqueado = $derived(!!vista?.locked);
+  const oculto = $derived(
+    !!ficha && ficha.sensitivity !== "normal" && !app.seguridad?.pin && !revelados.has(id),
+  );
 
   /** Relaciones con otra cosa que no es su carpeta: duplicados, versiones… */
   const relaciones = $derived(
@@ -152,12 +160,36 @@
       .catch((e) => app.avisar(`No se pudo guardar — ${e}`));
   }
 
+  /**
+   * Abrir o revelar algo sensible con el PIN puesto pide desbloquear antes: el
+   * núcleo se niega y aquí se pide el PIN y se vuelve a intentar una vez.
+   */
+  async function conPin(f: () => Promise<void>, que: string): Promise<void> {
+    try {
+      await f();
+    } catch (e) {
+      if (String(e).includes("PIN") && (await app.pedirPin())) {
+        try {
+          await f();
+          return;
+        } catch (e2) {
+          e = e2;
+        }
+      }
+      app.avisar(`${que} — ${e}`);
+    }
+  }
+
   function abrirArchivo(): void {
-    abrir(id).catch((e) => app.avisar(`No se pudo abrir — ${e}`));
+    void conPin(() => abrir(id), "No se pudo abrir");
   }
 
   function mostrarEnCarpeta(): void {
-    revelar(id).catch((e) => app.avisar(`No se pudo enseñar en su carpeta — ${e}`));
+    void conPin(() => revelar(id), "No se pudo enseñar en su carpeta");
+  }
+
+  async function desbloquear(): Promise<void> {
+    if (await app.pedirPin()) recarga++;
   }
 
   /** Centra el párrafo marcado dentro del texto, sin mover el panel entero. */
@@ -186,7 +218,13 @@
   {:else}
     <div class="contenido">
       <div class="caja">
-        {#if vista.kind === "image" && vista.image}
+        {#if bloqueado}
+          <div class="sin-vista protegida">
+            <Lock size={24} />
+            <p>Protegido con tu PIN</p>
+            <button class="boton hov" onclick={desbloquear}><LockOpen size={15} /> Desbloquear</button>
+          </div>
+        {:else if vista.kind === "image" && vista.image}
           <img src={vista.image} alt={titulo.titulo} class:velado={oculto} />
         {:else if vista.kind === "text" && vista.text}
           <pre class="papel" class:velado={oculto}>{texto.antes}{#if texto.marca}<mark use:centrar>{texto.marca}</mark>{/if}{texto.despues}</pre>
@@ -406,6 +444,16 @@
     text-align: center;
     color: var(--tenue);
     font-size: 13px;
+  }
+  .sin-vista.protegida {
+    padding: 34px 24px;
+  }
+  .sin-vista.protegida :global(svg:first-child) {
+    color: var(--calido);
+  }
+  .sin-vista.protegida p {
+    color: var(--tinta);
+    font-size: 14px;
   }
 
   .cabeza {

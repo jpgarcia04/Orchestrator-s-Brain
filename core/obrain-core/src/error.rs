@@ -24,6 +24,14 @@ pub enum Error {
 
     #[error("una carpeta se marca como sensible o de bóveda, no como {0}")]
     InvalidMark(String),
+
+    /// La llave de la base no se pudo abrir (ADR-0021).
+    #[error(transparent)]
+    Key(#[from] obrain_keys::Error),
+
+    /// La base no se abre con esta llave: o es otra base, o la llave es de otra.
+    #[error("la base no se abre con esta llave")]
+    WrongKey,
 }
 
 impl Error {

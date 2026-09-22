@@ -7,6 +7,12 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-rusqlite = { version = "0.37", features = ["bundled"] }
+# SQLCipher en vez de SQLite (ADR-0021): la base se cifra entera. Se compila
+# dentro del programa, y OpenSSL también («vendored»): en Windows eso pide Perl
+# una vez (Strawberry Perl) y nada más. Sin llave se comporta como SQLite de
+# siempre, así que las bases en memoria de los tests no cambian.
+rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"] }
+# La llave: DPAPI y la clave de recuperación. Sin dependencias en C.
+obrain-keys = { path = "../obrain-keys" }
 thiserror = "2"
 ulid = "1"

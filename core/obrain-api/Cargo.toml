@@ -21,6 +21,11 @@ obrain-link = { path = "../obrain-link" }
 # discreparan se hidrataría un puntero de OneDrive sin que nadie lo notara.
 obrain-scan = { path = "../obrain-scan" }
 thiserror = "2"
+# La llave de la base y la clave de recuperación (ADR-0021).
+obrain-keys = { path = "../obrain-keys" }
+# El hash del PIN: Argon2id, el mismo que deriva la clave de recuperación.
+argon2 = "0.5"
+getrandom = "0.3"
 # Los tipos de salida cruzan a TypeScript tal cual. Es la alternativa a una
 # capa de DTOs en el backend de Tauri que sería, palabra por palabra, estos
 # mismos campos otra vez.

@@ -36,3 +36,11 @@ serde = { version = "1", features = ["derive"] }
 lto = true
 codegen-units = 1
 strip = true
+
+# Argon2id comprueba el PIN y deriva la clave de recuperación (ADR-0021). En
+# `npm run app` todo va sin optimizar, y sin esto comprobar un PIN tardaría
+# segundos en vez de décimas.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3

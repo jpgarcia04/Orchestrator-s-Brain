@@ -15,6 +15,7 @@
   import Orbit from "@lucide/svelte/icons/orbit";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Search from "@lucide/svelte/icons/search";
+  import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import Sun from "@lucide/svelte/icons/sun";
   import { app } from "../lib/app.svelte";
   import { nombreBonito } from "../lib/nombres";
@@ -114,6 +115,15 @@
       <button class="accion hov-fondo" onclick={() => app.anadirCarpeta()}>
         <FolderPlus size={15} />
         <span>Añadir carpeta</span>
+      </button>
+      <button
+        class="icono hov-fondo"
+        class:alerta={!!app.seguridad && !app.seguridad.cifrada}
+        onclick={() => (app.panelSeguridad = true)}
+        aria-label="Seguridad: cifrado, clave de recuperación y PIN"
+        title="Seguridad"
+      >
+        <ShieldCheck size={15} />
       </button>
       <button
         class="icono hov-fondo"
@@ -248,6 +258,9 @@
     height: 30px;
     border-radius: 8px;
     color: var(--tenue);
+  }
+  .icono.alerta {
+    color: var(--peligro);
   }
   .accion {
     flex-grow: 1;
