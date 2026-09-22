@@ -408,6 +408,10 @@ mod tests {
 
     /// `%USERPROFILE%` y la ruta que escribe una persona no tienen por qué
     /// coincidir ni en mayúsculas ni en separador.
+    ///
+    /// Sólo en Windows: fuera de él `\` no es un separador y `C:\Users\Pacox`
+    /// es un único componente, así que la comparación no tiene nada que medir.
+    #[cfg(windows)]
     #[test]
     fn la_raiz_del_perfil_se_compara_como_lo_hace_windows() {
         let e = con_perfil("C:\\Users\\Pacox");

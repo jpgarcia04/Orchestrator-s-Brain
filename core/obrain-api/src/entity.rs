@@ -22,6 +22,10 @@ pub struct Claim {
     /// Si el objeto es otra entidad, su identificador — para poder navegar
     /// hasta ella sin volver a consultar.
     pub value_entity: Option<String>,
+    /// Si el objeto es un instante, en epoch ms. `value` ya trae la fecha
+    /// escrita, pero en UTC: la hora de verdad es la de quien mira, y la zona
+    /// horaria sólo la conoce la ventana.
+    pub value_time: Option<i64>,
     pub method: &'static str,
     /// → **saturación**. Una inferencia dudosa sale literalmente pálida.
     pub confidence: f64,
@@ -64,13 +68,32 @@ const PLUMBING: &[&str] = &[
     "vector_count",
 ];
 
-fn render(store: &Store, a: &Assertion, at: TimePoint) -> (String, Option<String>) {
+/// El objeto, en palabras. Un instante sale como fecha y no como
+/// `1789839880208`, y un tamaño en bytes como `1,2 MB`.
+fn render(store: &Store, a: &Assertion, at: TimePoint) -> (String, Option<String>, Option<i64>) {
     match &a.object {
-        Value::Entity(e) => (obrain_link::label(store, e, at), Some(e.0.clone())),
-        Value::Text(t) => (t.clone(), None),
-        Value::Number(n) => (format!("{n}"), None),
-        Value::Timestamp(t) => (format!("{t}"), None),
-        Value::Bool(b) => (b.to_string(), None),
+        Value::Entity(e) => (obrain_link::label(store, e, at), Some(e.0.clone()), None),
+        Value::Text(t) => (t.clone(), None, None),
+        Value::Number(n) if a.predicate == "file_size" => (tamano(*n), None, None),
+        Value::Number(n) => (format!("{n}"), None, None),
+        Value::Timestamp(t) => (obrain_link::fecha(*t), None, Some(*t)),
+        Value::Bool(b) => (b.to_string(), None, None),
+    }
+}
+
+/// Bytes → `74 B`, `1,2 MB`. Con coma decimal: es lo que lee quien lo mira.
+fn tamano(bytes: f64) -> String {
+    const UNIDADES: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut v = bytes.max(0.0);
+    let mut u = 0;
+    while v >= 1024.0 && u < UNIDADES.len() - 1 {
+        v /= 1024.0;
+        u += 1;
+    }
+    if u == 0 {
+        format!("{v:.0} B")
+    } else {
+        format!("{v:.1} {}", UNIDADES[u]).replace('.', ",")
     }
 }
 
@@ -90,7 +113,7 @@ pub fn view(store: &Store, id: &EntityId, at: TimePoint) -> Result<EntityView> {
         if PLUMBING.contains(&a.predicate.as_str()) {
             continue;
         }
-        let (value, value_entity) = render(store, a, at);
+        let (value, value_entity, value_time) = render(store, a, at);
         let claim = Claim {
             assertion: a.id.0.clone(),
             label: store
@@ -99,6 +122,7 @@ pub fn view(store: &Store, id: &EntityId, at: TimePoint) -> Result<EntityView> {
             predicate: a.predicate.clone(),
             value,
             value_entity,
+            value_time,
             method: a.method.as_str(),
             confidence: a.confidence,
             source: a.source.clone(),
@@ -122,4 +146,16 @@ pub fn view(store: &Store, id: &EntityId, at: TimePoint) -> Result<EntityView> {
         inferred,
         id: id.0.clone(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tamano;
+
+    #[test]
+    fn un_tamano_se_lee_como_lo_diria_una_persona() {
+        assert_eq!(tamano(74.0), "74 B");
+        assert_eq!(tamano(1536.0), "1,5 KB");
+        assert_eq!(tamano(5.4 * 1024.0 * 1024.0), "5,4 MB");
+    }
 }

@@ -24,31 +24,28 @@
 //! léxica funcionando —0,5–1,9 ms por consulta, informe de M2— mientras un hilo
 //! de fondo carga el modelo y lo instala cuando esté. Los 2,5 s existen; lo que
 //! no existe es una pantalla parada mirándolos.
+//!
+//! ## Tus bibliotecas se ponen al día solas
+//!
+//! Al arrancar, y cada vez que se pulsa «actualizar», se vuelve a indexar cada
+//! biblioteca registrada ([`obrain_api::indexar`]). Va en un hilo y **con su
+//! propia conexión** a la base: la ventana sigue leyendo mientras tanto (la
+//! base está en modo WAL), y el modelo se presta al indexador en vez de cargarse
+//! dos veces. Al terminar se avisa a la ventana con el evento `indexado`.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use obrain_api::{Brain, EntityView, Glance, Lens, Listing, Preview, Sky};
-use obrain_core::EntityId;
-use std::path::PathBuf;
+use obrain_api::{default_db_path, Brain, Embedder, EntityView, Glance, IndexReport, Lens, Listing, Preview, Sky};
+use obrain_core::{EntityId, Store};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use tauri::{Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 struct Cerebro(Mutex<Brain>);
 
-/// Dónde está la base.
-///
-/// `OBRAIN_DB` manda, para poder abrir la misma base que producen los CLI de
-/// M1–M4 sin copiar nada. Si no está, se usa la del perfil del usuario.
-fn ruta_de_la_base() -> PathBuf {
-    if let Ok(p) = std::env::var("OBRAIN_DB") {
-        return PathBuf::from(p);
-    }
-    let base = std::env::var("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("."));
-    base.join("obrain").join("brain.obrain")
-}
+/// ¿Hay un reindexado en marcha? Dos a la vez escribirían lo mismo dos veces.
+struct Indexando(AtomicBool);
 
 /// Lo que la barra enseña al abrir, antes de que nadie escriba nada.
 #[derive(serde::Serialize)]
@@ -57,6 +54,17 @@ struct Estado {
     semantic: bool,
     entities: i64,
     assertions: i64,
+    /// Las carpetas que el usuario eligió indexar. Vacío = bóveda sin empezar.
+    libraries: Vec<String>,
+    /// Hay un reindexado en curso.
+    indexing: bool,
+}
+
+/// Lo que recibe la ventana con el evento `indexado`.
+#[derive(serde::Serialize, Clone)]
+struct Indexado {
+    report: Option<IndexReport>,
+    error: Option<String>,
 }
 
 fn texto<E: std::fmt::Display>(e: E) -> String {
@@ -175,7 +183,7 @@ fn corregir(
 }
 
 #[tauri::command]
-fn estado(cerebro: State<'_, Cerebro>) -> Result<Estado, String> {
+fn estado(cerebro: State<'_, Cerebro>, indexando: State<'_, Indexando>) -> Result<Estado, String> {
     let brain = cerebro.0.lock().map_err(texto)?;
     let store = brain.store();
     let entities: i64 = store
@@ -183,11 +191,51 @@ fn estado(cerebro: State<'_, Cerebro>) -> Result<Estado, String> {
         .query_row("SELECT COUNT(*) FROM entities", [], |r| r.get(0))
         .map_err(texto)?;
     Ok(Estado {
-        db: ruta_de_la_base().display().to_string(),
+        db: default_db_path().display().to_string(),
         semantic: brain.semantic_ready(),
         entities,
         assertions: store.log_len().map_err(texto)?,
+        libraries: obrain_api::indexar::libraries(store).map_err(texto)?,
+        indexing: indexando.0.load(Ordering::SeqCst),
     })
+}
+
+/// Vuelve a leer tus bibliotecas. **Vuelve al instante**: el trabajo va en un
+/// hilo y el resultado llega con el evento `indexado`. Devuelve `false` si ya
+/// había uno en marcha.
+#[tauri::command]
+fn actualizar(app: AppHandle, cerebro: State<'_, Cerebro>, indexando: State<'_, Indexando>) -> bool {
+    if indexando.0.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    // El modelo se presta: vectorizar con el cerebro cogido dejaría la barra
+    // sin responder. Mientras tanto la búsqueda sigue, en léxico.
+    let modelo = cerebro.0.lock().ok().and_then(|mut b| b.take_embedder());
+    std::thread::spawn(move || reindexar(&app, modelo));
+    true
+}
+
+/// El reindexado de verdad. Siempre en un hilo aparte, con su propia conexión.
+fn reindexar(app: &AppHandle, modelo: Option<Box<dyn Embedder + Send>>) {
+    let res = Store::open(default_db_path()).map_err(texto).and_then(|mut store| {
+        obrain_api::indexar::reindex(&mut store, modelo.as_deref().map(|m| m as &dyn Embedder))
+            .map_err(texto)
+    });
+    // El modelo vuelve al cerebro pase lo que pase.
+    if let Some(m) = modelo {
+        if let Ok(mut b) = app.state::<Cerebro>().0.lock() {
+            b.set_embedder(m);
+        }
+    }
+    app.state::<Indexando>().0.store(false, Ordering::SeqCst);
+    let aviso = match res {
+        Ok(r) => Indexado { report: Some(r), error: None },
+        Err(e) => {
+            eprintln!("no se pudo actualizar: {e}");
+            Indexado { report: None, error: Some(e) }
+        }
+    };
+    let _ = app.emit("indexado", aviso);
 }
 
 fn main() {
@@ -196,28 +244,35 @@ fn main() {
         // desde `abrir` y `revelar`, que son Rust y consultan el log.
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            let db = ruta_de_la_base();
+            let db = default_db_path();
             if let Some(dir) = db.parent() {
                 std::fs::create_dir_all(dir).ok();
             }
             app.manage(Cerebro(Mutex::new(Brain::open(&db)?)));
+            // Arranca marcado: el hilo de abajo reindexa en cuanto tenga modelo.
+            app.manage(Indexando(AtomicBool::new(true)));
 
-            // El modelo, fuera del cerrojo. Se paga la carga en este hilo y sólo
-            // se entra al cerebro para dejarlo puesto — un instante. Si el
-            // modelo no está descargado, esto no hace nada y la barra sigue
-            // respondiendo en léxico.
+            // El modelo, fuera del cerrojo, y después **tus bibliotecas al
+            // día**: lo que añadiste a la carpeta mientras la aplicación estaba
+            // cerrada aparece sin pulsar nada. Si el modelo no está descargado,
+            // se indexa igual y la barra sigue respondiendo en léxico.
             let handle = app.handle().clone();
-            std::thread::spawn(move || match obrain_api::load_model(None) {
-                Ok(Some(modelo)) => {
-                    if let Ok(mut b) = handle.state::<Cerebro>().0.lock() {
-                        b.set_embedder(modelo);
+            std::thread::spawn(move || {
+                let modelo = match obrain_api::load_model(None) {
+                    Ok(Some(m)) => Some(m),
+                    Ok(None) => {
+                        eprintln!(
+                            "sin modelo local: la busqueda va en lexico. \
+                             `obrain-embed <db> --descargar-modelo` lo enciende."
+                        );
+                        None
                     }
-                }
-                Ok(None) => eprintln!(
-                    "sin modelo local: la busqueda va en lexico. \
-                     `obrain-embed <db> --descargar-modelo` lo enciende."
-                ),
-                Err(e) => eprintln!("no se pudo cargar el modelo: {e}"),
+                    Err(e) => {
+                        eprintln!("no se pudo cargar el modelo: {e}");
+                        None
+                    }
+                };
+                reindexar(&handle, modelo);
             });
 
             Ok(())
@@ -232,7 +287,8 @@ fn main() {
             abrir,
             revelar,
             corregir,
-            estado
+            estado,
+            actualizar
         ])
         .run(tauri::generate_context!())
         .expect("no se pudo arrancar la ventana");

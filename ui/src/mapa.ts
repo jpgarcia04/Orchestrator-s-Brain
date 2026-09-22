@@ -697,6 +697,11 @@ export class Mapa {
 
   // ───────────────────────────────────────────────────────────── qué dibujar
 
+  /** ¿Se está viendo el cielo, y no una lente? */
+  get enCielo(): boolean {
+    return this.cieloActual !== null;
+  }
+
   cielo(c: Cielo): void {
     this.cieloActual = c;
     this.lenteActual = null;

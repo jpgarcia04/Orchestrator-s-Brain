@@ -22,8 +22,8 @@
 import { Explorador } from "./explorador";
 import { Mapa } from "./mapa";
 import { Panel } from "./panel";
-import { cielo, estado, lente, vistazo } from "./nucleo";
-import type { Cielo, Grupo, Hit } from "./nucleo";
+import { actualizar, alIndexar, cielo, estado, lente, vistazo } from "./nucleo";
+import type { Cielo, Estado, Grupo, Hit, Indexado } from "./nucleo";
 
 const $consulta = document.querySelector<HTMLInputElement>("#consulta")!;
 const $estado = document.querySelector<HTMLDivElement>("#estado")!;
@@ -33,6 +33,7 @@ const $barra = document.querySelector<HTMLElement>("#barra")!;
 const $lupa = document.querySelector<HTMLButtonElement>("#lupa")!;
 const $encuadre = document.querySelector<HTMLButtonElement>("#encuadre")!;
 const $conmutador = document.querySelector<HTMLButtonElement>("#conmutador")!;
+const $actualizar = document.querySelector<HTMLButtonElement>("#actualizar")!;
 
 const $detalle = document.querySelector<HTMLElement>("#detalle")!;
 
@@ -132,18 +133,81 @@ function escribiendo(): boolean {
 
 async function arrancar(): Promise<void> {
   await mapa.init();
+  await cargarCielo(true);
+}
+
+/** ¿Está la pantalla en reposo sobre el cielo, sin nada tuyo a medias? */
+function enReposo(): boolean {
+  return $consulta.value === "" && !explorador.visible && !panel.visible && mapa.enCielo;
+}
+
+/**
+ * El cielo y la línea de estado. Se llama al arrancar y cada vez que termina
+ * un reindexado, para que lo que acabas de dejar en la carpeta aparezca.
+ *
+ * `redibujar` sólo es cierto cuando no hay nada tuyo en pantalla: redibujar
+ * reencuadra la cámara, y hacerlo mientras miras una lente o has hecho zoom
+ * sería el mapa que se reorganiza solo que §3 prohíbe. Lo nuevo aparece en el
+ * siguiente cambio de escala, o al pulsar Esc.
+ */
+async function cargarCielo(redibujar: boolean): Promise<void> {
   try {
     miCielo = await cielo(30);
-    mapa.cielo(miCielo);
     const e = await estado();
-    decir(
-      `${miCielo.regions.length} regiones · ${miCielo.covered.toLocaleString("es")} de ` +
-        `${miCielo.files.toLocaleString("es")} archivos${e.semantic ? "" : " · cargando el modelo…"}`,
-    );
+    girar(e.indexing);
+    if (redibujar) mapa.cielo(miCielo);
+    if ($consulta.value === "" && !explorador.visible) decir(lineaDeEstado(miCielo, e));
   } catch (err) {
     decir(`no se pudo abrir la base — ${err}`);
   }
 }
+
+function lineaDeEstado(c: Cielo, e: Estado): string {
+  if (e.libraries.length === 0) {
+    // §4.6: el vacío también es una pantalla diseñada. Dice qué hacer.
+    return e.indexing
+      ? "leyendo tus bibliotecas…"
+      : "tu bóveda está vacía · añade una carpeta con  obrain indexar \"<carpeta>\"";
+  }
+  const partes = [
+    `${c.regions.length} regiones`,
+    `${c.files.toLocaleString("es")} archivos`,
+  ];
+  if (e.indexing) partes.push("poniéndose al día…");
+  else if (!e.semantic) partes.push("sólo búsqueda por palabras");
+  return partes.join(" · ");
+}
+
+function girar(si: boolean): void {
+  $actualizar.classList.toggle("girando", si);
+}
+
+$actualizar.addEventListener("click", async () => {
+  if (await actualizar()) {
+    girar(true);
+    decir("leyendo tus bibliotecas…");
+  }
+});
+
+void alIndexar(async (i: Indexado) => {
+  girar(false);
+  if (i.error) {
+    decir(`no se pudo actualizar — ${i.error}`);
+    return;
+  }
+  const r = i.report;
+  const cambio = r !== null && (r.files_new > 0 || r.documents_read > 0 || r.edges_new > 0);
+  await cargarCielo(cambio && enReposo());
+  if (!r || r.libraries.length === 0) return;
+  const nuevo =
+    r.files_new === 0
+      ? "todo al día"
+      : r.files_new === 1
+        ? "1 archivo nuevo"
+        : `${r.files_new} archivos nuevos`;
+  const falta = r.missing.length > 0 ? ` · ${r.missing.length} biblioteca(s) no están en el disco` : "";
+  if (!explorador.visible && $consulta.value === "") decir(`${nuevo}${falta} · ${$estado.textContent}`);
+});
 
 function decir(texto: string): void {
   $estado.textContent = texto;
@@ -453,6 +517,7 @@ async function conmutar(): Promise<void> {
   $barra.style.visibility = "hidden";
   $encuadre.style.visibility = "hidden";
   $conmutador.style.visibility = "hidden";
+  $actualizar.style.visibility = "hidden";
   // El panel se muda, no se duplica: dentro del explorador es la columna de
   // detalle (ADR-0014 §6), y sigue siendo el mismo elemento con el mismo estado.
   panel.montar($detalle);
@@ -463,6 +528,7 @@ explorador.onCerrar = (donde) => {
   $barra.style.visibility = "";
   $encuadre.style.visibility = "";
   $conmutador.style.visibility = "";
+  $actualizar.style.visibility = "";
   panel.montar(document.body);
   mapa.descongelar();
   if (donde) {

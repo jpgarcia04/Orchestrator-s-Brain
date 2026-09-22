@@ -342,7 +342,12 @@ export class Panel {
       cabeza.append(b);
     } else {
       const v = el("span", "valor");
-      v.textContent = c.value;
+      // Un instante se escribe en la hora de quien mira; el núcleo sólo sabe
+      // UTC, y una sesión de esta tarde saldría fechada mañana.
+      v.textContent =
+        c.value_time !== null
+          ? new Date(c.value_time).toLocaleString("es", { dateStyle: "medium", timeStyle: "short" })
+          : c.value;
       cabeza.append(v);
     }
 

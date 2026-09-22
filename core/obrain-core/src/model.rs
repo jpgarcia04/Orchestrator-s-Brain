@@ -271,6 +271,13 @@ pub enum Facet {
     ///
     /// [ADR-0015]: ../../../docs/adr/0015-el-cielo-reparte-por-anchura-no-por-peso.md
     Project,
+    /// Una carpeta que el usuario **eligió** indexar: la raíz de su bóveda.
+    ///
+    /// Lo que hay por encima de ella —`C:\Users\pacox\OneDrive`…— no es
+    /// conocimiento del usuario sino el camino hasta él. Por eso el árbol de
+    /// contención se corta aquí: el explorador empieza en la biblioteca y las
+    /// migas no arrastran la ruta entera del disco.
+    Library,
 }
 
 impl Facet {
@@ -286,6 +293,7 @@ impl Facet {
             Facet::Confidential => "confidential",
             Facet::Container => "container",
             Facet::Project => "project",
+            Facet::Library => "library",
         }
     }
 }

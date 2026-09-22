@@ -41,7 +41,14 @@ impl Store {
     }
 
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self> {
-        let store = Store { conn: Connection::open(path)? };
+        let conn = Connection::open(path)?;
+        // WAL: la aplicación lee mientras el indexador escribe desde otra
+        // conexión. Sin esto, cualquier lectura durante un reindexado fallaría
+        // con «database is locked». Y la espera cubre a dos escritores que
+        // coincidan, que en vez de fallar se turnan.
+        conn.query_row("PRAGMA journal_mode = WAL", [], |r| r.get::<_, String>(0))?;
+        conn.busy_timeout(std::time::Duration::from_secs(10))?;
+        let store = Store { conn };
         store.migrate()?;
         Ok(store)
     }
@@ -51,10 +58,13 @@ impl Store {
         self.conn
             .pragma_update(None, "user_version", SCHEMA_VERSION)?;
         for (id, label, card, method, inverse) in SEED_PREDICATES {
+            // La etiqueta es presentación y se actualiza; el resto de la
+            // declaración no se toca en una base que ya existe.
             self.conn.execute(
-                "INSERT OR IGNORE INTO predicates
+                "INSERT INTO predicates
                      (id, label, cardinality, symmetric, transitive, inverse, default_method)
-                 VALUES (?1, ?2, ?3, 0, 0, ?4, ?5)",
+                 VALUES (?1, ?2, ?3, 0, 0, ?4, ?5)
+                 ON CONFLICT(id) DO UPDATE SET label = excluded.label",
                 rusqlite::params![id, label, card, inverse, method],
             )?;
         }

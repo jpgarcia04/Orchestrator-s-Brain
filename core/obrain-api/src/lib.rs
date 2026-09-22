@@ -37,16 +37,19 @@
 //! [ADR-0010]: ../../../docs/adr/0010-recorrido-lineal-frente-a-indice-ann.md
 
 pub mod entity;
+pub mod indexar;
 pub mod lens;
 pub mod preview;
 pub mod sky;
 
 use obrain_core::{EntityId, Method, NewAssertion, Store, TimePoint, Value};
-use obrain_embed::embedder::Embedder;
+/// El modelo, para quien lo carga y lo presta sin depender de `obrain-embed`.
+pub use obrain_embed::embedder::Embedder;
 use std::path::Path;
 use std::time::Instant;
 
 pub use entity::{Claim, EntityView};
+pub use indexar::IndexReport;
 pub use lens::{Edge, Lens, Node};
 pub use preview::Preview;
 pub use sky::{Bridge, Cluster, Crumb, Listing, Region, Row, Sky};
@@ -97,6 +100,26 @@ pub struct Answer {
     /// correcta, pero incapaz de encontrar por significado.
     pub semantic: bool,
     pub elapsed_ms: f64,
+}
+
+/// Dónde vive la base **por defecto**: la misma para la aplicación y para
+/// `obrain indexar`, de modo que lo que indexa uno lo ve la otra sin copiar
+/// nada ni configurar una variable.
+///
+/// `OBRAIN_DB` manda si está puesta, para poder abrir cualquier otra base. Si
+/// no, en Windows `%LOCALAPPDATA%\obrain\brain.obrain`; en el resto, el
+/// directorio de datos del usuario.
+pub fn default_db_path() -> std::path::PathBuf {
+    use std::path::PathBuf;
+    if let Ok(p) = std::env::var("OBRAIN_DB") {
+        return PathBuf::from(p);
+    }
+    let base = std::env::var_os("LOCALAPPDATA")
+        .or_else(|| std::env::var_os("XDG_DATA_HOME"))
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share")))
+        .unwrap_or_else(|| PathBuf::from("."));
+    base.join("obrain").join("brain.obrain")
 }
 
 /// Carga el modelo de embeddings, o `None` si todavía no está descargado.
@@ -169,6 +192,16 @@ impl Brain {
     /// puesto. Con `warm` a secas, esos 2,5 s serían 2,5 s de barra bloqueada.
     pub fn set_embedder(&mut self, embedder: Box<dyn Embedder + Send>) {
         self.embedder = Some(embedder);
+    }
+
+    /// Presta el modelo a quien va a indexar, **sin tener cogido el cerebro**.
+    ///
+    /// Vectorizar documentos nuevos puede tardar; hacerlo con el cerrojo puesto
+    /// dejaría la barra sin responder todo ese rato. Mientras está prestado la
+    /// búsqueda sigue funcionando en léxico, y [`Answer::semantic`] lo dice.
+    /// Se devuelve con [`Brain::set_embedder`].
+    pub fn take_embedder(&mut self) -> Option<Box<dyn Embedder + Send>> {
+        self.embedder.take()
     }
 
     /// Sobre una base ya abierta. El caso de una base en memoria en los tests,

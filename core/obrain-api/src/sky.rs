@@ -184,9 +184,16 @@ fn read_tree(store: &Store, at: TimePoint) -> Result<Tree> {
     }
 
     let mut projects: HashSet<EntityId> = HashSet::new();
+    let mut libraries: HashSet<EntityId> = HashSet::new();
     for a in store.query(None, Some("has_facet"), at)? {
-        if a.object.as_text() == Some("project") {
-            projects.insert(a.subject);
+        match a.object.as_text() {
+            Some("project") => {
+                projects.insert(a.subject);
+            }
+            Some("library") if folders.contains_key(&a.subject) => {
+                libraries.insert(a.subject);
+            }
+            _ => {}
         }
     }
 
@@ -197,6 +204,10 @@ fn read_tree(store: &Store, at: TimePoint) -> Result<Tree> {
 
     for a in store.query(None, Some("contained_by"), at)? {
         let Value::Entity(up) = a.object else { continue };
+        // Por encima de una biblioteca sólo está el camino del disco hasta ella.
+        if libraries.contains(&a.subject) {
+            continue;
+        }
         if folders.contains_key(&a.subject) {
             // carpeta dentro de carpeta
             parent.insert(a.subject.clone(), up.clone());
@@ -319,6 +330,35 @@ impl Tree {
     /// queda agregado en la carpeta de arriba, que sigue cubriéndolos.
     fn muda(&self, h: &EntityId) -> bool {
         self.sabe_formatos && self.legible.get(h).copied().unwrap_or(0) == 0
+    }
+
+    /// Las raíces que **tienen algo dentro**, ordenadas.
+    ///
+    /// Con bibliotecas, el camino del disco que quedaba por encima de ellas
+    /// (`C:\Users`, `Users\pacox`…) sigue en el log pero ya no cuelga nada de
+    /// él: son raíces vacías, y enseñarlas sería volver a poner el disco donde
+    /// tiene que estar tu bóveda.
+    fn roots(&self) -> Vec<EntityId> {
+        let mut v: Vec<EntityId> = self
+            .folders
+            .keys()
+            .filter(|f| !self.parent.contains_key(*f))
+            .filter(|f| self.weight.get(*f).copied().unwrap_or(0) > 0)
+            .cloned()
+            .collect();
+        v.sort();
+        v
+    }
+
+    /// El nombre de la carpeta madre, para desambiguar dos que se llaman igual.
+    fn parent_name(&self, h: &EntityId) -> Option<String> {
+        let up = self.parent.get(h)?;
+        let ruta = self.folders.get(up)?;
+        ruta.trim_end_matches(['\\', '/'])
+            .rsplit(['\\', '/'])
+            .next()
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
     }
 
     fn depth<'a>(&'a self, mut h: &'a EntityId) -> u8 {
@@ -540,13 +580,10 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
     };
 
     let mut open: Vec<Abierta> = tree
-        .folders
-        .keys()
-        .filter(|f| !tree.parent.contains_key(*f))
-        .cloned()
+        .roots()
+        .into_iter()
         .map(|id| Abierta { id, zoom: Zoom::Subtree, nivel: 0, tomadas: 0 })
         .collect();
-    open.sort_by(|a, b| a.id.cmp(&b.id));
 
     let peso = |a: &Abierta| -> usize {
         match a.zoom {
@@ -711,6 +748,9 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
         });
     }
     regions.sort_by(|a, b| b.weight.cmp(&a.weight).then_with(|| a.id.cmp(&b.id)));
+    desambiguar(&mut regions, |r| r.label.clone(), |r, l| r.label = l, |r| {
+        tree.parent_name(&EntityId(r.id.clone()))
+    });
 
     // La sensibilidad más restrictiva que haya dentro sube a la región.
     let mut peor: HashMap<String, &'static str> = HashMap::new();
@@ -768,6 +808,32 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
         oldest,
         newest,
     })
+}
+
+/// Dos cosas que se enseñan juntas y se llaman igual se distinguen por su
+/// carpeta madre: `Fotos (Viajes)` y `Fotos (Trabajo)`. **Sólo** ésas.
+///
+/// Es la otra mitad de que una carpeta se llame por su nombre a secas (ver
+/// `obrain_link`): el choque se resuelve en la vista que lo produce, y el resto
+/// de nombres no paga un prefijo que no necesita.
+fn desambiguar<T>(
+    cosas: &mut [T],
+    nombre: impl Fn(&T) -> String,
+    poner: impl Fn(&mut T, String),
+    madre: impl Fn(&T) -> Option<String>,
+) {
+    let mut veces: HashMap<String, usize> = HashMap::new();
+    for c in cosas.iter() {
+        *veces.entry(nombre(c)).or_insert(0) += 1;
+    }
+    for c in cosas.iter_mut() {
+        let n = nombre(c);
+        if veces.get(&n).copied().unwrap_or(0) > 1 {
+            if let Some(m) = madre(c) {
+                poner(c, format!("{n} ({m})"));
+            }
+        }
+    }
 }
 
 fn orden(s: &str) -> u8 {
@@ -939,6 +1005,13 @@ fn by_subject(store: &Store, pred: &str, at: TimePoint) -> Result<HashMap<Entity
 /// nadie ha enfocado nada todavía.
 pub fn children(store: &Store, focus: Option<&EntityId>, at: TimePoint) -> Result<Listing> {
     let tree = read_tree(store, at)?;
+    // Con una sola raíz —lo normal: tu bóveda—, entrar en el explorador es
+    // entrar en ella. Una lista de un único elemento es un clic de más.
+    let unica = match tree.roots().as_slice() {
+        [r] => Some(r.clone()),
+        _ => None,
+    };
+    let focus = focus.or(unica.as_ref());
     let modificado = by_subject(store, "modified_at", at)?;
     let ruta = by_subject(store, "path_observed_at", at)?;
     let disponible = by_subject(store, "availability", at)?;
@@ -1013,19 +1086,7 @@ pub fn children(store: &Store, focus: Option<&EntityId>, at: TimePoint) -> Resul
     let (carpetas, archivos): (Vec<EntityId>, Vec<EntityId>) = match focus {
         // La raíz: las carpetas sin madre. No hay ninguna entidad que las
         // contenga, así que no hay nada que preguntar al log.
-        None => (
-            {
-                let mut v: Vec<EntityId> = tree
-                    .folders
-                    .keys()
-                    .filter(|f| !tree.parent.contains_key(*f))
-                    .cloned()
-                    .collect();
-                v.sort();
-                v
-            },
-            Vec::new(),
-        ),
+        None => (tree.roots(), Vec::new()),
         Some(f) if tree.folders.contains_key(f) => (
             tree.children.get(f).cloned().unwrap_or_default(),
             tree.direct.get(f).cloned().unwrap_or_default(),
@@ -1056,6 +1117,13 @@ pub fn children(store: &Store, focus: Option<&EntityId>, at: TimePoint) -> Resul
     let mut fs: Vec<Row> = archivos.iter().map(|a| fila(a, false)).collect();
     fs.sort_by(|a, b| b.recency.cmp(&a.recency).then_with(|| a.label.cmp(&b.label)));
     let (folders, files) = (cs.len(), fs.len());
+    // Dentro de una carpeta no puede haber dos hijas con el mismo nombre, pero
+    // en la raíz sí: dos bibliotecas llamadas `Documentos` en sitios distintos.
+    desambiguar(&mut cs, |r| r.label.clone(), |r, l| r.label = l, |r| {
+        let limpio = r.path.trim_end_matches(['\\', '/']);
+        let madre = &limpio[..limpio.rfind(['\\', '/'])?];
+        madre.rsplit(['\\', '/']).next().filter(|m| !m.is_empty()).map(str::to_string)
+    });
     rows.append(&mut cs);
     rows.append(&mut fs);
 
@@ -1079,7 +1147,7 @@ pub fn children(store: &Store, focus: Option<&EntityId>, at: TimePoint) -> Resul
     }
 
     Ok(Listing {
-        label: focus.map_or_else(|| "todo".to_string(), |f| obrain_link::label(store, f, at)),
+        label: focus.map_or_else(|| "inicio".to_string(), |f| obrain_link::label(store, f, at)),
         path: focus.map_or_else(String::new, sitio),
         focus: focus.map(|f| f.0.clone()),
         trail,
@@ -1133,5 +1201,10 @@ pub fn cluster(store: &Store, hits: &[crate::Hit], at: TimePoint) -> Result<Vec<
     // los grupos sale de ahí: no hace falta una puntuación agregada, que
     // siempre acaba siendo una media que no significa nada.
     grupos.sort_by_key(|g| g.best);
+    desambiguar(&mut grupos, |g| g.label.clone(), |g, l| g.label = l, |g| {
+        g.ancestors
+            .first()
+            .map(|up| obrain_link::label(store, &EntityId(up.clone()), at))
+    });
     Ok(grupos)
 }

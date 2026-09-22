@@ -308,9 +308,9 @@ fn el_panel_separa_el_hecho_de_la_sospecha() {
         !v.observed.iter().any(|c| c.predicate == "version_of"),
         "una heuristica no puede colarse en el bloque solido"
     );
-    // El vocabulario controlado trae su etiqueta: `version_of` → "version de".
+    // El vocabulario controlado trae su etiqueta: `version_of` → "versión de".
     let ver = v.inferred.iter().find(|c| c.predicate == "version_of").unwrap();
-    assert_eq!(ver.label, "version de");
+    assert_eq!(ver.label, "versión de");
     assert!(ver.value_entity.is_some(), "el objeto es una entidad y se puede navegar");
 }
 
@@ -482,6 +482,6 @@ fn el_censo_ensena_quien_va_a_salir_grande() {
     // Y con su padre: cinco carpetas llamadas `src` serían cinco nodos
     // indistinguibles en el mapa.
     let hubs = lens::hubs(&store, 3, at()).unwrap();
-    assert_eq!(hubs[0], ("Docs/Grande".to_string(), 30));
-    assert_eq!(hubs[1], ("Docs/Pequena".to_string(), 2));
+    assert_eq!(hubs[0], ("Grande".to_string(), 30));
+    assert_eq!(hubs[1], ("Pequena".to_string(), 2));
 }

@@ -28,6 +28,6 @@ pub mod triage;
 
 pub use exclude::{ExclusionSet, SkipReason};
 pub use identity::FileIdentity;
-pub use ingest::{ingest, IngestReport};
+pub use ingest::{ingest, library_path, register_library, IngestReport};
 pub use scan::{now_ms, Candidate, ScanReport, Scanner};
 pub use triage::Availability;

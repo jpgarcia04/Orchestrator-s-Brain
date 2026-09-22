@@ -12,6 +12,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 /** `(rama, puesto)` — la procedencia de I9 en cada resultado. */
 export type Rama = [string, number];
@@ -93,6 +94,8 @@ export interface Claim {
   label: string;
   value: string;
   value_entity: string | null;
+  /** Si es un instante, en epoch ms: la fecha se escribe en tu zona horaria. */
+  value_time: number | null;
   method: string;
   confidence: number;
   source: string;
@@ -220,6 +223,31 @@ export interface Estado {
   semantic: boolean;
   entities: number;
   assertions: number;
+  /** Las carpetas que elegiste indexar. Vacío = bóveda sin empezar. */
+  libraries: string[];
+  /** Hay un reindexado en marcha. */
+  indexing: boolean;
+}
+
+/** Lo que hizo un reindexado. Ver `obrain_api::IndexReport`. */
+export interface Informe {
+  libraries: string[];
+  missing: string[];
+  files_seen: number;
+  files_new: number;
+  edges_new: number;
+  documents_read: number;
+  chunks_new: number;
+  sensitive: number;
+  vault: number;
+  vectors_new: number;
+  semantic: boolean;
+  elapsed_ms: number;
+}
+
+export interface Indexado {
+  report: Informe | null;
+  error: string | null;
 }
 
 /** Una consulta y lo que enciende, en una sola llamada. */
@@ -283,3 +311,22 @@ export const corregir = (subject: string, predicate: string, object: string) =>
   invoke<string>("corregir", { subject, predicate, object });
 
 export const estado = () => invoke<Estado>("estado");
+
+/**
+ * Vuelve a leer tus bibliotecas. Vuelve al instante —`false` si ya había un
+ * reindexado en marcha— y el resultado llega por [`alIndexar`].
+ */
+export const actualizar = () => invoke<boolean>("actualizar");
+
+/**
+ * Avisa cada vez que termina un reindexado: al arrancar la aplicación y tras
+ * cada «actualizar». Si el canal de eventos no existe (la interfaz abierta en
+ * un navegador de pruebas), no avisa y no rompe nada.
+ */
+export async function alIndexar(f: (i: Indexado) => void): Promise<void> {
+  try {
+    await listen<Indexado>("indexado", (e) => f(e.payload));
+  } catch {
+    // sin eventos: la interfaz funciona igual, sólo que no se refresca sola
+  }
+}

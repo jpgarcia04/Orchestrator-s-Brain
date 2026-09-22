@@ -58,10 +58,8 @@ fn arbol(store: &Store, paths: &[&str]) -> Vec<EntityId> {
 
 /// La carpeta que se llama así, en la lista que sea.
 ///
-/// Compara **la hoja de la ruta** y no la etiqueta. `obrain_link::label` da dos
-/// segmentos —`vida\viajes`, para que cinco carpetas `src` no sean cinco nodos
-/// idénticos—, así que buscar por texto dentro de la etiqueta encuentra la hija
-/// cuando se pide la madre, y el test baja un nivel de más sin enterarse.
+/// Compara **la hoja de la ruta** y no la etiqueta: la etiqueta puede llevar
+/// un aclarado entre paréntesis cuando dos hermanas se llaman igual.
 fn carpeta(l: &sky::Listing, nombre: &str) -> EntityId {
     l.rows
         .iter()
@@ -77,13 +75,13 @@ fn etiquetas(l: &sky::Listing) -> Vec<&str> {
 /// La única raíz del árbol.
 ///
 /// `obrain-link` **no crea un nodo para la unidad**: la raíz es la carpeta más
-/// alta que contiene algo, así que con todo bajo `C:\vida` la raíz es `C:/vida`
-/// y no `C:`. Los tests navegan desde lo que el enlazador produce, no desde lo
-/// que uno supone que produce.
+/// alta que contiene algo, así que con todo bajo `C:\vida` la raíz es `vida`
+/// y no `C:`. Y con una sola raíz el explorador **entra en ella** al abrirse:
+/// pedir las raíces devuelve ya su contenido, con el foco puesto en ella.
 fn raiz(store: &Store) -> EntityId {
     let l = sky::children(store, None, at()).unwrap();
-    assert_eq!(l.folders, 1, "este fixture tiene una sola raíz: {:?}", etiquetas(&l));
-    EntityId(l.rows[0].id.clone())
+    let foco = l.focus.clone();
+    EntityId(foco.unwrap_or_else(|| panic!("este fixture tiene una sola raíz: {:?}", etiquetas(&l))))
 }
 
 /// Baja hasta el fondo contando archivos. Es la cuenta que el explorador tiene
@@ -254,4 +252,73 @@ fn cada_fila_dice_si_su_contenido_se_puede_leer() {
 
     let local = l.rows.iter().find(|r| r.label.contains("local")).unwrap();
     assert_eq!(local.availability.as_deref(), Some("local"));
+}
+
+// ──────────────────────────────────────────────────────────────── bibliotecas
+
+/// La carpeta que el usuario eligió indexar, marcada como la marcaría el escáner.
+fn biblioteca(store: &Store, ruta: &str) -> EntityId {
+    obrain_scan::register_library(store, std::path::Path::new(ruta), T).unwrap()
+}
+
+/// Con una sola biblioteca, abrir el explorador es abrir **tu bóveda**: sin
+/// una lista de un único elemento delante, y sin el camino del disco encima.
+#[test]
+fn una_sola_biblioteca_se_abre_directamente() {
+    let store = base();
+    let lib = biblioteca(&store, "C:\\Users\\jp\\Bóveda");
+    arbol(
+        &store,
+        &[
+            "C:\\Users\\jp\\Bóveda\\pasaporte.pdf",
+            "C:\\Users\\jp\\Bóveda\\Salud\\poliza.pdf",
+        ],
+    );
+
+    let l = sky::children(&store, None, at()).unwrap();
+    assert_eq!(l.focus.as_deref(), Some(lib.as_str()), "se entra en la biblioteca");
+    assert_eq!(l.label, "Bóveda", "se llama como la carpeta, sin el padre delante");
+    assert!(l.trail.is_empty(), "por encima de la bóveda no hay migas: {:?}", l.trail.len());
+    assert_eq!(etiquetas(&l), vec!["Salud", "pasaporte.pdf"]);
+}
+
+/// Una base escaneada **antes** de que existieran las bibliotecas tiene aristas
+/// que suben hasta `C:\Users`. Marcar la carpeta como biblioteca tiene que
+/// bastar para cortar ahí, sin reescribir el log.
+#[test]
+fn una_base_antigua_se_corta_en_la_biblioteca_sin_tocar_el_log() {
+    let store = base();
+    arbol(
+        &store,
+        &[
+            "C:\\Users\\jp\\Bóveda\\pasaporte.pdf",
+            "C:\\Users\\jp\\Bóveda\\Salud\\poliza.pdf",
+        ],
+    );
+    // Sin biblioteca, la raíz es lo más alto que el enlazador encadenó.
+    let antes = sky::children(&store, None, at()).unwrap();
+    assert_eq!(antes.label, "Users", "el camino del disco: {:?}", etiquetas(&antes));
+
+    let lib = biblioteca(&store, "C:\\Users\\jp\\Bóveda");
+    let salud = carpeta(&sky::children(&store, Some(&lib), at()).unwrap(), "Salud");
+    let l = sky::children(&store, Some(&salud), at()).unwrap();
+    let migas: Vec<&str> = l.trail.iter().map(|m| m.label.as_str()).collect();
+    assert_eq!(migas, vec!["Bóveda"], "las migas empiezan en la bóveda");
+
+    let raices = sky::children(&store, None, at()).unwrap();
+    assert_eq!(raices.focus.as_deref(), Some(lib.as_str()), "el camino vacío no es una raíz");
+}
+
+/// Dos bibliotecas que se llaman igual no pueden ser dos filas idénticas.
+#[test]
+fn dos_bibliotecas_con_el_mismo_nombre_se_distinguen() {
+    let store = base();
+    biblioteca(&store, "C:\\casa\\Documentos");
+    biblioteca(&store, "D:\\trabajo\\Documentos");
+    arbol(&store, &["C:\\casa\\Documentos\\a.pdf", "D:\\trabajo\\Documentos\\b.pdf"]);
+
+    let l = sky::children(&store, None, at()).unwrap();
+    let mut e = etiquetas(&l);
+    e.sort();
+    assert_eq!(e, vec!["Documentos (casa)", "Documentos (trabajo)"]);
 }

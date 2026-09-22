@@ -130,6 +130,16 @@ pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport)
     // `src`, un año dentro de un álbum de fotos— nunca recibía su arista hacia
     // arriba y el árbol quedaba partido en trozos sueltos. Se vio al agregar el
     // grafo por regiones: aparecían como raíces a profundidad 0.
+    //
+    // **Salvo en una biblioteca.** Por encima de la carpeta que el usuario
+    // eligió indexar no hay conocimiento suyo, sólo el camino del disco hasta
+    // ella (`C:\Users\pacox\OneDrive\…`). Encadenar hasta ahí era lo que
+    // llenaba las migas de `Users/pacox › pacox/OneDrive › …` y obligaba a
+    // bajar diez niveles para llegar a la bóveda.
+    let bibliotecas: HashSet<String> = crate::libraries(store, TimePoint::at(at))?
+        .into_iter()
+        .map(|(_, ruta)| ruta)
+        .collect();
     folders.sort();
     folders.dedup();
     let mut chained: HashSet<String> = HashSet::new();
@@ -138,6 +148,9 @@ pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport)
         // `chained` corta en cuanto se llega a una rama ya recorrida: sin él,
         // mil carpetas hermanas recorrerían mil veces el mismo camino a la raíz.
         while chained.insert(cur.clone()) {
+            if bibliotecas.contains(&cur) {
+                break;
+            }
             let Some(i) = cur.rfind(['\\', '/']) else { break };
             let parent = cur[..i].to_string();
             // Cortar en la raíz del volumen: `C:` no es una carpeta útil.
@@ -232,6 +245,37 @@ mod tests {
         let fotos = sube(&y2019).expect("2019 cuelga de fotos");
         let repo = sube(&fotos).expect("fotos cuelga de repo");
         assert!(sube(&repo).is_none(), "y repo ya es la raiz: no se sube a C:");
+    }
+
+    /// La biblioteca es el techo: lo que hay por encima de ella es el camino
+    /// del disco, no conocimiento del usuario.
+    #[test]
+    fn no_se_encadena_por_encima_de_una_biblioteca() {
+        let s = Store::open_in_memory().unwrap();
+        let lib = s.create_entity(1000).unwrap();
+        s.assert(
+            NewAssertion::new(lib.clone(), "folder_path", r"C:\Users\jp\Bóveda", Method::Deterministic, 1000),
+        )
+        .unwrap();
+        s.assert(NewAssertion::new(lib.clone(), "has_facet", "library", Method::User, 1000))
+            .unwrap();
+        let files = vec![
+            fv(&s, r"C:\Users\jp\Bóveda\Salud\poliza.pdf"),
+            fv(&s, r"C:\Users\jp\Bóveda\pasaporte.pdf"),
+        ];
+        let mut r = LinkReport::default();
+        super::link(&s, &files, 2000, &mut r).unwrap();
+
+        let tp = TimePoint::at(3000);
+        // La biblioteca se reutiliza, no se duplica.
+        assert_eq!(s.find_subject_by_value("folder_path", r"C:\Users\jp\Bóveda", tp).unwrap(), Some(lib.clone()));
+        // Y nada cuelga por encima de ella.
+        assert!(s.find_subject_by_value("folder_path", r"C:\Users\jp", tp).unwrap().is_none());
+        assert!(s.resolve(&lib, "contained_by", tp).unwrap().is_none());
+        // `Salud` sí cuelga de la biblioteca.
+        let salud = s.find_subject_by_value("folder_path", r"C:\Users\jp\Bóveda\Salud", tp).unwrap().unwrap();
+        let arriba = s.resolve(&salud, "contained_by", tp).unwrap().unwrap();
+        assert_eq!(arriba.object.as_entity(), Some(&lib));
     }
 
     #[test]

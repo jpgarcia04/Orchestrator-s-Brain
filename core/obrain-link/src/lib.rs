@@ -178,16 +178,41 @@ fn de_ruta(t: &str) -> String {
     t.rsplit(['\\', '/']).next().unwrap_or(t).to_string()
 }
 
-/// El nombre de una carpeta: **dos** segmentos. Con uno solo, este mismo
-/// repositorio dibuja cinco nodos distintos llamados `src` y el mapa deja de
-/// poder leerse.
+/// El nombre de una carpeta: **su nombre**, y nada más.
+///
+/// Durante M3–M5 fueron dos segmentos (`pacox/Documentos`) para que cinco
+/// carpetas llamadas `src` no fueran cinco nodos indistinguibles. El remedio
+/// era peor que la enfermedad: pagaban el prefijo **todas** las carpetas para
+/// arreglar las pocas que chocan, y el mapa, las migas y el explorador
+/// repetían el nombre del padre en cada escalón. Ahora el choque se resuelve
+/// donde ocurre —en la vista que enseña dos carpetas hermanas con el mismo
+/// nombre, ver `obrain_api::sky`— y el resto se llama como se llama.
 fn de_carpeta(t: &str) -> String {
-    let mut partes = t.rsplit(['\\', '/']);
-    match (partes.next(), partes.next()) {
-        (Some(hoja), Some(padre)) if !padre.is_empty() => format!("{padre}/{hoja}"),
-        (Some(hoja), _) => hoja.to_string(),
+    let limpio = t.trim_end_matches(['\\', '/']);
+    match limpio.rsplit(['\\', '/']).next() {
+        Some(hoja) if !hoja.is_empty() => hoja.to_string(),
         _ => t.to_string(),
     }
+}
+
+/// Las bibliotecas: las carpetas que el usuario eligió indexar, con su ruta.
+///
+/// Ordenadas por ruta, para que dos llamadas devuelvan siempre lo mismo.
+pub fn libraries(store: &Store, at: TimePoint) -> Result<Vec<(EntityId, String)>> {
+    let mut out = Vec::new();
+    for a in store.query(None, Some("has_facet"), at)? {
+        if a.object.as_text() != Some(obrain_core::Facet::Library.as_str()) {
+            continue;
+        }
+        if let Some(p) = store.resolve(&a.subject, "folder_path", at)? {
+            if let Some(t) = p.object.as_text() {
+                out.push((a.subject, t.to_string()));
+            }
+        }
+    }
+    out.sort_by(|x, y| x.1.cmp(&y.1));
+    out.dedup_by(|x, y| x.0 == y.0);
+    Ok(out)
 }
 
 /// Los nombres de todo, leídos **de una vez**.
@@ -265,7 +290,7 @@ pub fn label(store: &Store, e: &EntityId, at: TimePoint) -> String {
 /// A mano y sin dependencia: es lo único que este crate necesita de un
 /// calendario, y `chrono` entero para formatear una fecha en una etiqueta no
 /// se paga. Algoritmo civil-from-days de Howard Hinnant.
-fn fecha(ms: i64) -> String {
+pub fn fecha(ms: i64) -> String {
     let dias = ms.div_euclid(86_400_000) + 719_468;
     let era = if dias >= 0 { dias } else { dias - 146_096 } / 146_097;
     let doe = dias - era * 146_097;
@@ -346,10 +371,10 @@ mod tests {
         assert_eq!(nombre_de(&store, &s), "sesión 2025-08-07");
     }
 
-    /// Cinco carpetas llamadas `src` son cinco nodos indistinguibles. Con dos
-    /// segmentos, cada una dice de quién es.
+    /// Una carpeta se llama como se llama. El choque entre hermanas con el
+    /// mismo nombre lo resuelve la vista que las enseña juntas, no el nombre.
     #[test]
-    fn una_carpeta_se_nombra_con_su_padre() {
+    fn una_carpeta_se_nombra_con_su_nombre() {
         let store = Store::open_in_memory().unwrap();
         let c = store.create_entity(T).unwrap();
         store
@@ -362,7 +387,15 @@ mod tests {
             ))
             .unwrap();
 
-        assert_eq!(nombre_de(&store, &c), "obrain-api/src");
+        assert_eq!(nombre_de(&store, &c), "src");
+    }
+
+    /// Un separador final no deja la carpeta sin nombre.
+    #[test]
+    fn un_separador_final_no_borra_el_nombre() {
+        assert_eq!(de_carpeta("C:\\Bóveda\\"), "Bóveda");
+        assert_eq!(de_carpeta("/home/jp/Segundo Cerebro"), "Segundo Cerebro");
+        assert_eq!(de_carpeta("C:"), "C:");
     }
 
     /// Un archivo se sigue nombrando con su nombre a secas: ahí el padre es

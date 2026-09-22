@@ -232,7 +232,7 @@ export class Explorador {
     const partes: HTMLElement[] = [];
     const raiz = document.createElement("button");
     raiz.dataset["miga"] = "";
-    raiz.textContent = "todo";
+    raiz.textContent = "inicio";
     partes.push(raiz);
     for (const n of this.niveles) {
       const f = n.listado.focus;

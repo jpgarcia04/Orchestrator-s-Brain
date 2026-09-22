@@ -132,7 +132,7 @@ pub const SEED_PREDICATES: &[(&str, &str, &str, &str, Option<&str>)] = &[
     ("contains", "contiene", "many", "deterministic", Some("contained_by")),
     ("contained_by", "contenido en", "one", "deterministic", Some("contains")),
     ("derived_from", "derivado de", "one", "deterministic", None),
-    ("version_of", "version de", "one", "deterministic", None),
+    ("version_of", "versión de", "one", "deterministic", None),
     ("duplicate_of", "duplicado de", "many", "deterministic", None),
     ("attached_to", "adjunto a", "one", "deterministic", None),
     ("downloaded_from", "descargado de", "one", "deterministic", None),
@@ -141,27 +141,27 @@ pub const SEED_PREDICATES: &[(&str, &str, &str, &str, Option<&str>)] = &[
     ("has_facet", "tiene faceta", "many", "deterministic", None),
     // ── sistema de archivos · determinista (M1) ──
     ("file_id", "identidad de archivo", "one", "deterministic", None),
-    ("file_size", "tamano", "one", "deterministic", None),
+    ("file_size", "tamaño", "one", "deterministic", None),
     ("modified_at", "modificado", "one", "deterministic", None),
     ("availability", "disponibilidad del contenido", "one", "deterministic", None),
     ("mime_guess", "tipo estimado", "one", "deterministic", None),
     // ── enlazadores deterministas (M3) ──
     ("folder_path", "ruta de carpeta", "one", "deterministic", None),
-    ("session_span", "intervalo de la sesion", "one", "deterministic", None),
+    ("session_span", "intervalo de la sesión", "one", "deterministic", None),
     // ── extraccion de contenido (M2) ──
-    ("extraction_status", "resultado de la extraccion", "one", "deterministic", None),
+    ("extraction_status", "resultado de la extracción", "one", "deterministic", None),
     ("text_chars", "caracteres de texto", "one", "deterministic", None),
     ("text_hash", "hash del texto extraido", "one", "deterministic", None),
-    ("chunk_count", "numero de fragmentos", "one", "deterministic", None),
+    ("chunk_count", "número de fragmentos", "one", "deterministic", None),
     // El chunker vive en el log, no sólo en la proyección: el invariante I7
     // exige que todo vector sepa con qué chunker se produjo su fragmento.
-    ("chunker", "estrategia de fragmentacion", "one", "deterministic", None),
+    ("chunker", "estrategia de fragmentación", "one", "deterministic", None),
     // ── vectorizacion (M4) ──
     // La procedencia del índice vectorial, no el índice. El vector vive en la
     // tabla `vectors`, que es una proyección; lo que no se puede recalcular
     // mirándola es **con qué se produjo**, y eso sí es un hecho (I7, I9).
     ("embedded_with", "vectorizado con", "one", "deterministic", None),
-    ("vector_count", "numero de vectores", "one", "deterministic", None),
+    ("vector_count", "número de vectores", "one", "deterministic", None),
     // ── sensibilidad · procedencia del control de egreso (I11) ──
     // La columna `entities.sensitivity` sigue siendo el punto de control. Este
     // predicado es su **procedencia** y su canal de corrección: quién dijo que
@@ -170,7 +170,7 @@ pub const SEED_PREDICATES: &[(&str, &str, &str, &str, Option<&str>)] = &[
     // porqué. Ver `docs/adr/0006-donde-vive-la-sensibilidad.md`.
     ("sensitivity_level", "nivel de sensibilidad", "many", "inferred", None),
     // ── temporal · determinista ──
-    ("occurred_during", "ocurrio durante", "many", "deterministic", None),
+    ("occurred_during", "ocurrió durante", "many", "deterministic", None),
     ("precedes", "precede a", "many", "deterministic", None),
     ("supersedes", "reemplaza a", "many", "deterministic", None),
     // ── social · determinista ──

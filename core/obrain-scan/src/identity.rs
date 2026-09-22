@@ -91,7 +91,7 @@ pub fn file_identity(path: &Path) -> std::io::Result<FileIdentity> {
         let m = std::fs::metadata(path)?;
         let mut file_id = [0u8; 16];
         file_id[..8].copy_from_slice(&m.ino().to_le_bytes());
-        return Ok(FileIdentity { volume: m.dev(), file_id });
+        Ok(FileIdentity { volume: m.dev(), file_id })
     }
     #[cfg(not(unix))]
     {

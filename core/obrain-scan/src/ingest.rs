@@ -244,6 +244,62 @@ fn mime_guess(path: &std::path::Path) -> Option<&'static str> {
     })
 }
 
+/// La ruta de una biblioteca **como la escriben los enlazadores**: sin
+/// separador final.
+///
+/// M3 identifica cada carpeta por la cadena que queda a la izquierda del último
+/// separador de la ruta de un archivo, así que `C:\Bóveda\` y `C:\Bóveda`
+/// serían dos carpetas distintas para él. Se recorta aquí para que la
+/// biblioteca y la carpeta que ve el enlazador sean la misma entidad.
+pub fn library_path(root: &std::path::Path) -> String {
+    let s = root.to_string_lossy();
+    let t = s.trim_end_matches(['\\', '/']);
+    if t.is_empty() { s.into_owned() } else { t.to_string() }
+}
+
+/// Marca `root` como **biblioteca**: una carpeta que el usuario eligió indexar.
+///
+/// Es la entidad de carpeta de siempre —la misma que crearía M3 para esa
+/// ruta— con la faceta `library` encima. Si ya existía, se reutiliza: una base
+/// antigua no gana una segunda carpeta con la misma ruta.
+///
+/// La faceta la afirma el **usuario** y no el escáner: elegir qué carpeta es
+/// tu bóveda es una decisión tuya (I5), no una observación del disco.
+///
+/// Idempotente. El llamante envuelve en transacción.
+pub fn register_library(
+    store: &Store,
+    root: &std::path::Path,
+    at: i64,
+) -> obrain_core::Result<EntityId> {
+    let path = library_path(root);
+    let tp = TimePoint::at(at);
+    let e = match store.find_subject_by_value("folder_path", &path, tp)? {
+        Some(e) => e,
+        None => {
+            let e = store.create_entity(at)?;
+            store.assert(
+                NewAssertion::new(e.clone(), "folder_path", path.as_str(), Method::Deterministic, at)
+                    .source("scan:biblioteca"),
+            )?;
+            e
+        }
+    };
+    for (facet, method) in [
+        (Facet::Container, Method::Deterministic),
+        (Facet::Library, Method::User),
+    ] {
+        let v = Value::Text(facet.as_str().to_string());
+        if !store.has_assertion(&e, "has_facet", &v, tp)? {
+            store.assert(
+                NewAssertion::new(e.clone(), "has_facet", facet.as_str(), method, at)
+                    .source("scan:biblioteca"),
+            )?;
+        }
+    }
+    Ok(e)
+}
+
 /// Etiqueta legible para el informe.
 pub fn availability_label(a: Availability) -> &'static str {
     match a {
@@ -376,5 +432,29 @@ mod tests {
         assert_eq!(r2.entities_reconciled, 0);
         assert_eq!(r2.assertions_written, 0);
         assert_eq!(r2.assertions_retracted, 0);
+    }
+
+    /// La biblioteca es la carpeta de siempre con una faceta encima: registrar
+    /// dos veces no escribe dos veces, y un separador final no crea otra.
+    #[test]
+    fn registrar_una_biblioteca_es_idempotente() {
+        let store = Store::open_in_memory().unwrap();
+        let a = register_library(&store, std::path::Path::new(r"C:\Users\jp\Bóveda\"), 1000).unwrap();
+        let antes = store.log_len().unwrap();
+        let b = register_library(&store, std::path::Path::new(r"C:\Users\jp\Bóveda"), 2000).unwrap();
+        assert_eq!(a, b);
+        assert_eq!(store.log_len().unwrap(), antes, "la segunda vez no escribe nada");
+
+        let tp = TimePoint::at(3000);
+        let ruta = store.resolve(&a, "folder_path", tp).unwrap().unwrap();
+        assert_eq!(ruta.object.as_text(), Some(r"C:\Users\jp\Bóveda"));
+        let facetas: Vec<String> = store
+            .query(Some(&a), Some("has_facet"), tp)
+            .unwrap()
+            .into_iter()
+            .filter_map(|x| x.object.as_text().map(str::to_string))
+            .collect();
+        assert!(facetas.contains(&"library".to_string()));
+        assert!(facetas.contains(&"container".to_string()));
     }
 }
