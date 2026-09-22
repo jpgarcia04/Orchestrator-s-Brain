@@ -43,6 +43,7 @@ import {
   TextStyle,
 } from "pixi.js";
 import type { Arista, Cielo, Lente, Nodo, Region } from "./nucleo";
+import { nombreBonito, tituloDe } from "./nombres";
 
 const FONDO = 0x05070c;
 
@@ -287,8 +288,21 @@ function disponer(
  * —codifican cuántos archivos hay dentro y eso no depende del tamaño de la
  * ventana—, y estirar sin límite dejaría puntitos perdidos en un vacío.
  */
-function encuadrar(cuerpos: Cuerpo[], ancho: number, alto: number): void {
-  if (cuerpos.length < 2) return;
+/** Píxeles que la vista tapa encima del lienzo, arriba y abajo. */
+export interface Huecos {
+  arriba: number;
+  abajo: number;
+}
+
+function encuadrar(cuerpos: Cuerpo[], ancho: number, alto: number, huecos: Huecos): void {
+  // Lo que la vista tapa por arriba (su título) y por abajo (la leyenda) no
+  // cuenta como sitio: el mapa se encaja en lo que queda y se centra ahí.
+  const util = Math.max(alto * 0.4, alto - huecos.arriba - huecos.abajo);
+  const dy = (huecos.arriba - huecos.abajo) / 2;
+  if (cuerpos.length < 2) {
+    for (const c of cuerpos) c.y += dy;
+    return;
+  }
   let x0 = Infinity;
   let y0 = Infinity;
   let x1 = -Infinity;
@@ -301,12 +315,12 @@ function encuadrar(cuerpos: Cuerpo[], ancho: number, alto: number): void {
   }
   const anchoActual = Math.max(1, x1 - x0);
   const altoActual = Math.max(1, y1 - y0);
-  const k = Math.min(2.6, (ancho * 0.8) / anchoActual, (alto * 0.72) / altoActual);
+  const k = Math.min(2.6, (ancho * 0.8) / anchoActual, (util * 0.8) / altoActual);
   const cx = (x0 + x1) / 2;
   const cy = (y0 + y1) / 2;
   for (const c of cuerpos) {
     c.x = (c.x - cx) * k;
-    c.y = (c.y - cy) * k;
+    c.y = (c.y - cy) * k + dy;
   }
 }
 
@@ -337,7 +351,9 @@ function azarEstable(clave: string): number {
  * La regla correcta no es fija, depende de lo que haya delante: se usa la hoja,
  * y sólo se añade el padre a las que chocan entre sí.
  */
-function nombresCortos(regiones: ReadonlyArray<{ id: string; path: string; label: string }>) {
+function nombresCortos(
+  regiones: ReadonlyArray<{ id: string; path: string; label: string; remainder: boolean }>,
+) {
   const hoja = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
   const veces = new Map<string, number>();
   for (const r of regiones) {
@@ -347,7 +363,11 @@ function nombresCortos(regiones: ReadonlyArray<{ id: string; path: string; label
   const out = new Map<string, string>();
   for (const r of regiones) {
     const h = hoja(r.path);
-    out.set(r.id, (veces.get(h) ?? 0) > 1 ? r.label : h);
+    const nombre = nombreBonito((veces.get(h) ?? 0) > 1 ? r.label : h);
+    // Una carpeta que se abrió en trozos deja aquí sólo lo que no salió como
+    // estrella propia: llamarla igual que la carpeta entera prometería más de
+    // lo que hay dentro.
+    out.set(r.id, r.remainder ? `El resto de ${nombre}` : nombre);
   }
   return out;
 }
@@ -363,7 +383,7 @@ function nombresCortos(regiones: ReadonlyArray<{ id: string; path: string; label
 const ESTILO_ROTULO = new TextStyle({
   fill: 0xd7e3f4,
   fontSize: 11,
-  fontFamily: "Segoe UI, system-ui, sans-serif",
+  fontFamily: "Geist Variable, Segoe UI, system-ui, sans-serif",
   letterSpacing: 0.7,
   dropShadow: { color: 0x000000, alpha: 0.9, blur: 6, distance: 0 },
 });
@@ -418,6 +438,11 @@ interface Rotulo {
 export class Mapa {
   private app = new Application();
   private lienzo: HTMLCanvasElement;
+  /**
+   * Lo que la vista pone encima del lienzo. Se respeta al encajar el mapa:
+   * sin esto, la estrella de arriba caía justo debajo del título.
+   */
+  huecos: Huecos = { arriba: 0, abajo: 0 };
 
   private fondo = new Container();
   private capaPolvo = new Container();
@@ -470,6 +495,10 @@ export class Mapa {
   private rotulos = new Map<string, Rotulo>();
   private realce = new Graphics();
 
+  /** Las escuchas de la ventana, guardadas para poder quitarlas en `destruir`. */
+  private escuchas: Array<[string, EventListener]> = [];
+  private vigiaTamano: ResizeObserver | null = null;
+
   /** Lo que hay bajo el cursor al soltar. Lo pone `main`: el mapa sabe **qué**
    *  se ha picado, no qué hacer con ello. */
   onElegir: (p: Picado) => void = () => {};
@@ -517,19 +546,28 @@ export class Mapa {
     // orden que §1 prohíbe.
     this.app.stage.addChild(this.mundo, this.fondo, this.capaRealce, this.capaTexto);
 
-    window.addEventListener("resize", () => {
-      this.ajustar();
-      // El layout se reescala a la ventana nueva, así que el mundo de debajo de
-      // la cámara ya no es el mismo. Encuadrar de nuevo es lo predecible: dejar
-      // la cámara donde estaba la dejaría apuntando a otro sitio del mapa.
-      this.aEncuadre(true);
-      this.recolocar();
-      this.dibujar();
-    });
-    window.addEventListener("blur", () => this.parar());
-    window.addEventListener("focus", () => this.despertar());
-    window.addEventListener("pointermove", (e) => this.raton(e));
-    window.addEventListener("keydown", () => this.despertar());
+    // El mapa vive dentro de una vista y no ocupa la ventana: se mide su
+    // contenedor, no `window`. Al cambiar de tamaño, el layout se reescala al
+    // hueco nuevo, así que el mundo de debajo de la cámara ya no es el mismo:
+    // encuadrar de nuevo es lo predecible.
+    const contenedor = this.lienzo.parentElement;
+    if (contenedor) {
+      this.vigiaTamano = new ResizeObserver(() => {
+        this.ajustar();
+        this.aEncuadre(true);
+        this.recolocar();
+        this.dibujar();
+      });
+      this.vigiaTamano.observe(contenedor);
+    }
+    const escuchar = (tipo: string, f: EventListener) => {
+      window.addEventListener(tipo, f);
+      this.escuchas.push([tipo, f]);
+    };
+    escuchar("blur", () => this.parar());
+    escuchar("focus", () => this.despertar());
+    escuchar("pointermove", (e) => this.raton(e as PointerEvent));
+    escuchar("keydown", () => this.despertar());
 
     this.lienzo.addEventListener("wheel", (e) => this.rueda(e), { passive: false });
     this.lienzo.addEventListener("pointerdown", (e) => this.agarrar(e));
@@ -540,6 +578,27 @@ export class Mapa {
     });
     this.lienzo.addEventListener("dblclick", (e) => this.acercarA(e));
     this.lienzo.style.cursor = "grab";
+  }
+
+  /**
+   * Se quita de en medio: escuchas, vigía de tamaño y el contexto WebGL. Lo
+   * llama la vista al cerrarse; sin esto, cada visita al mapa dejaría un
+   * lienzo vivo más consumiendo batería detrás del explorador.
+   */
+  destruir(): void {
+    for (const [tipo, f] of this.escuchas) window.removeEventListener(tipo, f);
+    this.escuchas = [];
+    this.vigiaTamano?.disconnect();
+    this.vigiaTamano = null;
+    this.corriendo = false;
+    this.app.ticker.stop();
+    this.app.destroy(false, { children: true });
+  }
+
+  /** Coordenadas del puntero **dentro del lienzo**, que ya no empieza en (0, 0). */
+  private local(e: { clientX: number; clientY: number }): [number, number] {
+    const r = this.lienzo.getBoundingClientRect();
+    return [e.clientX - r.left, e.clientY - r.top];
   }
 
   // ─────────────────────────────────────────────────────────────── la cámara
@@ -649,11 +708,12 @@ export class Mapa {
     const f = Math.exp(-e.deltaY * 0.0016);
     const nz = Math.min(Z_MAX, Math.max(Z_MIN, this.destino.z * f));
     const [w, h] = this.medidas();
-    const [wx, wy] = this.aMundo(e.clientX, e.clientY);
+    const [sx, sy] = this.local(e);
+    const [wx, wy] = this.aMundo(sx, sy);
     this.destino = {
       z: nz,
-      x: wx - (e.clientX - w / 2 - this.paralaje.x) / nz,
-      y: wy - (e.clientY - h / 2 - this.paralaje.y) / nz,
+      x: wx - (sx - w / 2 - this.paralaje.x) / nz,
+      y: wy - (sy - h / 2 - this.paralaje.y) / nz,
     };
     this.onCamara(this.movida);
     this.mover();
@@ -674,14 +734,14 @@ export class Mapa {
     // Cuatro píxeles: fue un arrastre, no un clic. Sin esto, mover el mapa
     // abriría el panel de la estrella que quedara debajo al soltar.
     if (era.mov > 4) return;
-    const p = this.picar(e.clientX, e.clientY);
+    const p = this.picar(...this.local(e));
     this.onElegir(p);
   }
 
   /** Dos clics: acercarse a lo que hay debajo, o volver a verlo todo. */
   private acercarA(e: MouseEvent): void {
     if (this.congelado) return;
-    const c = this.cuerpoEn(e.clientX, e.clientY);
+    const c = this.cuerpoEn(...this.local(e));
     if (c) this.irA(c);
     else this.encuadre();
   }
@@ -873,9 +933,10 @@ export class Mapa {
     // Profundidad simulada (§7.5): las capas se desplazan distinto. Es el 3D
     // que este grafo admite — el otro, el de verdad, hace la topología ilegible
     // por oclusión y ambigüedad de profundidad.
-    this.paralaje.tx = ((e.clientX - w / 2) / w) * -18;
-    this.paralaje.ty = ((e.clientY - h / 2) / h) * -18;
-    this.señalar(this.cuerpoEn(e.clientX, e.clientY));
+    const [sx, sy] = this.local(e);
+    this.paralaje.tx = ((sx - w / 2) / w) * -18;
+    this.paralaje.ty = ((sy - h / 2) / h) * -18;
+    this.señalar(this.cuerpoEn(sx, sy));
     this.despertar();
     if (!this.corriendo) this.dibujar();
   }
@@ -972,7 +1033,8 @@ export class Mapa {
   }
 
   private ajustar(): void {
-    this.app.renderer.resize(window.innerWidth, window.innerHeight);
+    const r = this.lienzo.parentElement?.getBoundingClientRect();
+    this.app.renderer.resize(Math.max(1, r?.width ?? window.innerWidth), Math.max(1, r?.height ?? window.innerHeight));
   }
 
   /**
@@ -1154,7 +1216,7 @@ export class Mapa {
       .filter((p): p is readonly [number, number] => p[0] !== undefined && p[1] !== undefined);
 
     disponer(cuerpos, enlaces, w, h);
-    encuadrar(cuerpos, w, h);
+    encuadrar(cuerpos, w, h, this.huecos);
     for (const c of cuerpos) this.pos.set(c.id, c);
     this.construir();
   }
@@ -1329,7 +1391,9 @@ export class Mapa {
         x: p.x,
         y: p.y,
         radio: rad,
-        texto: n.label,
+        // Una carpeta se llama como su carpeta; un documento, por su título
+        // (sin la fecha delante ni la extensión detrás), como en el explorador.
+        texto: n.facets.includes("container") ? nombreBonito(n.label) : tituloDe(n.label).titulo,
         // El foco por delante de todo: es de lo que cuelga el resto de la
         // lente, y su nombre es el que contesta «¿dónde estoy?».
         peso: n.distance === 0 ? Infinity : n.degree,

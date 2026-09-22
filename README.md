@@ -155,8 +155,8 @@ El proyecto está en desarrollo activo. Cada hito se valida contra la pregunta d
 | **M5d** — Manejarlo | Cámara del mapa —zoom y arrastre— y saber qué nodo vas a abrir antes de abrirlo | ✅ Completo |
 | **Fase 1** — Tu bóveda | Bibliotecas: el explorador empieza en tu carpeta, nombres limpios, `obrain indexar`, la app se pone al día sola | ✅ Completo |
 | **M5c** — Enterarse | Lo nuevo aparece sin lanzar nada | ◐ Al abrir la app y con «actualizar»; falta vigilar la carpeta en vivo |
-| **Fase 2** — La interfaz nueva | Svelte 5, explorador tipo sistema operativo, la galaxia como vista enlazada | ⏭ Siguiente |
-| **Fase 3** — Documentos personales | OCR, vencimientos, cifrado y PIN | ⏳ Planificado |
+| **Fase 2** — La interfaz nueva | Svelte 5: escritorio tipo sistema operativo con vista previa, buscador `Ctrl K`, la galaxia como vista «Mapa» enlazada, aspecto de noche y de día | ✅ Completo |
+| **Fase 3** — Documentos personales | OCR, vencimientos, cifrado y PIN | ⏭ Siguiente |
 | **M6** — Construir conocimiento | Inferencia de procesos y enriquecimiento | ⏳ Planificado |
 | **M7** — La pregunta | Responder la pregunta de la visa | 🎯 Meta final |
 
@@ -203,7 +203,7 @@ Esta es la parte que más importa. Orchestrator's Brain no es una herramienta qu
 
 - **Núcleo:** Rust — rendimiento predecible, memoria controlada, sin pausa de recolector de basura. Ideal para un proceso que corre todo el día en segundo plano.
 - **Persistencia:** SQLite — un solo archivo, cero instalación. Todo índice es una proyección reconstruible desde un log maestro.
-- **Interfaz:** Tauri v2 + TypeScript — ~10 MB contra ~150 MB de Electron, usa el webview del sistema.
+- **Interfaz:** Tauri v2 + Svelte 5 + TypeScript — ~10 MB contra ~150 MB de Electron, usa el webview del sistema. Tipografías e iconos van dentro de la app: funciona sin conexión.
 - **Visualización:** PixiJS (WebGL2) — renderizado verificado a 0.6 ms para 500 nodos en GPU integrada Intel.
 
 ### Modelo de datos
@@ -232,8 +232,12 @@ Orchestrator's-Brain/
 │   ├── obrain-guard/              #   Sensibilidad y control de egreso
 │   ├── obrain-embed/              #   Embeddings locales y búsqueda semántica
 │   └── obrain-api/                #   La superficie: buscar, mirar y recorrer
-├── ui/                            # Aplicación de escritorio (Tauri + TypeScript)
-│   ├── src/                       #   La barra, el mapa (PixiJS), el explorador y el panel
+├── ui/                            # Aplicación de escritorio (Tauri + Svelte 5)
+│   ├── src/
+│   │   ├── vistas/                #   Inicio, Carpeta, Mapa y Sensibles
+│   │   ├── componentes/           #   Barra lateral, cabecera, buscador, vista previa…
+│   │   ├── lib/                   #   Estado de la app, nombres legibles, el mapa (PixiJS)
+│   │   └── estilos/               #   El tema: noche y día
 │   └── src-tauri/                 #   El puente al núcleo
 ├── docs/                          # Documentación de diseño
 │   ├── ESTADO.md                  #   Empieza aquí: dónde estamos y cómo usarlo

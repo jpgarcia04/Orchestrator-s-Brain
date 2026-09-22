@@ -1,112 +1,13 @@
 <!doctype html>
-<html lang="es">
+<html lang="es" data-tema="noche">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Orchestrator's Brain</title>
-    <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
-    <!--
-      El orden del DOM es el argumento de ADR-0004: el mapa es el sustrato y
-      va debajo; la barra flota encima. No son dos pantallas.
-    -->
-    <canvas id="sustrato"></canvas>
-
-    <!--
-      Plegada, el mapa se ve entero; **escribir la despliega**, así que el
-      camino de las cuarenta veces al día sigue siendo escribir y nada más.
-      Ver ADR-0017.
-    -->
-    <main id="barra">
-      <button id="lupa" type="button" aria-label="Buscar" title="Buscar — o escribe">
-        <svg viewBox="0 0 20 20" aria-hidden="true">
-          <circle cx="8.6" cy="8.6" r="5.4" />
-          <path d="M12.6 12.6 L16.6 16.6" />
-        </svg>
-      </button>
-      <input
-        id="consulta"
-        type="text"
-        autocomplete="off"
-        spellcheck="false"
-        placeholder="¿Qué estás buscando?"
-        aria-label="Buscar"
-      />
-      <ol id="resultados"></ol>
-    </main>
-
-    <!--
-      Fuera de la barra: es la línea de estado **del mapa**, no la de la
-      búsqueda. Dentro, plegar la barra la habría escondido, y al arrancar dejas
-      de ver cuántas regiones y cuántos archivos hay — que es lo primero que la
-      aplicación tiene que decir de ti.
-    -->
-    <div id="estado" aria-live="polite"></div>
-
-    <!--
-      Aparece sólo cuando la cámara se ha ido del encuadre completo. Un mapa que
-      se deja llevar a cualquier sitio necesita una forma de volver que no haya
-      que adivinar, y `Esc` sola no se ve.
-    -->
-    <button id="encuadre" type="button" title="Ver todo · Esc">ver todo</button>
-
-    <!--
-      El conmutador de EXPERIENCE.md §4.7. Visible y en un sitio fijo, porque el
-      explorador **nunca aparece solo**: en el momento en que apareciera por
-      tocar un nodo sería el modal que §4.4 prohíbe.
-    -->
-    <!--
-      Vuelve a leer tus bibliotecas. La aplicación ya lo hace sola al arrancar;
-      esto es para cuando acabas de dejar algo en la carpeta con ella abierta.
-    -->
-    <button id="actualizar" type="button" title="Actualizar · vuelve a leer tus bibliotecas" aria-label="Actualizar">
-      <svg viewBox="0 0 20 20" aria-hidden="true">
-        <path d="M16 10a6 6 0 1 1-1.76-4.24" />
-        <path d="M16 3.5v3.3h-3.3" />
-      </svg>
-    </button>
-
-    <button id="conmutador" title="Explorador · Ctrl+E">
-      <svg viewBox="0 0 20 20" aria-hidden="true">
-        <rect x="2.5" y="4" width="4.6" height="12" rx="1.2" />
-        <rect x="8.2" y="4" width="4.6" height="12" rx="1.2" />
-        <rect x="13.9" y="4" width="3.6" height="12" rx="1.2" />
-      </svg>
-      explorador
-      <kbd>Ctrl E</kbd>
-    </button>
-
-    <!--
-      Centrado, grande y de tamaño fijo. Arrastrar y redimensionar están fuera
-      de esta versión por escrito (ADR-0014): el valor está en poder bajar por la
-      jerarquía sin escribir, y mover la ventana es acabado.
-    -->
-    <section id="explorador" tabindex="-1" hidden aria-label="Explorador">
-      <header>
-        <nav id="migas" aria-label="Ruta"></nav>
-        <span class="pista">↑↓ moverse · → entrar · ← volver · Esc cerrar</span>
-      </header>
-      <div id="cuerpo">
-        <div id="columnas"></div>
-        <!--
-          Donde vive el panel mientras el explorador está abierto. Es el mismo
-          elemento que en la galaxia, reparentado: dos implementaciones del
-          panel serían dos sitios donde arreglar el mismo fallo, y la
-          consecuencia #4 de ADR-0014 —dos vistas de un solo estado— dejaría de
-          ser cierta justo en la parte que se mira.
-        -->
-        <div id="detalle"></div>
-      </div>
-    </section>
-
-    <!--
-      El panel de EXPERIENCE.md §4.4, **con previsualización**. En la galaxia es
-      un lateral y no un modal: perder el contexto espacial es perder el
-      producto. Arranca aquí y `main` lo mueve al explorador cuando hace falta.
-    -->
-    <aside id="panel" hidden aria-label="Detalle"></aside>
-
+    <!-- Todo lo demás lo monta Svelte: ver src/App.svelte. -->
+    <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

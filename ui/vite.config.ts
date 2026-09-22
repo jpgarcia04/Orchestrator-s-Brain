@@ -1,8 +1,10 @@
+import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { defineConfig } from "vite";
 
 // Puerto fijo: `tauri.conf.json` apunta aquí y un puerto que baila rompe el
 // arranque de la aplicación sin decir por qué.
 export default defineConfig({
+  plugins: [svelte()],
   clearScreen: false,
   server: {
     port: 5183,

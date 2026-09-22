@@ -319,6 +319,18 @@ impl Brain {
         Ok(sky::children(&self.store, focus, at)?)
     }
 
+    /// Los archivos más recientes. Ver [`sky::recent`].
+    pub fn recent(&self, limit: usize) -> Result<Vec<Row>> {
+        let (_, at) = Self::now();
+        Ok(sky::recent(&self.store, limit, at)?)
+    }
+
+    /// Lo que la puerta retiene. Ver [`sky::sensitive`].
+    pub fn sensitive(&self) -> Result<Vec<Row>> {
+        let (_, at) = Self::now();
+        Ok(sky::sensitive(&self.store, at)?)
+    }
+
     /// Abre la lente sobre una entidad. Ver [`lens`].
     pub fn lens(&self, focus: &[EntityId], radius: u8, budget: usize) -> Result<Lens> {
         let (_, at) = Self::now();

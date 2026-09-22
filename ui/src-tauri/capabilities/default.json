@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Lo mínimo para dibujar una ventana e invocar los comandos del núcleo. Sin sistema de archivos, sin red, sin shell: esta aplicación no necesita ninguno de los tres, y F1 dice que los datos no salen de la máquina. La única excepción son las dos salidas hacia el archivo real de M5b —abrirlo y revelarlo— y van por comandos de Rust, no desde la ventana: la guarda que decide si un archivo se puede tocar vive donde M1 la puso y no dentro de un webview.",
+  "description": "Lo mínimo para dibujar una ventana e invocar los comandos del núcleo. Sin sistema de archivos, sin red, sin shell: esta aplicación no necesita ninguno de los tres, y F1 dice que los datos no salen de la máquina. La única excepción son las dos salidas hacia el archivo real de M5b —abrirlo y revelarlo— y van por comandos de Rust, no desde la ventana: la guarda que decide si un archivo se puede tocar vive donde M1 la puso y no dentro de un webview. Lo mismo el selector de «Añadir carpeta»: lo abre Rust, y la ventana nunca manda una ruta.",
   "windows": ["main"],
   "permissions": ["core:default"]
 }

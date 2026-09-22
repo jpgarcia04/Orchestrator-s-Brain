@@ -1,0 +1,207 @@
+/*
+ * Los dos aspectos de la aplicación, como variables.
+ *
+ * **Noche** es la dirección de `EXPERIENCE.md` §2 —un observatorio de noche,
+ * casi todo tenue y quieto— y es la de fábrica. **Día** es la alternativa clara
+ * para quien trabaja con luz. Se cambia desde la barra lateral y se recuerda en
+ * este equipo. El mapa es de noche en los dos: es un cielo.
+ *
+ * Todas las parejas de texto y fondo cumplen 4.5:1.
+ */
+
+:root,
+:root[data-tema="noche"] {
+  color-scheme: dark;
+  --fondo: #0b0f16;
+  --lateral: #0e131c;
+  --panel: #10161f;
+  --tarjeta: #141b26;
+  --chip: rgba(150, 170, 200, 0.09);
+  --linea: rgba(150, 170, 200, 0.14);
+  --tinta: #e7ecf3;
+  --tenue: #9aa6b8;
+  --acento: #93b6e2;
+  --calido: #f2c27b;
+  --calido-fondo: rgba(242, 194, 123, 0.14);
+  --peligro: #f0a094;
+  --peligro-fondo: rgba(240, 160, 148, 0.14);
+  --bien: #86d0a6;
+  --sel: rgba(147, 182, 226, 0.15);
+  --papel: #e8e3d7;
+  --papel-tinta: #2b2f38;
+  --papel-linea: rgba(43, 47, 56, 0.17);
+  --mapa: #070a11;
+  --sombra: rgba(0, 0, 0, 0.6);
+  --velo: rgba(11, 15, 22, 0.6);
+  --prim: #93b6e2;
+  --prim-tinta: #0b0f16;
+  --brillo-hover: brightness(1.2);
+  --tipo-pdf: #f0a094;
+  --tipo-img: #86cdb2;
+  --tipo-doc: #93b6e2;
+  --tipo-xls: #9fd08c;
+  --tipo-ppt: #f2b27b;
+  --tipo-txt: #c9b6e8;
+}
+
+:root[data-tema="dia"] {
+  color-scheme: light;
+  --fondo: #f3f1ec;
+  --lateral: #eae7e0;
+  --panel: #fbfaf7;
+  --tarjeta: #ffffff;
+  --chip: rgba(30, 36, 48, 0.055);
+  --linea: rgba(30, 36, 48, 0.12);
+  --tinta: #1a1e26;
+  --tenue: #575f6d;
+  --acento: #2c4d86;
+  --calido: #8a520b;
+  --calido-fondo: rgba(196, 128, 32, 0.15);
+  --peligro: #a33d2d;
+  --peligro-fondo: rgba(168, 64, 47, 0.12);
+  --bien: #2b7550;
+  --sel: rgba(44, 77, 134, 0.1);
+  --papel: #ffffff;
+  --papel-tinta: #2a2f38;
+  --papel-linea: rgba(30, 36, 48, 0.14);
+  --mapa: #0a0f1c;
+  --sombra: rgba(30, 36, 48, 0.18);
+  --velo: rgba(243, 241, 236, 0.66);
+  --prim: #2c4d86;
+  --prim-tinta: #ffffff;
+  --brillo-hover: brightness(0.965);
+  --tipo-pdf: #a33d2d;
+  --tipo-img: #1f6e55;
+  --tipo-doc: #2c4d86;
+  --tipo-xls: #2f6b1e;
+  --tipo-ppt: #9a4d0c;
+  --tipo-txt: #664896;
+}
+
+:root {
+  --serif: "Instrument Serif", Georgia, serif;
+  --sans: "Geist Variable", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --mono: "Geist Mono Variable", "Cascadia Mono", Consolas, ui-monospace, monospace;
+  --ancho-lateral: 248px;
+  --ancho-previa: 380px;
+  --alto-cabecera: 60px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--fondo);
+  color: var(--tinta);
+  font: 14px/1.45 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  height: 100%;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--acento);
+  outline-offset: 2px;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--linea);
+  color: var(--tenue);
+}
+
+/* Lo que se puede pulsar se aclara al pasar por encima; sin color nuevo. */
+.hov {
+  transition: filter 0.15s ease;
+}
+.hov:hover {
+  filter: var(--brillo-hover);
+}
+.hov-fondo {
+  transition: background-color 0.15s ease;
+}
+.hov-fondo:hover {
+  background-color: rgba(140, 155, 180, 0.13) !important;
+}
+
+/* Títulos de sección: pequeños, espaciados, tenues. */
+.rotulo {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--tenue);
+}
+
+.titular {
+  font-family: var(--serif);
+  font-weight: 400;
+  letter-spacing: -0.2px;
+  line-height: 1.05;
+}
+
+/* Las vistas entran, no aparecen (§3 #1, en pequeño). */
+@keyframes entra {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.entra {
+  animation: entra 0.24s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entra {
+    animation: none;
+  }
+  .hov,
+  .hov-fondo {
+    transition: none;
+  }
+}
+
+/* Barras de desplazamiento discretas, del color de la línea. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--linea) transparent;
+}

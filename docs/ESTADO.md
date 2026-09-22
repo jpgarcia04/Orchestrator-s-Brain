@@ -21,14 +21,15 @@ computadora.
 | Escanear una carpeta y reconocer cada archivo aunque lo muevas o renombres | **Leer fotos y PDF escaneados (OCR)**: hoy una foto de tu pasaporte no tiene texto que buscar |
 | Leer el texto de PDF, Word, HTML y texto plano | **Cifrado de la base**: hoy es un SQLite sin cifrar |
 | Buscar por palabras y por significado (con el modelo local descargado) | Vigilar la carpeta en vivo: hoy se pone al día al abrir la app o con «actualizar» |
-| Marcar lo sensible y no dejarlo salir de la máquina | La interfaz nueva (Fase 2) |
+| Marcar lo sensible y no dejarlo salir de la máquina | **Sensibilidad por carpeta**: una foto sin texto (la TIE) hoy no sale como sensible |
 | **Bibliotecas**: el explorador empieza en tu carpeta, no en la raíz del disco | Vencimientos (*¿qué me caduca pronto?*) |
-| Carpetas con su nombre, fechas y tamaños legibles | |
-| `obrain indexar <carpeta>`: todo el proceso en una orden | |
+| Carpetas y documentos con nombres legibles, fechas y tamaños claros | |
+| **La interfaz nueva** (Svelte 5): escritorio con barra lateral, Inicio, carpetas en cuadrícula o lista, vista previa, Sensibles, buscador `Ctrl K`, el Mapa enlazado, noche y día | |
+| «Añadir carpeta» desde la app, o `obrain indexar <carpeta>` desde la terminal | |
 | La app se pone al día sola al abrirse, y tiene botón «actualizar» | |
 
-Núcleo en Rust con 274 tests (uno de ellos sólo corre en Windows), interfaz en
-Tauri + TypeScript + PixiJS.
+Núcleo en Rust con 276 tests (uno de ellos sólo corre en Windows), interfaz en
+Tauri + Svelte 5, con el mapa en PixiJS.
 
 ## Cómo usarlo hoy (Windows)
 
@@ -36,18 +37,27 @@ Hace falta [Rust](https://rustup.rs) y [Node.js](https://nodejs.org). Desde la
 carpeta del repositorio, en PowerShell:
 
 ```powershell
-# 1 · Indexar tu bóveda (la primera vez compila; tarda unos minutos)
-cd core
-cargo run --release --bin obrain -- indexar "C:\Users\pacox\Segundo Cerebro"
-
-# 2 · (una sola vez) bajar el modelo de búsqueda por significado, ~465 MB
-cargo run --release --bin obrain-embed -- "$env:LOCALAPPDATA\obrain\brain.obrain" --descargar-modelo
-
-# 3 · Abrir la aplicación
-cd ..\ui
+# 1 · Abrir la aplicación (la primera vez compila; tarda unos minutos)
+cd ui
 npm install
 npm run app
 ```
+
+Con la base vacía, el Inicio te ofrece **«Elegir carpeta»**: eliges tu bóveda y
+la app la lee en segundo plano (verás «Leyendo tu bóveda…» abajo a la
+izquierda). Más adelante, **«Añadir carpeta»** en la barra lateral hace lo mismo
+con otra. Lo mismo desde la terminal, si lo prefieres:
+
+```powershell
+cd core
+cargo run --release --bin obrain -- indexar "C:\Users\pacox\Segundo Cerebro"
+
+# (una sola vez) bajar el modelo de búsqueda por significado, ~465 MB
+cargo run --release --bin obrain-embed -- "$env:LOCALAPPDATA\obrain\brain.obrain" --descargar-modelo
+```
+
+Sin ese modelo la búsqueda funciona igual por palabras; el buscador te dice
+abajo a la derecha en qué modo está.
 
 La base vive en `%LOCALAPPDATA%\obrain\brain.obrain` y la comparten la orden
 `obrain` y la aplicación. **Si esa base ya tiene lo que escaneaste en agosto**
@@ -58,6 +68,18 @@ La base vive en `%LOCALAPPDATA%\obrain\brain.obrain` y la comparten la orden
 cargo run --release --bin obrain -- bibliotecas   # qué carpetas tienes registradas
 cargo run --release --bin obrain -- indexar       # volver a leer todas
 ```
+
+### La aplicación, en dos minutos
+
+- **Buscar:** `Ctrl K`, o simplemente empieza a escribir en cualquier sitio.
+  Cada resultado dice si coincidió *por palabras* o *por significado*.
+- **Un clic** en un documento lo enseña en la vista previa; **doble clic** lo
+  abre con su programa. Lo sensible sale borroso hasta que pulsas «Mostrar».
+- **Mapa:** cada estrella es una carpeta; pulsarla la abre en el explorador.
+  Desde un documento, «Ver en el mapa» enseña con qué se relaciona.
+- **`Esc`** deshace un escalón: cierra el buscador, la vista previa o la lente
+  del mapa.
+- El sol/luna de abajo a la izquierda cambia entre **noche** y **día**.
 
 ## Cómo organizar tu bóveda
 
@@ -84,16 +106,18 @@ Y nombres que se lean solos, con la fecha delante:
 |---|---|---|
 | 0 | Limpieza: documentación a la medida, README honesto | ✅ Hecha |
 | 1 | El núcleo para tu carpeta: bibliotecas, nombres, `obrain indexar`, «actualizar» | ✅ Hecha |
-| **2** | **La interfaz nueva en Svelte 5**: el explorador como escritorio estilo sistema operativo, la galaxia como vista «Mapa» enlazada, `Ctrl+K`, vista previa rápida. Primero, una maqueta para elegir el aspecto | ⏭ Siguiente |
-| 3 | Documentos personales: OCR, vencimientos, sensibilidad por carpeta, cifrado y PIN | Pendiente |
+| 2 | La interfaz nueva en Svelte 5: el explorador como escritorio estilo sistema operativo, la galaxia como vista «Mapa» enlazada, `Ctrl+K`, vista previa rápida | ✅ Hecha |
+| **3** | **Documentos personales**: OCR, vencimientos, sensibilidad por carpeta, cifrado y PIN | ⏭ Siguiente |
 | 4 | La visión original: trámites reconstruidos, la pregunta de la visa | Congelada |
 
 **Congelado** (no se borra, no se sigue): sesiones de trabajo y puentes,
 detección de versiones, el USN Change Journal, sincronización entre
 dispositivos.
 
-**Decisión abierta antes de la Fase 2:** si la pantalla principal es el
-explorador (propuesta) o la galaxia. Ver §10 del maestro.
+**Por confirmar (JP):** la Fase 2 se construyó con la propuesta —el explorador
+es la pantalla de inicio y la galaxia es la vista «Mapa», con el aspecto de
+noche por defecto—. Falta que revises la maqueta y la app y lo confirmes; si
+sí, se escribe el ADR que sustituye al 0013. Ver §10 del maestro.
 
 ## Mapa del repositorio
 
@@ -106,7 +130,11 @@ core/            el núcleo en Rust
   obrain-guard/    sensibilidad y lo que nunca sale de la máquina
   obrain-embed/    búsqueda por significado con un modelo local
   obrain-api/      lo que ve la interfaz, y la orden `obrain`
-ui/              la aplicación de escritorio (Tauri)
+ui/              la aplicación de escritorio (Tauri + Svelte 5)
+  src/vistas/      Inicio, Carpeta, Mapa, Sensibles
+  src/componentes/ barra lateral, cabecera, buscador, vista previa…
+  src/lib/         el estado de la app, los nombres legibles, el mapa
+  src-tauri/       el puente entre la interfaz y el núcleo
 docs/            esto, el maestro, la experiencia, los ADR y el archivo
 prototypes/      pruebas de concepto del render y de la dirección visual
 ```

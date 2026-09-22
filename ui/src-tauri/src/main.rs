@@ -35,11 +35,15 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use obrain_api::{default_db_path, Brain, Embedder, EntityView, Glance, IndexReport, Lens, Listing, Preview, Sky};
+use obrain_api::{
+    default_db_path, Brain, Embedder, EntityView, Glance, IndexReport, Lens, Listing, Preview, Row, Sky,
+};
 use obrain_core::{EntityId, Store};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 struct Cerebro(Mutex<Brain>);
@@ -105,6 +109,20 @@ fn explorar(foco: Option<String>, cerebro: State<'_, Cerebro>) -> Result<Listing
     let foco = foco.map(EntityId);
     let brain = cerebro.0.lock().map_err(texto)?;
     brain.children(foco.as_ref()).map_err(texto)
+}
+
+/// Lo último que tocaste: el «Recientes» del inicio.
+#[tauri::command]
+fn recientes(limit: usize, cerebro: State<'_, Cerebro>) -> Result<Vec<Row>, String> {
+    let brain = cerebro.0.lock().map_err(texto)?;
+    brain.recent(limit).map_err(texto)
+}
+
+/// Lo que la puerta retiene: la vista «Sensibles».
+#[tauri::command]
+fn sensibles(cerebro: State<'_, Cerebro>) -> Result<Vec<Row>, String> {
+    let brain = cerebro.0.lock().map_err(texto)?;
+    brain.sensitive().map_err(texto)
 }
 
 #[tauri::command]
@@ -211,15 +229,65 @@ fn actualizar(app: AppHandle, cerebro: State<'_, Cerebro>, indexando: State<'_, 
     // El modelo se presta: vectorizar con el cerebro cogido dejaría la barra
     // sin responder. Mientras tanto la búsqueda sigue, en léxico.
     let modelo = cerebro.0.lock().ok().and_then(|mut b| b.take_embedder());
-    std::thread::spawn(move || reindexar(&app, modelo));
+    std::thread::spawn(move || indexar_en_fondo(&app, None, modelo));
     true
 }
 
-/// El reindexado de verdad. Siempre en un hilo aparte, con su propia conexión.
-fn reindexar(app: &AppHandle, modelo: Option<Box<dyn Embedder + Send>>) {
+/// Añade una carpeta a tu bóveda y la indexa.
+///
+/// **El selector de carpetas lo abre Rust.** La ventana sólo pide «añade una
+/// carpeta»; ninguna ruta viaja desde el webview hasta aquí, así que la
+/// ventana no puede mandar indexar un sitio del disco que la persona no haya
+/// elegido con sus manos. Devuelve `false` si se canceló o si ya había un
+/// reindexado en marcha; el resultado llega con el evento `indexado`.
+#[tauri::command]
+async fn anadir_biblioteca(app: AppHandle) -> Result<bool, String> {
+    if app.state::<Indexando>().0.load(Ordering::SeqCst) {
+        return Ok(false);
+    }
+    // El diálogo bloquea hasta que se elige: fuera del hilo de la ventana.
+    let a = app.clone();
+    let elegida = tauri::async_runtime::spawn_blocking(move || {
+        a.dialog()
+            .file()
+            .set_title("Elige la carpeta de tu bóveda")
+            .blocking_pick_folder()
+    })
+    .await
+    .map_err(texto)?;
+    let Some(carpeta) = elegida else {
+        return Ok(false);
+    };
+    let ruta = carpeta.into_path().map_err(texto)?;
+    if app.state::<Indexando>().0.swap(true, Ordering::SeqCst) {
+        return Ok(false);
+    }
+    let modelo = app
+        .state::<Cerebro>()
+        .0
+        .lock()
+        .ok()
+        .and_then(|mut b| b.take_embedder());
+    std::thread::spawn(move || indexar_en_fondo(&app, Some(vec![ruta]), modelo));
+    Ok(true)
+}
+
+/// El indexado de verdad. Siempre en un hilo aparte, con su propia conexión.
+///
+/// `raices` a `None` vuelve a leer todas las bibliotecas; con carpetas, las
+/// añade (y deja las demás como estaban).
+fn indexar_en_fondo(
+    app: &AppHandle,
+    raices: Option<Vec<PathBuf>>,
+    modelo: Option<Box<dyn Embedder + Send>>,
+) {
     let res = Store::open(default_db_path()).map_err(texto).and_then(|mut store| {
-        obrain_api::indexar::reindex(&mut store, modelo.as_deref().map(|m| m as &dyn Embedder))
-            .map_err(texto)
+        let m = modelo.as_deref().map(|m| m as &dyn Embedder);
+        match &raices {
+            Some(r) => obrain_api::indexar::index(&mut store, r, m),
+            None => obrain_api::indexar::reindex(&mut store, m),
+        }
+        .map_err(texto)
     });
     // El modelo vuelve al cerebro pase lo que pase.
     if let Some(m) = modelo {
@@ -243,6 +311,7 @@ fn main() {
         // Sin permisos para el webview a propósito: las dos salidas se invocan
         // desde `abrir` y `revelar`, que son Rust y consultan el log.
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let db = default_db_path();
             if let Some(dir) = db.parent() {
@@ -272,7 +341,7 @@ fn main() {
                         None
                     }
                 };
-                reindexar(&handle, modelo);
+                indexar_en_fondo(&handle, None, modelo);
             });
 
             Ok(())
@@ -282,13 +351,16 @@ fn main() {
             lente,
             cielo,
             explorar,
+            recientes,
+            sensibles,
             entidad,
             previsualizar,
             abrir,
             revelar,
             corregir,
             estado,
-            actualizar
+            actualizar,
+            anadir_biblioteca
         ])
         .run(tauri::generate_context!())
         .expect("no se pudo arrancar la ventana");

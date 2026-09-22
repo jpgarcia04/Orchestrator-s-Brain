@@ -999,12 +999,141 @@ fn by_subject(store: &Store, pred: &str, at: TimePoint) -> Result<HashMap<Entity
     Ok(out)
 }
 
+/// Todo lo que hace falta para escribir filas, leído **de una vez**.
+///
+/// Lo comparten el explorador ([`children`]), los recientes ([`recent`]) y los
+/// sensibles ([`sensitive`]): tres listas de la misma cosa que no pueden
+/// discrepar en cómo se llama, cuánto pesa o si se puede leer una fila.
+struct Filas<'a> {
+    store: &'a Store,
+    at: TimePoint,
+    tree: Tree,
+    modificado: HashMap<EntityId, Value>,
+    ruta: HashMap<EntityId, Value>,
+    disponible: HashMap<EntityId, Value>,
+    nombres: obrain_link::Labels,
+    facetas: HashMap<EntityId, Vec<String>>,
+    sensible: HashMap<String, &'static str>,
+}
+
+impl<'a> Filas<'a> {
+    fn cargar(store: &'a Store, at: TimePoint) -> Result<Self> {
+        // Una faceta por fila sería otra consulta por fila. `has_facet` es el
+        // predicado más numeroso del log (1.919 sobre el corpus real) y aun así
+        // leerlo entero una vez cuesta menos que preguntarlo doscientas.
+        let mut facetas: HashMap<EntityId, Vec<String>> = HashMap::new();
+        for a in store.query(None, Some("has_facet"), at)? {
+            if let Some(t) = a.object.as_text() {
+                facetas.entry(a.subject).or_default().push(t.to_string());
+            }
+        }
+
+        // La sensibilidad no es una aserción sino una columna (ADR-0006), así
+        // que se lee de la tabla y de una vez, como hace `audit` más arriba.
+        let mut sensible: HashMap<String, &'static str> = HashMap::new();
+        {
+            let conn = store.conn();
+            let mut st = conn.prepare("SELECT id, sensitivity FROM entities")?;
+            let mut rows = st.query([])?;
+            while let Some(r) = rows.next()? {
+                let nivel: String = r.get(1)?;
+                sensible.insert(
+                    r.get::<_, String>(0)?,
+                    obrain_core::Sensitivity::parse(&nivel).map_or("vault", |s| s.as_str()),
+                );
+            }
+        }
+
+        Ok(Filas {
+            store,
+            at,
+            tree: read_tree(store, at)?,
+            modificado: by_subject(store, "modified_at", at)?,
+            ruta: by_subject(store, "path_observed_at", at)?,
+            disponible: by_subject(store, "availability", at)?,
+            nombres: obrain_link::Labels::load(store, at)?,
+            facetas,
+            sensible,
+        })
+    }
+
+    fn stamp(&self, e: &EntityId) -> i64 {
+        match self.modificado.get(e) {
+            Some(Value::Timestamp(t)) => *t,
+            _ => 0,
+        }
+    }
+
+    fn sitio(&self, e: &EntityId) -> String {
+        self.tree.folders.get(e).cloned().unwrap_or_else(|| match self.ruta.get(e) {
+            Some(Value::Text(p)) => p.clone(),
+            _ => String::new(),
+        })
+    }
+
+    fn nivel(&self, e: &EntityId) -> &'static str {
+        self.sensible.get(&e.0).copied().unwrap_or("vault")
+    }
+
+    fn fila(&self, e: &EntityId, carpeta: bool) -> Row {
+        Row {
+            // Sin nombre por ruta ni por carpeta sólo quedan las sesiones, que
+            // no aparecen como filas. Se paga la consulta suelta antes que
+            // enseñar un identificador.
+            label: self
+                .nombres
+                .get(e)
+                .map_or_else(|| obrain_link::label(self.store, e, self.at), str::to_string),
+            path: self.sitio(e),
+            kind: if carpeta { "folder" } else { "file" },
+            weight: if carpeta {
+                self.tree.weight.get(e).copied().unwrap_or(0)
+            } else {
+                0
+            },
+            sensitivity: self.nivel(e),
+            availability: match self.disponible.get(e) {
+                Some(Value::Text(t)) => Some(t.clone()),
+                _ => None,
+            },
+            recency: self.stamp(e),
+            facets: self.facetas.get(e).cloned().unwrap_or_default(),
+            id: e.0.clone(),
+        }
+    }
+}
+
+/// **Lo último que tocaste**: los archivos más recientes, del más nuevo al más
+/// viejo. Es el «Recientes» del inicio.
+pub fn recent(store: &Store, limit: usize, at: TimePoint) -> Result<Vec<Row>> {
+    let f = Filas::cargar(store, at)?;
+    let mut archivos: Vec<&EntityId> = f.tree.home.keys().collect();
+    archivos.sort_by(|a, b| f.stamp(b).cmp(&f.stamp(a)).then_with(|| a.cmp(b)));
+    Ok(archivos.into_iter().take(limit).map(|e| f.fila(e, false)).collect())
+}
+
+/// **Lo sensible**: los archivos que la puerta de egreso retiene (`sensitive` o
+/// `vault`), por nombre. Es la vista «Sensibles» de la barra lateral.
+pub fn sensitive(store: &Store, at: TimePoint) -> Result<Vec<Row>> {
+    let f = Filas::cargar(store, at)?;
+    let mut filas: Vec<Row> = f
+        .tree
+        .home
+        .keys()
+        .filter(|e| f.nivel(e) != "normal")
+        .map(|e| f.fila(e, false))
+        .collect();
+    filas.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()).then_with(|| a.id.cmp(&b.id)));
+    Ok(filas)
+}
+
 /// **Qué hay dentro de esto.** El tercer corte del árbol de contención.
 ///
 /// Con `focus` a `None` devuelve las raíces, que es por donde se entra cuando
 /// nadie ha enfocado nada todavía.
 pub fn children(store: &Store, focus: Option<&EntityId>, at: TimePoint) -> Result<Listing> {
-    let tree = read_tree(store, at)?;
+    let f = Filas::cargar(store, at)?;
+    let tree = &f.tree;
     // Con una sola raíz —lo normal: tu bóveda—, entrar en el explorador es
     // entrar en ella. Una lista de un único elemento es un clic de más.
     let unica = match tree.roots().as_slice() {
@@ -1012,75 +1141,9 @@ pub fn children(store: &Store, focus: Option<&EntityId>, at: TimePoint) -> Resul
         _ => None,
     };
     let focus = focus.or(unica.as_ref());
-    let modificado = by_subject(store, "modified_at", at)?;
-    let ruta = by_subject(store, "path_observed_at", at)?;
-    let disponible = by_subject(store, "availability", at)?;
-    let nombres = obrain_link::Labels::load(store, at)?;
-
-    // Una faceta por fila sería otra consulta por fila. `has_facet` es el
-    // predicado más numeroso del log (1.919 sobre este corpus) y aun así leerlo
-    // entero una vez cuesta menos que preguntarlo doscientas.
-    let mut facetas: HashMap<EntityId, Vec<String>> = HashMap::new();
-    for a in store.query(None, Some("has_facet"), at)? {
-        if let Some(t) = a.object.as_text() {
-            facetas.entry(a.subject).or_default().push(t.to_string());
-        }
-    }
-
-    // La sensibilidad no es una aserción sino una columna (ADR-0006), así que
-    // se lee de la tabla y de una vez, como hace `audit` un poco más arriba.
-    let mut sensible: HashMap<String, &'static str> = HashMap::new();
-    {
-        let conn = store.conn();
-        let mut st = conn.prepare("SELECT id, sensitivity FROM entities")?;
-        let mut rows = st.query([])?;
-        while let Some(r) = rows.next()? {
-            let nivel: String = r.get(1)?;
-            sensible.insert(
-                r.get::<_, String>(0)?,
-                obrain_core::Sensitivity::parse(&nivel).map_or("vault", |s| s.as_str()),
-            );
-        }
-    }
-
-    let stamp = |e: &EntityId| -> i64 {
-        match modificado.get(e) {
-            Some(Value::Timestamp(t)) => *t,
-            _ => 0,
-        }
-    };
-    let sitio = |e: &EntityId| -> String {
-        tree.folders.get(e).cloned().unwrap_or_else(|| match ruta.get(e) {
-            Some(Value::Text(p)) => p.clone(),
-            _ => String::new(),
-        })
-    };
-
-    let fila = |e: &EntityId, carpeta: bool| -> Row {
-        Row {
-            // Sin nombre por ruta ni por carpeta sólo quedan las sesiones, que
-            // no aparecen como filas. Se paga la consulta suelta antes que
-            // enseñar un identificador.
-            label: nombres
-                .get(e)
-                .map_or_else(|| obrain_link::label(store, e, at), str::to_string),
-            path: sitio(e),
-            kind: if carpeta { "folder" } else { "file" },
-            weight: if carpeta {
-                tree.weight.get(e).copied().unwrap_or(0)
-            } else {
-                0
-            },
-            sensitivity: sensible.get(&e.0).copied().unwrap_or("vault"),
-            availability: match disponible.get(e) {
-                Some(Value::Text(t)) => Some(t.clone()),
-                _ => None,
-            },
-            recency: stamp(e),
-            facets: facetas.get(e).cloned().unwrap_or_default(),
-            id: e.0.clone(),
-        }
-    };
+    let nombres = &f.nombres;
+    let sitio = |e: &EntityId| f.sitio(e);
+    let fila = |e: &EntityId, carpeta: bool| f.fila(e, carpeta);
 
     // ── qué cuelga de aquí ──
     let (carpetas, archivos): (Vec<EntityId>, Vec<EntityId>) = match focus {

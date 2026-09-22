@@ -322,3 +322,34 @@ fn dos_bibliotecas_con_el_mismo_nombre_se_distinguen() {
     e.sort();
     assert_eq!(e, vec!["Documentos (casa)", "Documentos (trabajo)"]);
 }
+
+// ─────────────────────────────────────────────────────── recientes y sensibles
+
+/// Lo último que tocaste va primero, y comparte fila con el explorador: el
+/// mismo nombre y el mismo peso que se ve al bajar por la carpeta.
+#[test]
+fn los_recientes_van_del_mas_nuevo_al_mas_viejo() {
+    let store = base();
+    let ids = arbol(&store, &["C:\\vida\\viejo.txt", "C:\\vida\\nuevo.txt", "C:\\vida\\medio.txt"]);
+    for (e, t) in ids.iter().zip([T - 3_000, T - 1_000, T - 2_000]) {
+        store
+            .assert(NewAssertion::new(e.clone(), "modified_at", Value::Timestamp(t), Method::Deterministic, T))
+            .unwrap();
+    }
+    let r = sky::recent(&store, 2, at()).unwrap();
+    let nombres: Vec<&str> = r.iter().map(|f| f.label.as_str()).collect();
+    assert_eq!(nombres, vec!["nuevo.txt", "medio.txt"], "el tope se respeta y el orden es por fecha");
+    assert!(r.iter().all(|f| f.kind == "file"));
+}
+
+/// Sólo lo que la puerta retiene, y nada normal.
+#[test]
+fn los_sensibles_son_solo_lo_que_la_puerta_retiene() {
+    let store = base();
+    let ids = arbol(&store, &["C:\\vida\\pasaporte.pdf", "C:\\vida\\receta.pdf", "C:\\vida\\clave.txt"]);
+    store.set_sensitivity(&ids[0], obrain_core::Sensitivity::Sensitive).unwrap();
+    store.set_sensitivity(&ids[2], obrain_core::Sensitivity::Vault).unwrap();
+    let s = sky::sensitive(&store, at()).unwrap();
+    let nombres: Vec<&str> = s.iter().map(|f| f.label.as_str()).collect();
+    assert_eq!(nombres, vec!["clave.txt", "pasaporte.pdf"]);
+}

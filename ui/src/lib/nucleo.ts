@@ -189,6 +189,26 @@ export interface Listado {
 }
 
 /**
+ * De un desplazamiento en **bytes UTF-8** —lo que cuenta Rust— al índice de
+ * JavaScript, que cuenta **unidades UTF-16**.
+ *
+ * No es un detalle: en un texto en español cada «á» o «ñ» son dos bytes y una
+ * sola unidad, así que usar el número tal cual corre el resaltado a la derecha
+ * tantas posiciones como acentos haya antes. Con documentos personales en
+ * español, eso es siempre.
+ */
+export function desdeBytes(texto: string, byte: number): number {
+  let b = 0;
+  let i = 0;
+  while (i < texto.length && b < byte) {
+    const c = texto.codePointAt(i) ?? 0;
+    b += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
+    i += c > 0xffff ? 2 : 1;
+  }
+  return i;
+}
+
+/**
  * Qué se ve del archivo.
  *
  * `readable` es la guarda de M1 **ya resuelta por el núcleo**. No la vuelvas a
@@ -208,7 +228,11 @@ export interface Vista {
   /** Caracteres del documento **entero**, no del tramo que llegó. */
   chars: number;
   truncated: boolean;
-  /** `[inicio, fin)` dentro de `text`: el tramo que explica la consulta. */
+  /**
+   * `[inicio, fin)` dentro de `text`: el tramo que explica la consulta.
+   * **En bytes UTF-8**, como los cuenta Rust: para cortar el texto en
+   * JavaScript hay que pasarlos por [`desdeBytes`](#desdeBytes).
+   */
   highlight: [number, number] | null;
   /** Ya como `data:` URI. La genera el núcleo, no la ventana. */
   image: string | null;
@@ -281,6 +305,12 @@ export const cielo = (target = 30) => invoke<Cielo>("cielo", { target });
 export const explorar = (foco: string | null = null) =>
   invoke<Listado>("explorar", { foco });
 
+/** Lo último que tocaste: el «Recientes» del inicio. */
+export const recientes = (limit = 8) => invoke<Fila[]>("recientes", { limit });
+
+/** Lo que la puerta de egreso retiene: la vista «Sensibles». */
+export const sensibles = () => invoke<Fila[]>("sensibles");
+
 export const entidad = (id: string) => invoke<VistaEntidad>("entidad", { id });
 
 /**
@@ -317,6 +347,15 @@ export const estado = () => invoke<Estado>("estado");
  * reindexado en marcha— y el resultado llega por [`alIndexar`].
  */
 export const actualizar = () => invoke<boolean>("actualizar");
+
+/**
+ * Añade una carpeta a tu bóveda. **El selector de carpetas lo abre Rust**, no
+ * esta ventana: así ninguna ruta viaja desde aquí hasta el núcleo y la
+ * ventana no puede pedir que se indexe cualquier sitio del disco. Devuelve
+ * `false` si se canceló o si ya había un reindexado en marcha; el resultado
+ * llega por [`alIndexar`].
+ */
+export const anadirBiblioteca = () => invoke<boolean>("anadir_biblioteca");
 
 /**
  * Avisa cada vez que termina un reindexado: al arrancar la aplicación y tras
