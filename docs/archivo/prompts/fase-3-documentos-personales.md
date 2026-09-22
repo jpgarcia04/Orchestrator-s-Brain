@@ -12,10 +12,10 @@ Hola, soy JP. Seguimos con **Orchestrator's Brain** (`jpgarcia04/Orchestrator-s-
 - Lee primero **`docs/ESTADO.md`** (una página: qué funciona, cómo se usa, qué sigue). Después, en `docs/PROJECT-MASTER.md`, la §8.1 (seguridad), la §9 (roadmap y fases) y la §10 (decisiones pendientes, sobre todo la del PIN). También los ADR 0006 (sensibilidad), 0013 (el mapa es la pantalla) y 0018 (bibliotecas).
 - Fases 0, 1 y 2 hechas: bibliotecas, nombres limpios, `obrain indexar`, reindexado en segundo plano e interfaz nueva en Svelte 5 (el explorador como escritorio, la galaxia como vista «Mapa», `Ctrl K`, vista previa, Sensibles, noche y día, «Añadir carpeta»).
 
-## Paso 0 — Antes de programar, pregúntame
+## Paso 0 — Cerrar lo de la interfaz (rápido)
 
-1. **La maqueta** (https://claude.ai/artifact/Mnw9t6JbpgCHUx8pZ5JXKi): pregúntame si confirmo **el explorador como pantalla de inicio** y el **aspecto de noche por defecto**. Si confirmo, escribe el ADR-0019, que sustituye al 0013, y actualiza el registro del maestro y la §10. Si no, ajusta la interfaz a lo que te diga.
-2. **¿Ya corrí la app en mi Windows?** (`cd ui`, `npm install`, `npm run app`). Nunca se ha probado en Windows de verdad, solo en un navegador del banco de pruebas. Si te paso errores o capturas, arréglalos antes que nada.
+1. **La interfaz se queda como está.** Vi las capturas de la Fase 2 y me gustaron: el explorador como pantalla de inicio, la galaxia como vista «Mapa» y el aspecto de noche por defecto (el de día sigue a un clic). **No le muevas al diseño.** Solo deja la decisión por escrito: un ADR-0019 que sustituya al 0013, el registro de decisiones del maestro al día, y la pregunta de la pantalla principal de la §10 y la nota «Por confirmar» de `ESTADO.md` marcadas como resueltas.
+2. **Pregúntame si ya corrí la app en mi Windows** (`cd ui`, `npm install`, `npm run app`). Nunca se ha probado en Windows de verdad, solo en un navegador del banco de pruebas. Si te paso errores o capturas, arréglalos antes de la Fase 3. Si todavía no la he corrido, sigue con la Fase 3 y lo vemos después.
 
 ## Paso 1 — Fase 3, en este orden
 
@@ -32,4 +32,4 @@ Hola, soy JP. Seguimos con **Orchestrator's Brain** (`jpgarcia04/Orchestrator-s-
 - Actualiza `docs/ESTADO.md`, el maestro y el README al cerrar cada pieza. Haz commits claros y empuja a la rama de trabajo. **No abras un PR si no te lo pido.**
 - Pendientes menores que no se me olvidan: el enlace roto a `LICENSE` en el README, y si renombramos la carpeta del repo (el apóstrofo da guerra).
 
-Empieza por el Paso 0.
+Empieza por el Paso 0 y luego sigue con la Fase 3.
