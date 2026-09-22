@@ -90,7 +90,7 @@ Esto no es negociable:
 |-----------|-----------------|
 | **Local primero** | Tus datos viven en tu computadora. El procesamiento ocurre en tu máquina. |
 | **Nada sale sin tu permiso** | Cada archivo tiene un nivel de sensibilidad. Los documentos sensibles nunca se envían a ningún servicio externo. |
-| **Cifrado en reposo** | Tu base de conocimiento está cifrada en tu disco. |
+| **Cifrado en reposo** *(planificado)* | Tu base de conocimiento estará cifrada en tu disco. **Hoy todavía no lo está**: llega en la Fase 3, antes de guardar documentos de identidad. |
 | **Sin cuenta, sin nube obligatoria** | Funciona completamente offline. La sincronización entre dispositivos es opcional y cifrada de extremo a extremo. |
 
 Si vas a guardar tu pasaporte, tus contratos y tus documentos médicos en un sistema, ese sistema **no puede tener acceso a tus datos**. Esta es la razón por la que el procesamiento es local — no por dogma, sino por responsabilidad.
@@ -140,6 +140,8 @@ Y cuando llegas a un archivo, **lo ves**: el texto que ya se había extraído �
 
 El proyecto está en desarrollo activo. Cada hito se valida contra la pregunta del inicio: *"¿Puede responder dónde estaba el documento de la visa?"*
 
+> **2026-09-22 — replanteamiento.** El objetivo inmediato deja de ser *entender todo el disco* y pasa a ser **una bóveda de documentos personales que eliges tú**: pasaporte, seguros, matrícula, contratos. Dónde está todo y cómo usarlo hoy: [`docs/ESTADO.md`](docs/ESTADO.md).
+
 | Hito | Descripción | Estado |
 |------|-------------|--------|
 | **M0** — Cimientos | Modelo de datos y almacenamiento | ✅ Completo |
@@ -151,7 +153,10 @@ El proyecto está en desarrollo activo. Cada hito se valida contra la pregunta d
 | **M5a** — La barra | Buscar desde una barra, con el mapa vivo detrás | ✅ Completo |
 | **M5b** — Llegar y ver | Explorador por columnas y panel de entidad con previsualización | ✅ Completo |
 | **M5d** — Manejarlo | Cámara del mapa —zoom y arrastre— y saber qué nodo vas a abrir antes de abrirlo | ✅ Completo |
-| **M5c** — Enterarse | Vigilancia continua: lo nuevo aparece sin lanzar nada | ⏳ Planificado |
+| **Fase 1** — Tu bóveda | Bibliotecas: el explorador empieza en tu carpeta, nombres limpios, `obrain indexar`, la app se pone al día sola | ✅ Completo |
+| **M5c** — Enterarse | Lo nuevo aparece sin lanzar nada | ◐ Al abrir la app y con «actualizar»; falta vigilar la carpeta en vivo |
+| **Fase 2** — La interfaz nueva | Svelte 5, explorador tipo sistema operativo, la galaxia como vista enlazada | ⏭ Siguiente |
+| **Fase 3** — Documentos personales | OCR, vencimientos, cifrado y PIN | ⏳ Planificado |
 | **M6** — Construir conocimiento | Inferencia de procesos y enriquecimiento | ⏳ Planificado |
 | **M7** — La pregunta | Responder la pregunta de la visa | 🎯 Meta final |
 
@@ -231,10 +236,11 @@ Orchestrator's-Brain/
 │   ├── src/                       #   La barra, el mapa (PixiJS), el explorador y el panel
 │   └── src-tauri/                 #   El puente al núcleo
 ├── docs/                          # Documentación de diseño
+│   ├── ESTADO.md                  #   Empieza aquí: dónde estamos y cómo usarlo
 │   ├── PROJECT-MASTER.md          #   Documento maestro del proyecto
 │   ├── EXPERIENCE.md              #   Diseño de experiencia y lenguaje visual
 │   ├── adr/                       #   Registro de decisiones arquitectónicas
-│   └── prompts/                   #   Prompts de diseño usados durante el proceso
+│   └── archivo/                   #   Bitácora de agosto y prompts de diseño
 └── prototypes/                    # Prototipos y pruebas de concepto
     └── 01-graph-render/           #   Benchmark de renderizado WebGL
 ```
@@ -257,6 +263,6 @@ Y el día que pueda, la arquitectura habrá demostrado que funciona.
 
 *Construido con la convicción de que tu computadora debería conocerte mejor — sin necesidad de contarle nada a nadie más.*
 
-**[📖 Documento Maestro](docs/PROJECT-MASTER.md)** · **[🎨 Diseño de Experiencia](docs/EXPERIENCE.md)** · **[📋 Decisiones Arquitectónicas](docs/adr/)**
+**[🧭 Estado](docs/ESTADO.md)** · **[📖 Documento Maestro](docs/PROJECT-MASTER.md)** · **[🎨 Diseño de Experiencia](docs/EXPERIENCE.md)** · **[📋 Decisiones Arquitectónicas](docs/adr/)**
 
 </div>

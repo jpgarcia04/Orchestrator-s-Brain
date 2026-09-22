@@ -6,15 +6,15 @@ Copia todo lo de abajo en una conversación nueva de Claude Code, con working di
 
 Estoy construyendo **Orchestrator's Brain**, un motor de conocimiento personal local-first. La arquitectura y las decisiones ya están cerradas y documentadas — léelas antes de escribir nada:
 
-1. [`docs/PROJECT-MASTER.md`](../PROJECT-MASTER.md) — documento vivo: modelo de datos, invariantes, stack, roadmap. Lee especialmente §3 (modelo de datos), §4.4 (enriquecimiento determinista) y los informes de M1/M3 al final.
-2. [`docs/EXPERIENCE.md`](../EXPERIENCE.md) — diseño de experiencia (no aplica a M2, pero da contexto).
+1. [`docs/PROJECT-MASTER.md`](../../PROJECT-MASTER.md) — documento vivo: modelo de datos, invariantes, stack, roadmap. Lee especialmente §3 (modelo de datos), §4.4 (enriquecimiento determinista) y los informes de M1/M3 al final.
+2. [`docs/EXPERIENCE.md`](../../EXPERIENCE.md) — diseño de experiencia (no aplica a M2, pero da contexto).
 3. `docs/adr/0001` a `0004` — decisiones fundacionales con sus alternativas descartadas.
 
 **Código ya existente y funcionando** (léelo, no lo reescribas):
 
-- [`core/obrain-core`](../../core/obrain-core) — M0. Log de aserciones bitemporal. `Store`, `Assertion`, `Method`, `Facet`, `TimePoint`. Invariantes I1/I4 impuestos por triggers de SQLite. 14 tests.
-- [`core/obrain-scan`](../../core/obrain-scan) — M1. Descubrimiento, identidad `(volumen, FileID)` + BLAKE3, triaje de placeholders de OneDrive (`triage::Availability`), exclusiones (`exclude::ExclusionSet`). CLI: `obrain-scan <ruta> --db <archivo> [--verify] [--dry-run]`.
-- [`core/obrain-link`](../../core/obrain-link) — M3. Enlazadores deterministas: `duplicates`, `structure` (carpetas → entidades `Container`), `provenance` (`:Zone.Identifier` → `downloaded_from`), `sessions` (agrupación por `mtime`), `versions` (heurística de nombre). CLI: `obrain-link <db> [--sample]`.
+- [`core/obrain-core`](../../../core/obrain-core) — M0. Log de aserciones bitemporal. `Store`, `Assertion`, `Method`, `Facet`, `TimePoint`. Invariantes I1/I4 impuestos por triggers de SQLite. 14 tests.
+- [`core/obrain-scan`](../../../core/obrain-scan) — M1. Descubrimiento, identidad `(volumen, FileID)` + BLAKE3, triaje de placeholders de OneDrive (`triage::Availability`), exclusiones (`exclude::ExclusionSet`). CLI: `obrain-scan <ruta> --db <archivo> [--verify] [--dry-run]`.
+- [`core/obrain-link`](../../../core/obrain-link) — M3. Enlazadores deterministas: `duplicates`, `structure` (carpetas → entidades `Container`), `provenance` (`:Zone.Identifier` → `downloaded_from`), `sessions` (agrupación por `mtime`), `versions` (heurística de nombre). CLI: `obrain-link <db> [--sample]`.
 
 Todo compila con `cargo build --manifest-path core/Cargo.toml`. Toolchain MSVC + Build Tools ya instalados en esta máquina. 50 tests en verde, clippy limpio con `-D warnings`.
 

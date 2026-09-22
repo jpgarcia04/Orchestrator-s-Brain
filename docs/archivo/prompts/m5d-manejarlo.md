@@ -8,15 +8,15 @@ Estoy construyendo **Orchestrator's Brain**, un motor de conocimiento personal
 local-first. **M5b acaba de cerrarse y de usarse**, y este prompt sale de lo que
 falló al usarlo — no de una lista de features. Lee antes de escribir nada:
 
-1. [`docs/PROJECT-MASTER.md`](../PROJECT-MASTER.md) — §0 (la tesis), §2 (los
+1. [`docs/PROJECT-MASTER.md`](../../PROJECT-MASTER.md) — §0 (la tesis), §2 (los
    invariantes, en particular **I2** y **I10**), y en §9 **«Por qué M5b se
    encogió»** y el **informe de M5b**. Los dos explican el método de este
    proyecto mejor que cualquier resumen.
-2. [`docs/EXPERIENCE.md`](../EXPERIENCE.md) — **§1** (la luz es información: la
+2. [`docs/EXPERIENCE.md`](../../EXPERIENCE.md) — **§1** (la luz es información: la
    ley que no se negocia), **§4.1** (la escalera de navegación) y **§4.7** (el
    conmutador).
-3. [`docs/adr/0013`](../adr/0013-el-mapa-es-la-pantalla.md) y
-   [`0014`](../adr/0014-dos-vistas-un-solo-estado.md) — el mapa es la pantalla;
+3. [`docs/adr/0013`](../../adr/0013-el-mapa-es-la-pantalla.md) y
+   [`0014`](../../adr/0014-dos-vistas-un-solo-estado.md) — el mapa es la pantalla;
    la galaxia y el explorador son dos vistas de un solo estado. **Este hito toca
    la superficie de los dos y no debe reabrir ninguno.**
 
@@ -60,8 +60,8 @@ Es el método funcionando: la lista sale de usarlo, no de imaginarlo.
 
 | | Cámara (zoom/arrastre) | Manejadores de ratón |
 |---|---|---|
-| [`prototypes/02-direcciones/index.html`](../../prototypes/02-direcciones/index.html) | `cam {x, y, z}`, zoom interpolado en logaritmo, conversiones pantalla↔mundo, rejilla de fondo que acompaña, subregiones que entran con fundido por encima de zoom 2,2 | `wheel`, `pointerdown`, `pointermove`, `pointerup` — líneas 783–807 |
-| [`ui/src/mapa.ts`](../../ui/src/mapa.ts) | **ninguna** | **cero** `wheel`, **cero** `pointerdown` |
+| [`prototypes/02-direcciones/index.html`](../../../prototypes/02-direcciones/index.html) | `cam {x, y, z}`, zoom interpolado en logaritmo, conversiones pantalla↔mundo, rejilla de fondo que acompaña, subregiones que entran con fundido por encima de zoom 2,2 | `wheel`, `pointerdown`, `pointermove`, `pointerup` — líneas 783–807 |
+| [`ui/src/mapa.ts`](../../../ui/src/mapa.ts) | **ninguna** | **cero** `wheel`, **cero** `pointerdown` |
 
 `mapa.ts` sólo escucha `pointermove`, y para el paralaje. Todo se coloca una vez
 para caber en la ventana (`recolocar`) y a partir de ahí el mapa **respira pero
@@ -110,7 +110,7 @@ Lo que más se rompe al implementarlo, y por qué:
 Ésta es la mitad que el usuario describe como «muy extraña» y «oxidada», y tiene
 una causa concreta en el código:
 
-> [`mapa.ts`](../../ui/src/mapa.ts): *«Sólo el foco lleva etiqueta: trescientas
+> [`mapa.ts`](../../../ui/src/mapa.ts): *«Sólo el foco lleva etiqueta: trescientas
 > serían trescientas razones para no mirar el mapa»* — `if (n.distance !== 0) continue`.
 
 Es decir: **en una lente de hasta 300 nodos, 299 son puntos sin nombre.** La
@@ -149,9 +149,9 @@ Hoy `#barra` son 560 px centrados a 24vh del alto: en medio del mapa. El usuario
 propone «más esquinada o sólo un icono» y pide **evaluarlo**, no que lo decidas.
 
 Lo que hay que tener delante al planteárselo:
-[ADR-0013](../adr/0013-el-mapa-es-la-pantalla.md) decidió que *el mapa es la
+[ADR-0013](../../adr/0013-el-mapa-es-la-pantalla.md) decidió que *el mapa es la
 pantalla y la barra busca dentro de él*, sustituyendo a
-[ADR-0004](../adr/0004-punto-de-entrada-barra-no-galaxia.md), que ponía la barra
+[ADR-0004](../../adr/0004-punto-de-entrada-barra-no-galaxia.md), que ponía la barra
 delante. Encoger la barra va **a favor** de 0013, no en contra — pero 0004
 existía porque escribir es «el camino de las cuarenta veces al día», y un icono
 que hay que pulsar antes de escribir añade un gesto a ese camino. La salida
@@ -163,7 +163,7 @@ elijas tú**: enséñale dos o tres opciones y que escoja.
 - **Le gustan las migas.** *«sí me gusta lo de la ruta que se vaya viendo arriba
   dónde estás»*. **No las toques.**
 - **Le incomodan las columnas que crecen en horizontal.** Ojo aquí:
-  [ADR-0014](../adr/0014-dos-vistas-un-solo-estado.md) decidió las columnas con
+  [ADR-0014](../../adr/0014-dos-vistas-un-solo-estado.md) decidió las columnas con
   su motivo escrito y rechazó explícitamente la alternativa C. **No lo reabras
   por una frase que empieza con «no sé si me encanta».** Lo que sí puede
   arreglarse sin tocar el ADR es el síntoma: que el ancestro ocupe lo mismo que
@@ -185,7 +185,7 @@ usuario ha dicho «sigue oxidado», que es exactamente el vocabulario de esa
 decisión.
 
 Los tres prototipos están en
-[`prototypes/02-direcciones`](../../prototypes/02-direcciones/index.html) —
+[`prototypes/02-direcciones`](../../../prototypes/02-direcciones/index.html) —
 Cartografía quedó descartada de hecho. **Es del usuario, no tuya.** Enséñaselos
 y que elija. Y ten presente la tensión que §10 ya dejó anotada: la referencia
 visual sube la saturación, y §1 le tiene asignado un significado —codifica

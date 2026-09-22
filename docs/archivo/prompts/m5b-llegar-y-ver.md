@@ -2,7 +2,7 @@
 
 > **Cerrado el 2026-08-13.** Las dos piezas están entregadas y el criterio se
 > cumple. El informe con lo medido, los tres hallazgos y lo que **no** cubre
-> está en [`PROJECT-MASTER.md`](../PROJECT-MASTER.md) §9. Esto se conserva como
+> está en [`PROJECT-MASTER.md`](../../PROJECT-MASTER.md) §9. Esto se conserva como
 > lo que fue: el alcance con el que se entró, para poder comprobar que no
 > creció por el camino.
 
@@ -12,9 +12,9 @@ Copia todo lo de abajo en una conversación nueva de Claude Code, con working di
 
 Estoy construyendo **Orchestrator's Brain**, un motor de conocimiento personal local-first, y M5b acaba de **encogerse a propósito**. Lee antes de escribir nada:
 
-1. [`docs/PROJECT-MASTER.md`](../PROJECT-MASTER.md) — §0 (la tesis), §2 (los invariantes), y sobre todo **«Por qué M5b se encogió»** en §9, que es el contexto de este prompt entero.
-2. [`docs/adr/0014`](../adr/0014-dos-vistas-un-solo-estado.md) — gobierna la mitad de este hito. No es opinable.
-3. [`docs/EXPERIENCE.md`](../EXPERIENCE.md) — §1 (la luz es información: la ley que no se negocia), §4.4 (el panel de entidad) y §4.7 (el conmutador).
+1. [`docs/PROJECT-MASTER.md`](../../PROJECT-MASTER.md) — §0 (la tesis), §2 (los invariantes), y sobre todo **«Por qué M5b se encogió»** en §9, que es el contexto de este prompt entero.
+2. [`docs/adr/0014`](../../adr/0014-dos-vistas-un-solo-estado.md) — gobierna la mitad de este hito. No es opinable.
+3. [`docs/EXPERIENCE.md`](../../EXPERIENCE.md) — §1 (la luz es información: la ley que no se negocia), §4.4 (el panel de entidad) y §4.7 (el conmutador).
 
 ## El hito, entero, en una frase
 
@@ -58,11 +58,11 @@ La regla, y no es negociable:
 
 | Pieza | Dónde | Qué es |
 |---|---|---|
-| `Availability::may_read_content()` | [`obrain-scan/src/triage.rs`](../../core/obrain-scan/src/triage.rs) | La guarda. Cierto **sólo** para `Local`. |
+| `Availability::may_read_content()` | [`obrain-scan/src/triage.rs`](../../../core/obrain-scan/src/triage.rs) | La guarda. Cierto **sólo** para `Local`. |
 | `Availability::parse()` | mismo archivo | Devuelve `None` ante un valor desconocido a propósito: ante la duda, no se toca el archivo. |
 | predicado `availability` | log de aserciones | No está en `PLUMBING`, así que `Brain::entity` ya lo devuelve dentro de `observed`. La interfaz **ya lo recibe hoy**. |
 | texto extraído (M2) | `chunks` | Ya está guardado. Previsualizar texto no abre ni un archivo. |
-| `evidence::pick` | [`obrain-extract/src/evidence.rs`](../../core/obrain-extract/src/evidence.rs) | Elige qué tramo enseñar. Úsalo también aquí; no vuelvas a recortar por el principio ([ADR-0016](../adr/0016-la-prueba-se-elige-el-indice-no-se-filtra.md)). |
+| `evidence::pick` | [`obrain-extract/src/evidence.rs`](../../../core/obrain-extract/src/evidence.rs) | Elige qué tramo enseñar. Úsalo también aquí; no vuelvas a recortar por el principio ([ADR-0016](../../adr/0016-la-prueba-se-elige-el-indice-no-se-filtra.md)). |
 
 ### Tres decisiones distintas, y conviene no confundirlas
 
@@ -75,11 +75,11 @@ Están sin tomar (§10 del maestro). Pregúntaselas al usuario; no las decidas t
 ## Qué NO hacer
 
 - **No metas nada más en el hito.** Trazo, modo deriva, expansión, tecla global y la dirección visual están **fuera y por escrito** (§9, «Por qué M5b se encogió»). Si crees que algo de eso hace falta para cerrar el criterio, es que el criterio se está reinterpretando.
-- **No cierres la dirección visual** (Observatorio vs. Instrumento). Es del usuario y está aplazada a propósito hasta después de este hito. La referencia visual está en [`docs/referencias/`](../referencias/).
+- **No cierres la dirección visual** (Observatorio vs. Instrumento). Es del usuario y está aplazada a propósito hasta después de este hito. La referencia visual está en [`docs/referencias/`](../../referencias/).
 - **No diseñes las regiones creadas por el usuario.** Se movió a M6 (§10).
 - **No toques conectores de nube ni de correo.** Aplazado por decisión del usuario; F3 sigue vigente.
 - **No previsualices ni generes miniaturas de `cloud_dehydrated` como efecto secundario de nada.**
-- **No reabras** el reparto del cielo ([ADR-0015](../adr/0015-el-cielo-reparte-por-anchura-no-por-peso.md)), el patrón de interacción ([ADR-0014](../adr/0014-dos-vistas-un-solo-estado.md)) ni la elección de la prueba ([ADR-0016](../adr/0016-la-prueba-se-elige-el-indice-no-se-filtra.md)). Están decididos y medidos.
+- **No reabras** el reparto del cielo ([ADR-0015](../../adr/0015-el-cielo-reparte-por-anchura-no-por-peso.md)), el patrón de interacción ([ADR-0014](../../adr/0014-dos-vistas-un-solo-estado.md)) ni la elección de la prueba ([ADR-0016](../../adr/0016-la-prueba-se-elige-el-indice-no-se-filtra.md)). Están decididos y medidos.
 - **No escribas un ADR por cada arreglo.** El maestro (1.685 líneas) ya es más largo que la aplicación (1.578), y eso es parte del problema que este hito corrige. Un ADR es para una decisión que alguien reabriría dentro de seis meses, no para dejar constancia de que trabajaste.
 - **No pulas nada contra `brain.obrain`** — son los 101 archivos de este repo, una muestra de humo. Usa `vida.obrain`.
 

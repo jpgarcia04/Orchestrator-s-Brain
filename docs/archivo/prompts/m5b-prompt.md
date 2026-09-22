@@ -6,15 +6,15 @@ Copia todo lo de abajo en una conversación nueva de Claude Code, con working di
 
 Estoy construyendo **Orchestrator's Brain**, un motor de conocimiento personal local-first. La arquitectura y las decisiones ya están cerradas y documentadas — léelas antes de escribir nada:
 
-1. [`docs/PROJECT-MASTER.md`](../PROJECT-MASTER.md) — documento vivo. Lee **§0** (tesis y métrica), **§1** (decisiones fundacionales, en particular **F3**), y el **informe de M5a completo**, incluida su sección «El pase visual» y la corrección «el mapa pasa a ser la pantalla».
+1. [`docs/PROJECT-MASTER.md`](../../PROJECT-MASTER.md) — documento vivo. Lee **§0** (tesis y métrica), **§1** (decisiones fundacionales, en particular **F3**), y el **informe de M5a completo**, incluida su sección «El pase visual» y la corrección «el mapa pasa a ser la pantalla».
 2. `docs/adr/0012`, `0013` y `0014` — por qué el núcleo expone una superficie propia (`obrain-api`), por qué el mapa dejó de ser un fondo y pasó a ser la pantalla, y cómo conviven la galaxia y el explorador. `0013` **sustituye** a `0004`; lee los dos, en ese orden. `0014` es la decisión más reciente y **es la que gobierna este hito**.
-3. [`docs/EXPERIENCE.md`](../EXPERIENCE.md) — el lenguaje visual. **§1** (la luz es información, no decoración) es la ley que no se negocia. **§4.7** (el conmutador galaxia/explorador), **§4.4** (el panel de entidad, con su alcance ya acotado) y **§4.1** (la escalera de navegación) importan especialmente para este hito.
+3. [`docs/EXPERIENCE.md`](../../EXPERIENCE.md) — el lenguaje visual. **§1** (la luz es información, no decoración) es la ley que no se negocia. **§4.7** (el conmutador galaxia/explorador), **§4.4** (el panel de entidad, con su alcance ya acotado) y **§4.1** (la escalera de navegación) importan especialmente para este hito.
 
 **Código ya existente y funcionando** (léelo, no lo reescribas sin motivo):
 
 - `core/obrain-core` a `core/obrain-embed` — M0 a M4. Log de aserciones, escaneo, enlazado, extracción, puerta de sensibilidad, embeddings. Estable, con tests.
-- [`core/obrain-api`](../../core/obrain-api) — M5a. La superficie: `Brain::search`, `Brain::lens`, `Brain::sky`, `Brain::entity`, `Brain::correct`. `sky.rs` tiene la agregación por regiones (`regions`, `cluster`, puentes entre regiones). 215 tests en verde, clippy limpio.
-- [`ui/`](../../ui) — Tauri v2 + TypeScript + PixiJS. `src/mapa.ts` es el renderizador (cielo de regiones + lente de vecindario, temperatura por recencia, polvo, latido). `src/main.ts` es el flujo actual: abres, ves el cielo, escribes, el mapa se enciende. `src/nucleo.ts` son los tipos del puente con Tauri.
+- [`core/obrain-api`](../../../core/obrain-api) — M5a. La superficie: `Brain::search`, `Brain::lens`, `Brain::sky`, `Brain::entity`, `Brain::correct`. `sky.rs` tiene la agregación por regiones (`regions`, `cluster`, puentes entre regiones). 215 tests en verde, clippy limpio.
+- [`ui/`](../../../ui) — Tauri v2 + TypeScript + PixiJS. `src/mapa.ts` es el renderizador (cielo de regiones + lente de vecindario, temperatura por recencia, polvo, latido). `src/main.ts` es el flujo actual: abres, ves el cielo, escribes, el mapa se enciende. `src/nucleo.ts` son los tipos del puente con Tauri.
 
 Todo compila. `cargo test --manifest-path core/Cargo.toml` en verde, `cargo clippy -- -D warnings` limpio, `npx tsc --noEmit` limpio en `ui/`.
 
@@ -44,7 +44,7 @@ Es decir: **la arquitectura y la lógica se dan por buenas.** Lo que falla es la
 
 ## Los problemas, en el orden en que hay que atacarlos
 
-> **Estado al 2026-08-10.** El **#1** está **resuelto** — hay corpus real, ver abajo. El **#3** se cerró con decisión escrita, [ADR-0014](../adr/0014-dos-vistas-un-solo-estado.md), y lo que queda es construirlo. El **#4** lo aplazó el usuario. Queda abierto el **#2** (el pase visual, con prototipos ya construidos — ver abajo) y aparecieron **tres problemas nuevos: #5, #6 y #7**. Ninguno es de la capa visual. Léelos antes de tocar píxeles: invalidan el supuesto de que aquí sólo había que arreglar lo que se ve.
+> **Estado al 2026-08-10.** El **#1** está **resuelto** — hay corpus real, ver abajo. El **#3** se cerró con decisión escrita, [ADR-0014](../../adr/0014-dos-vistas-un-solo-estado.md), y lo que queda es construirlo. El **#4** lo aplazó el usuario. Queda abierto el **#2** (el pase visual, con prototipos ya construidos — ver abajo) y aparecieron **tres problemas nuevos: #5, #6 y #7**. Ninguno es de la capa visual. Léelos antes de tocar píxeles: invalidan el supuesto de que aquí sólo había que arreglar lo que se ve.
 
 ### 1. El corpus de prueba no es representativo — RESUELTO (2026-08-10)
 
@@ -61,7 +61,7 @@ Con 101 archivos de código, 12 regiones es matemáticamente correcto (`sky::eff
 
 Lo que hace falta:
 - **El usuario ya contestó (2026-08-10): quiere amplitud.** *«desde mis descargas hasta mi papelera de reciclaje»*. Traducido a lo que hoy hace el código:
-  - `Descargas`, `Documentos`, `Escritorio`, `Imágenes` y demás carpetas de perfil son escaneables **hoy**, sin tocar nada. Nada en [`core/obrain-scan/src/exclude.rs`](../../core/obrain-scan/src/exclude.rs) las poda. Empieza por ahí y mide el corpus real antes de dibujar nada.
+  - `Descargas`, `Documentos`, `Escritorio`, `Imágenes` y demás carpetas de perfil son escaneables **hoy**, sin tocar nada. Nada en [`core/obrain-scan/src/exclude.rs`](../../../core/obrain-scan/src/exclude.rs) las poda. Empieza por ahí y mide el corpus real antes de dibujar nada.
   - La **papelera de reciclaje no**: `$Recycle.Bin` está en `SYSTEM_DIRS` de ese mismo módulo, y además cae por el atributo oculto/sistema. Que no se indexe no es un fallo: es una decisión de producto que nadie ha tomado todavía. Está anotada en §10 del maestro. **No la desactives por tu cuenta** — plantéasela al usuario con lo que implica (contenido que él decidió borrar reapareciendo en las respuestas, y la tensión con I4).
 - El contenido del móvil (fotos, documentos, algún vídeo) todavía no ha llegado a la máquina. **Sigue sin llegar al 2026-08-10**, y es la masa que falta: 1.042 archivos son diez veces más que 101, pero no son todavía una vida entera. Hasta que llegue, cualquier decisión visual que dependa de la *densidad* real del grafo es provisional. No hay que fingir que hoy hay más de lo que hay — `EXPERIENCE.md` §5 (arranque en frío) ya describe cómo se supone que se siente un corpus pequeño y creciendo; vale la pena revisarlo y aplicarlo mientras el corpus sigue siendo chico, en vez de tratar el estado actual como el veredicto final sobre cómo se ve la app.
 
@@ -73,7 +73,7 @@ Ya se intentó una vez quedarse en Pixi con un pase de shaders propio (halos, po
 
 **Antes de integrar nada en la aplicación real**, construye dos o tres prototipos visuales pequeños y aislados — capturas o una página suelta, no la app entera — y enséñaselos al usuario para que elija dirección. Ya se le enseñó una vez un resultado terminado y no le convenció; iterar dentro del ciclo completo de Tauri es lento y cuesta caro en tiempo de los dos. Prototipa barato primero, la app cara después.
 
-> **Hecho el 2026-08-10 → [`prototypes/02-direcciones`](../../prototypes/02-direcciones/index.html).** Tres direcciones (Observatorio, Cartografía, Instrumento) sobre las regiones reales del corpus, con encendido por consulta, zoom, arrastre, entrada por clic con despliegue de subregiones y migas de pan. **La elección del usuario sigue pendiente.**
+> **Hecho el 2026-08-10 → [`prototypes/02-direcciones`](../../../prototypes/02-direcciones/index.html).** Tres direcciones (Observatorio, Cartografía, Instrumento) sobre las regiones reales del corpus, con encendido por consulta, zoom, arrastre, entrada por clic con despliegue de subregiones y migas de pan. **La elección del usuario sigue pendiente.**
 >
 > Dos conclusiones ya firmes:
 > - **La pregunta de la herramienta estaba mal planteada.** 20.800 nodos a 141 fps **en Canvas 2D**. No hizo falta three.js, deck.gl, Sigma ni WebGL. Lo que hacía falta era dejar de repintar lo que no cambia: el cielo en reposo se pinta una vez a un lienzo aparte, y mientras la cámara se mueve se **transforma** esa capa en vez de repintarla. Si el layout O(n²) aprieta —que es el cuello real medido— se saca del hilo principal; no se cambia de librería.
@@ -81,7 +81,7 @@ Ya se intentó una vez quedarse en Pixi con un pase de shaders propio (halos, po
 
 ### 3. El patrón de interacción — YA DECIDIDO (2026-08-10), no lo reabras
 
-**Esta pregunta estaba abierta y se cerró. Lee [`docs/adr/0014`](../adr/0014-dos-vistas-un-solo-estado.md) y `EXPERIENCE.md` §4.7 antes de tocar la interfaz.** Lo que sigue es el resumen; el ADR es la fuente.
+**Esta pregunta estaba abierta y se cerró. Lee [`docs/adr/0014`](../../adr/0014-dos-vistas-un-solo-estado.md) y `EXPERIENCE.md` §4.7 antes de tocar la interfaz.** Lo que sigue es el resumen; el ADR es la fuente.
 
 El problema de fondo era real y estructural, no estético: hoy no existe ninguna forma de **navegar sin buscar**. Ni la lente (vecindario alrededor de un foco que sólo se consigue escribiendo) ni el cielo (que se abre o se enciende, sin pila de navegación ni migas de pan) permiten entrar en una región, ver qué contiene, bajar un nivel y volver.
 
@@ -111,7 +111,7 @@ No implementes ningún conector. Antes de tocar código en esa dirección:
 
 </details>
 
-### 5. El dimensionado de regiones — RESUELTO (2026-08-10), ver [ADR-0015](../adr/0015-el-cielo-reparte-por-anchura-no-por-peso.md)
+### 5. El dimensionado de regiones — RESUELTO (2026-08-10), ver [ADR-0015](../../adr/0015-el-cielo-reparte-por-anchura-no-por-peso.md)
 
 **Se midió con `obrain-api --pesos` y la conclusión fue que había dos problemas, no uno.** El del *reparto* era un fallo real y está arreglado: `OneDrive` pasó de un grumo sin abrir de 851 archivos a cuatro regiones, y la primera región del cielo es ahora `OneDrive/Documentos` —donde vive el trámite de visa— en vez de un directorio de fuentes de terceros. El del *tamaño* no era un fallo: ninguna señal medible codifica importancia, y fabricar una puntuación sería lo que §1 prohíbe. El tamaño sigue siendo el número de archivos, a sabiendas, hasta M6.
 
@@ -122,7 +122,7 @@ No implementes ningún conector. Antes de tocar código en esa dirección:
 
 Con el corpus real, la región mayor del cielo son **229 capturas de pantalla**. Las resoluciones del IMSS y los estados de cuenta del banco —o sea, la pregunta de la visa— viven en regiones de 12 y de 2 archivos.
 
-Antes de descartar `whisper.cpp` era todavía más claro: **21 de las 30 regiones eran subcarpetas de un único repositorio de terceros.** [`sky::regions`](../../core/obrain-api/src/sky.rs) parte repetidamente la región mayor por peso de subárbol, y un árbol de código es profundo, ancho y uniforme, así que gana ese concurso una y otra vez. Mientras tanto `OneDrive` —donde está la vida— se quedaba como un solo grumo sin abrir.
+Antes de descartar `whisper.cpp` era todavía más claro: **21 de las 30 regiones eran subcarpetas de un único repositorio de terceros.** [`sky::regions`](../../../core/obrain-api/src/sky.rs) parte repetidamente la región mayor por peso de subárbol, y un árbol de código es profundo, ancho y uniforme, así que gana ese concurso una y otra vez. Mientras tanto `OneDrive` —donde está la vida— se quedaba como un solo grumo sin abrir.
 
 **Por qué esto no es un umbral que retocar.** `EXPERIENCE.md` §1 ya legisló este canal visual para los nodos: *«Tamaño de nodo = densidad de conexiones. Nunca "importancia" arbitraria: eso sería una opinión disfrazada de dato»*. Las regiones usan otra regla para el mismo canal. Es una incoherencia dentro del lenguaje visual, y hay que resolverla con criterio —no subiendo un número hasta que el cielo se vea bonito con este corpus concreto, que sería repetir el error del que este documento venía advirtiendo.
 
@@ -136,7 +136,7 @@ Nota que la ley de §1 no te da la respuesta hecha: «densidad de conexiones» a
 > del índice, la recuperación acertaba por la razón correcta (CFDI es
 > *Comprobante Fiscal Digital*), y el empate no era falta de discriminación
 > sino **los mismos bytes en dos archivos**. Lo roto era el recorte de la
-> prueba. Ver [ADR-0016](../adr/0016-la-prueba-se-elige-el-indice-no-se-filtra.md).
+> prueba. Ver [ADR-0016](../../adr/0016-la-prueba-se-elige-el-indice-no-se-filtra.md).
 
 Los cinco primeros resultados de «comprobante de ingresos» puntuaron 0.870, 0.870, 0.870, 0.870 y 0.869. Empatados a la milésima: el sistema acierta la *clase* de documento y dentro de la clase no discrimina.
 
@@ -159,7 +159,7 @@ No lo arregles a ciegas ni lo silencies filtrando por longitud o por entropía s
 > este panel con previsualización— y todo lo demás salió del hito. El porqué
 > está en `PROJECT-MASTER.md` §9, «Por qué M5b se encogió».
 
-`EXPERIENCE.md` §4.1 lleva **previsualización** como escalón propio de la escalera desde el principio, y §4.4 describe el panel sin decir nunca qué se ve del archivo en sí. El usuario lo planteó sin rodeos el 2026-08-10: *«si no puedo ver los archivos, no va a tener mucho chiste la app»*. Tiene razón, y sin esto el explorador de [ADR-0014](../adr/0014-dos-vistas-un-solo-estado.md) es una lista de nombres.
+`EXPERIENCE.md` §4.1 lleva **previsualización** como escalón propio de la escalera desde el principio, y §4.4 describe el panel sin decir nunca qué se ve del archivo en sí. El usuario lo planteó sin rodeos el 2026-08-10: *«si no puedo ver los archivos, no va a tener mucho chiste la app»*. Tiene razón, y sin esto el explorador de [ADR-0014](../../adr/0014-dos-vistas-un-solo-estado.md) es una lista de nombres.
 
 Media infraestructura existe: `EntityView` ya lleva `path`, y el texto extraído de M2 está guardado como proyección. Lo que no existe es nada que lo enseñe.
 

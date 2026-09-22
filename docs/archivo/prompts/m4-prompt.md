@@ -6,17 +6,17 @@ Copia todo lo de abajo en una conversación nueva de Claude Code, con working di
 
 Estoy construyendo **Orchestrator's Brain**, un motor de conocimiento personal local-first. La arquitectura y las decisiones ya están cerradas y documentadas — léelas antes de escribir nada:
 
-1. [`docs/PROJECT-MASTER.md`](../PROJECT-MASTER.md) — documento vivo. Lee especialmente §5 (capa de IA), §6 (búsqueda y recuperación), §7.1 (persistencia) y **los cuatro informes del final**: M1, M3, M2 y el de la puerta de sensibilidad.
+1. [`docs/PROJECT-MASTER.md`](../../PROJECT-MASTER.md) — documento vivo. Lee especialmente §5 (capa de IA), §6 (búsqueda y recuperación), §7.1 (persistencia) y **los cuatro informes del final**: M1, M3, M2 y el de la puerta de sensibilidad.
 2. `docs/adr/0001` a `0006` — decisiones fundacionales con sus alternativas descartadas. `0005` (dónde vive el texto) y `0006` (dónde vive la sensibilidad) son las dos que M4 toca directamente.
-3. [`docs/EXPERIENCE.md`](../EXPERIENCE.md) — no aplica a M4, pero da contexto de hacia dónde va esto.
+3. [`docs/EXPERIENCE.md`](../../EXPERIENCE.md) — no aplica a M4, pero da contexto de hacia dónde va esto.
 
 **Código ya existente y funcionando** (léelo, no lo reescribas):
 
-- [`core/obrain-core`](../../core/obrain-core) — M0. Log de aserciones bitemporal. `Store`, `Assertion`, `Method`, `Facet`, `Sensitivity`, `TimePoint`. I1/I4 impuestos por triggers de SQLite.
-- [`core/obrain-scan`](../../core/obrain-scan) — M1. Descubrimiento, identidad `(volumen, FileID)` + BLAKE3, triaje de placeholders de OneDrive, exclusiones.
-- [`core/obrain-link`](../../core/obrain-link) — M3. Enlazadores deterministas. 2.534 aristas sin una sola llamada a IA.
-- [`core/obrain-extract`](../../core/obrain-extract) — M2. Extracción por formato, `paragraph-pack@1`, tablas `extractions`/`chunks`/`chunks_fts`, búsqueda BM25 en `search.rs`.
-- [`core/obrain-guard`](../../core/obrain-guard) — la puerta. Clasifica `normal`/`sensitive`/`vault` y aplica §5.2. **Es la dependencia dura de este hito.**
+- [`core/obrain-core`](../../../core/obrain-core) — M0. Log de aserciones bitemporal. `Store`, `Assertion`, `Method`, `Facet`, `Sensitivity`, `TimePoint`. I1/I4 impuestos por triggers de SQLite.
+- [`core/obrain-scan`](../../../core/obrain-scan) — M1. Descubrimiento, identidad `(volumen, FileID)` + BLAKE3, triaje de placeholders de OneDrive, exclusiones.
+- [`core/obrain-link`](../../../core/obrain-link) — M3. Enlazadores deterministas. 2.534 aristas sin una sola llamada a IA.
+- [`core/obrain-extract`](../../../core/obrain-extract) — M2. Extracción por formato, `paragraph-pack@1`, tablas `extractions`/`chunks`/`chunks_fts`, búsqueda BM25 en `search.rs`.
+- [`core/obrain-guard`](../../../core/obrain-guard) — la puerta. Clasifica `normal`/`sensitive`/`vault` y aplica §5.2. **Es la dependencia dura de este hito.**
 
 Todo compila con `cargo build --manifest-path core/Cargo.toml`. Toolchain MSVC ya instalado. 145 tests en verde, clippy limpio con `-D warnings`.
 
