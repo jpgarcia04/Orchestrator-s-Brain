@@ -147,6 +147,12 @@ Son dos intenciones distintas, no dos estéticas:
 
 Forzar una sola metáfora sobre las dos es cómo un usuario acaba peleándose con su propia herramienta.
 
+> **Actualizado el 2026-09-22 — [ADR-0019](adr/0019-el-explorador-es-el-escritorio.md).**
+> Con la bóveda personal el orden se invirtió: **el explorador es el escritorio**
+> donde abre la aplicación, y la galaxia es la vista «Mapa», que se invoca. Lo
+> que sigue se conserva como se escribió; la continuidad de estado en los dos
+> sentidos y «enseña lo que un gestor de archivos no puede» siguen en pie.
+
 **Cómo se comporta**
 
 - **La galaxia es el estado base.** El explorador se pide siempre: un conmutador visible en un sitio fijo, y un atajo de teclado. **Nunca aparece solo.** En el momento en que apareciera por tocar algo, sería el modal que §4.4 prohíbe.

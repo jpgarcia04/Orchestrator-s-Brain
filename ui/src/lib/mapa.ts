@@ -1,5 +1,5 @@
 /**
- * El mapa. **Es la pantalla** (ADR-0013).
+ * El mapa: la galaxia de la vista «Mapa» y de la tarjeta del Inicio (ADR-0019).
  *
  * Dos escalas del mismo grafo: el cielo —treinta regiones con nombre— y la
  * lente —una entidad y su vecindario—.

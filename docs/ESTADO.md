@@ -114,10 +114,13 @@ Y nombres que se lean solos, con la fecha delante:
 detección de versiones, el USN Change Journal, sincronización entre
 dispositivos.
 
-**Por confirmar (JP):** la Fase 2 se construyó con la propuesta —el explorador
-es la pantalla de inicio y la galaxia es la vista «Mapa», con el aspecto de
-noche por defecto—. Falta que revises la maqueta y la app y lo confirmes; si
-sí, se escribe el ADR que sustituye al 0013. Ver §10 del maestro.
+~~**Por confirmar (JP):**~~ **Confirmado (2026-09-22).** Revisaste las capturas
+de la Fase 2 y la interfaz se queda como está: el explorador es la pantalla de
+inicio, la galaxia es la vista «Mapa» y el aspecto de noche es el de por
+defecto (el de día, a un clic). Queda escrito en
+[ADR-0019](adr/0019-el-explorador-es-el-escritorio.md), que sustituye al 0013.
+Falta probarla en tu Windows de verdad: hasta hoy sólo se ha visto en el
+navegador del banco de pruebas.
 
 ## Mapa del repositorio
 

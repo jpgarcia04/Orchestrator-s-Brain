@@ -3,8 +3,8 @@
   previa y el buscador.
 
   El explorador es donde se trabaja a diario y la galaxia es la vista «Mapa»,
-  enlazada con él en los dos sentidos (ver §10 del maestro: propuesta pendiente
-  de confirmar). Las teclas de siempre:
+  enlazada con él en los dos sentidos (ADR-0019, confirmado por el usuario).
+  Las teclas de siempre:
 
   - `Ctrl K`, o escribir en cualquier sitio: buscar (ADR-0017: escribir abre).
   - `Esc`: deshace un escalón — el buscador, la vista previa, la lente del mapa.

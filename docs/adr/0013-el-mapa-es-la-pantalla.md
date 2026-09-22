@@ -1,8 +1,17 @@
 # ADR-0013 — El mapa es la pantalla; la barra busca dentro de él
 
-- **Estado:** Aceptada
+- **Estado:** **Sustituida** por [ADR-0019](0019-el-explorador-es-el-escritorio.md) (2026-09-22)
 - **Fecha:** 2026-08-09
 - **Sustituye a:** [ADR-0004](0004-punto-de-entrada-barra-no-galaxia.md)
+
+> **Por qué se sustituyó.** El proyecto dejó de querer entender todo el disco y
+> pasó a ser una bóveda de documentos personales que el usuario ordena él mismo
+> ([ADR-0018](0018-bibliotecas.md)). Con eso, las carpetas dejan de ser ruido y
+> la tarea diaria es buscar, ver y abrir un documento concreto: el explorador
+> pasa a ser el escritorio y la galaxia una vista propia, enlazada con él. El
+> usuario lo confirmó sobre las capturas de la Fase 2. Sobrevive todo lo que
+> este ADR puso en el núcleo —el cielo por escala, los resultados agrupados y
+> los puentes—; cae que el cielo sea lo primero que se ve.
 
 ## Contexto
 
