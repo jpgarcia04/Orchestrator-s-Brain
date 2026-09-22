@@ -103,12 +103,49 @@ export interface Claim {
   by_user: boolean;
 }
 
+/**
+ * La carpeta marcada que protege algo (ADR-0020): la respuesta a «¿por qué es
+ * sensible esto?» cuando no hay una aserción sobre el propio documento.
+ */
+export interface Proteccion {
+  /** La carpeta marcada. */
+  folder: string;
+  label: string;
+  level: "sensitive" | "vault";
+  /** La marca es de esta misma carpeta, no de una que la contiene. */
+  own: boolean;
+}
+
+/** Una carpeta que marcaste como sensible, para la vista «Sensibles». */
+export interface CarpetaMarcada {
+  id: string;
+  label: string;
+  path: string;
+  level: "sensitive" | "vault";
+  /** Documentos que tiene dentro ahora. Cero suele ser una carpeta renombrada. */
+  documents: number;
+  /** Desde cuándo, epoch ms. */
+  since: number;
+}
+
+/** Lo que pasó al marcar o desmarcar una carpeta. */
+export interface Marcado {
+  /** La marca que queda puesta, o `null` si se quitó. */
+  level: "sensitive" | "vault" | null;
+  /** Lo que hay dentro —ella incluida— recalculado. */
+  under: number;
+  /** De eso, lo que ha cambiado de nivel. */
+  changed: number;
+}
+
 export interface VistaEntidad {
   id: string;
   label: string;
   path: string | null;
   facets: string[];
   sensitivity: Sensibilidad;
+  /** La carpeta marcada que decide su nivel, si es una carpeta quien lo decide. */
+  protection: Proteccion | null;
   observed: Claim[];
   inferred: Claim[];
 }
@@ -186,6 +223,8 @@ export interface Listado {
   rows: Fila[];
   folders: number;
   files: number;
+  /** La marca de sensibilidad que la afecta: la suya o la de una carpeta de fuera. */
+  protection: Proteccion | null;
 }
 
 /**
@@ -264,6 +303,8 @@ export interface Informe {
   chunks_new: number;
   sensitive: number;
   vault: number;
+  /** De los sensibles, los que lo son por estar en una carpeta marcada. */
+  inherited: number;
   vectors_new: number;
   semantic: boolean;
   elapsed_ms: number;
@@ -310,6 +351,17 @@ export const recientes = (limit = 8) => invoke<Fila[]>("recientes", { limit });
 
 /** Lo que la puerta de egreso retiene: la vista «Sensibles». */
 export const sensibles = () => invoke<Fila[]>("sensibles");
+
+/** Las carpetas que marcaste como sensibles. */
+export const carpetasMarcadas = () => invoke<CarpetaMarcada[]>("carpetas_marcadas");
+
+/**
+ * Marca una carpeta como sensible —todo lo que tenga dentro lo hereda, también
+ * lo que llegue después— o, con `null`, le quita la marca. Es una aserción
+ * tuya (I5): ningún reescaneo la pisa.
+ */
+export const marcarCarpeta = (carpeta: string, nivel: "sensitive" | "vault" | null) =>
+  invoke<Marcado>("marcar_carpeta", { carpeta, nivel });
 
 export const entidad = (id: string) => invoke<VistaEntidad>("entidad", { id });
 

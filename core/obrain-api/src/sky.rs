@@ -986,6 +986,12 @@ pub struct Listing {
     pub rows: Vec<Row>,
     pub folders: usize,
     pub files: usize,
+    /// La marca de sensibilidad que afecta a esta carpeta: la suya, o la de una
+    /// carpeta que la contiene ([ADR-0020]). Es lo que enseña el botón de la
+    /// cabecera.
+    ///
+    /// [ADR-0020]: ../../../docs/adr/0020-sensibilidad-por-carpeta.md
+    pub protection: Option<crate::Protection>,
 }
 
 /// Lee un predicado entero y lo indexa por sujeto. Una consulta por predicado y
@@ -1209,7 +1215,15 @@ pub fn children(store: &Store, focus: Option<&EntityId>, at: TimePoint) -> Resul
         trail.reverse();
     }
 
+    let protection = match focus {
+        Some(f) if tree.folders.contains_key(f) => {
+            crate::marks::of_folder(store, &store.folder_marks(at)?, f, at)?
+        }
+        _ => None,
+    };
+
     Ok(Listing {
+        protection,
         label: focus.map_or_else(|| "inicio".to_string(), |f| obrain_link::label(store, f, at)),
         path: focus.map_or_else(String::new, sitio),
         focus: focus.map(|f| f.0.clone()),

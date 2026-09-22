@@ -90,6 +90,9 @@ pub struct EmbedReport {
     /// Fragmentos que hacía falta vectorizar.
     pub pending: usize,
     pub vectors_written: usize,
+    /// Entidades cuyos vectores se han sacado del índice porque subieron a
+    /// bóveda después de vectorizarse (una carpeta marcada, una regla nueva).
+    pub entities_purged: usize,
     /// Entidades que la puerta rechazó **en la comprobación por invocación**.
     /// Debe ser 0: si no lo es, `embeddable` y `check` discrepan y eso es un
     /// defecto del control, no una estadística.
@@ -124,6 +127,19 @@ pub fn embed_all(
     let started = Instant::now();
     let model = embedder.model();
     let tp = TimePoint::at(at);
+
+    // ── 0 · quién ya no puede estar ──
+    // Lo que subió a bóveda después de vectorizarse sale del índice, y su
+    // procedencia deja de estar vigente: el log no puede seguir afirmando que
+    // está vectorizado algo que ya no lo está.
+    for e in index::purge_withheld(store.conn())? {
+        for p in ["embedded_with", "vector_count"] {
+            for a in store.query(Some(&e), Some(p), tp)? {
+                store.retract(&a.id, at)?;
+            }
+        }
+        report.entities_purged += 1;
+    }
 
     // ── 1 · quién entra. La puerta, no `chunks`. ──
     let allowed = gate::embeddable(store.conn())?;

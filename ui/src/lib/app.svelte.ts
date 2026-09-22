@@ -13,6 +13,7 @@ import {
   entidad,
   estado as pedirEstado,
   explorar,
+  marcarCarpeta as pedirMarca,
 } from "./nucleo";
 import type { Estado, Indexado, Listado } from "./nucleo";
 
@@ -156,6 +157,25 @@ class App {
       await this.abrirCarpeta(casa, id, consulta);
     } catch (e) {
       this.avisar(`No se pudo abrir — ${e}`);
+    }
+  }
+
+  /**
+   * Marca una carpeta como sensible, o le quita la marca (`null`). Todo lo que
+   * depende de la base se vuelve a pedir: la carpeta, sus filas, la vista
+   * previa abierta y la lista de Sensibles cambian a la vez.
+   */
+  async marcarCarpeta(id: string, nombre: string, nivel: "sensitive" | null): Promise<void> {
+    try {
+      await pedirMarca(id, nivel);
+      await this.refrescar();
+      if (nivel) {
+        this.avisar(`Todo lo de «${nombre}» es sensible desde ahora, también lo que llegue después.`);
+      } else {
+        this.avisar(`«${nombre}» ya no está marcada. Lo de dentro vuelve a lo que diga su nombre o su texto.`);
+      }
+    } catch (e) {
+      this.avisar(`No se pudo marcar la carpeta — ${e}`);
     }
   }
 

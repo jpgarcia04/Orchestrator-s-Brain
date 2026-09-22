@@ -126,6 +126,8 @@ Con un modelo de inteligencia artificial **que corre en tu máquina** —se desc
 > Ejemplo real de este disco: buscar **"universidad"** devuelve un formulario de matrícula que **no contiene esa palabra** en ningún sitio. Dice "Titulación", "Centro Docente", "Año académico". La búsqueda por texto no puede encontrarlo; ésta sí.
 >
 > Y lo que marcaste como privado **no entra** en el índice de significado. Eso no es una opción de configuración: es una comprobación que el sistema aplica y que tiene tests.
+>
+> Puedes marcar **una carpeta entera** —por ejemplo, la de tus documentos de identidad— y todo lo que tenga dentro será sensible, también lo que metas después: la foto de tu TIE no necesita tener texto ni un nombre que la delate.
 
 ### 5. 🌌 Visualizar — *El mapa*
 Todo ese conocimiento cobra vida en una visualización interactiva — tu galaxia personal de conocimiento, donde puedes explorar, navegar y descubrir conexiones que habías olvidado.
@@ -156,7 +158,7 @@ El proyecto está en desarrollo activo. Cada hito se valida contra la pregunta d
 | **Fase 1** — Tu bóveda | Bibliotecas: el explorador empieza en tu carpeta, nombres limpios, `obrain indexar`, la app se pone al día sola | ✅ Completo |
 | **M5c** — Enterarse | Lo nuevo aparece sin lanzar nada | ◐ Al abrir la app y con «actualizar»; falta vigilar la carpeta en vivo |
 | **Fase 2** — La interfaz nueva | Svelte 5: escritorio tipo sistema operativo con vista previa, buscador `Ctrl K`, la galaxia como vista «Mapa» enlazada, aspecto de noche y de día | ✅ Completo |
-| **Fase 3** — Documentos personales | OCR, vencimientos, cifrado y PIN | ⏭ Siguiente |
+| **Fase 3** — Documentos personales | Sensibilidad por carpeta ✅ · cifrado y PIN · OCR · vencimientos | ◐ En curso |
 | **M6** — Construir conocimiento | Inferencia de procesos y enriquecimiento | ⏳ Planificado |
 | **M7** — La pregunta | Responder la pregunta de la visa | 🎯 Meta final |
 

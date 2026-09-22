@@ -60,6 +60,7 @@
           <button class="subcarpeta hov" onclick={() => app.abrirCarpeta(c.id)} title={c.path}>
             <Folder size={20} />
             <span class="nombre">{nombreBonito(c.label)}</span>
+            {#if c.sensitivity !== "normal"}<span class="candado"><Lock size={13} aria-label="Sensible" /></span>{/if}
             <span class="cuenta">{c.weight}</span>
           </button>
         {/each}
@@ -177,6 +178,10 @@
   .cuenta {
     font-size: 12px;
     font-variant-numeric: tabular-nums;
+  }
+  .candado {
+    display: grid;
+    color: var(--calido);
   }
 
   .cuadricula {

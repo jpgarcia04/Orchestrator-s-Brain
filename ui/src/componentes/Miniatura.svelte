@@ -30,7 +30,10 @@
 
   $effect(() => {
     const id = fila.id;
-    imagen = cache.get(id) ?? null;
+    // Lo que se vuelve sensible —una carpeta que acabas de marcar— deja de
+    // enseñarse aunque ya estuviera pedido, y la copia se olvida.
+    if (sensible) cache.delete(id);
+    imagen = sensible ? null : (cache.get(id) ?? null);
     if (tipo !== "IMG" || sensible || !local || imagen || !caja) return;
     const vigia = new IntersectionObserver((vistos) => {
       if (!vistos.some((v) => v.isIntersecting)) return;

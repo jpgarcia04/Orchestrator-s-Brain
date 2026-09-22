@@ -48,6 +48,7 @@
 pub mod error;
 pub mod model;
 pub mod schema;
+pub mod sensitivity;
 pub mod store;
 
 /// Reexportado para que las proyecciones (índice léxico, vectorial) hablen con
@@ -60,4 +61,5 @@ pub use model::{
     Assertion, AssertionId, Cardinality, EntityId, Facet, Method, NewAssertion, PredicateDef,
     Sensitivity, TimePoint, Value,
 };
+pub use sensitivity::{FolderMark, FolderMarks, Origin, Resolution, CONTENTS_SENSITIVITY};
 pub use store::{Contradiction, Store};

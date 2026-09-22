@@ -47,6 +47,12 @@ pub struct EntityView {
     /// El "tipo" es esto: una composición de facetas, no una etiqueta rígida.
     pub facets: Vec<String>,
     pub sensitivity: &'static str,
+    /// La carpeta marcada que decide ese nivel, si es una carpeta quien lo
+    /// decide ([ADR-0020]). Es el «¿por qué?» de lo que no tiene una aserción
+    /// propia: la foto de la TIE es sensible porque está en `01 Identidad`.
+    ///
+    /// [ADR-0020]: ../../../docs/adr/0020-sensibilidad-por-carpeta.md
+    pub protection: Option<crate::Protection>,
     /// Hechos. Deterministas o afirmados por el usuario. **Bloque sólido.**
     pub observed: Vec<Claim>,
     /// Sospechas. Heurísticas, clasificadores, importaciones sin verificar.
@@ -142,6 +148,7 @@ pub fn view(store: &Store, id: &EntityId, at: TimePoint) -> Result<EntityView> {
             .and_then(|a| a.object.as_text().map(str::to_string)),
         facets: store.facets(id, at)?,
         sensitivity: store.sensitivity(id).map(|s| s.as_str()).unwrap_or("vault"),
+        protection: crate::marks::deciding(store, id, at)?,
         observed,
         inferred,
         id: id.0.clone(),

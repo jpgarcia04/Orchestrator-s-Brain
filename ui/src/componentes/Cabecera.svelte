@@ -5,14 +5,41 @@
   Las migas empiezan en tu bóveda, no en la raíz del disco (ADR-0018). Si el
   camino es largo, los escalones del medio se pliegan en «…» y el último nunca
   se recorta.
+
+  Dentro de una carpeta, el escudo la marca como sensible: todo lo que tenga
+  dentro lo hereda, también lo que llegue después (ADR-0020). Marcar es un
+  clic; quitar la marca baja la protección y por eso pide un segundo clic. Si
+  la marca es de una carpeta de fuera, el botón lo dice y lleva hasta ella.
 -->
 <script lang="ts">
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
   import List from "@lucide/svelte/icons/list";
   import Orbit from "@lucide/svelte/icons/orbit";
+  import Shield from "@lucide/svelte/icons/shield";
+  import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import { app } from "../lib/app.svelte";
   import { nombreBonito } from "../lib/nombres";
+
+  /** El segundo clic para quitar la marca: dura unos segundos y se olvida. */
+  let confirmando = $state(false);
+  let olvido: number | undefined;
+
+  $effect(() => {
+    void app.listado?.focus;
+    confirmando = false;
+  });
+
+  function quitarMarca(id: string, nombre: string): void {
+    if (!confirmando) {
+      confirmando = true;
+      window.clearTimeout(olvido);
+      olvido = window.setTimeout(() => (confirmando = false), 4000);
+      return;
+    }
+    confirmando = false;
+    void app.marcarCarpeta(id, nombre, null);
+  }
 
   interface Miga {
     texto: string;
@@ -62,6 +89,42 @@
 
   {#if app.vista === "carpeta" && app.listado?.focus}
     {@const foco = app.listado.focus}
+    {@const nombre = nombreBonito(app.listado.label)}
+    {@const marca = app.listado.protection}
+    {#if marca?.own}
+      <button
+        class="escudo marcada hov"
+        class:confirmando
+        onclick={() => quitarMarca(foco, nombre)}
+        aria-pressed="true"
+        title={confirmando
+          ? "Pulsa otra vez para quitar la marca"
+          : "Todo lo de esta carpeta es sensible, también lo que llegue después. Pulsa para quitar la marca."}
+      >
+        <ShieldCheck size={16} />
+        <span>{confirmando ? "¿Quitar la marca?" : "Sensible"}</span>
+      </button>
+    {:else if marca}
+      {@const madre = marca.folder}
+      <button
+        class="escudo heredada hov-fondo"
+        onclick={() => app.abrirCarpeta(madre)}
+        title="La marca está en «{nombreBonito(marca.label)}». Ábrela para cambiarla."
+      >
+        <ShieldCheck size={16} />
+        <span>Sensible por «{nombreBonito(marca.label)}»</span>
+      </button>
+    {:else}
+      <button
+        class="escudo hov-fondo"
+        onclick={() => app.marcarCarpeta(foco, nombre, "sensitive")}
+        aria-pressed="false"
+        title="Todo lo que tenga dentro —y lo que llegue después— será sensible: borroso hasta que lo pidas y fuera de cualquier modelo remoto."
+      >
+        <Shield size={16} />
+        <span>Marcar como sensible</span>
+      </button>
+    {/if}
     <button class="ver-mapa hov-fondo" onclick={() => app.verEnMapa(foco)}>
       <Orbit size={16} />
       <span>Ver en el mapa</span>
@@ -126,7 +189,8 @@
     flex-shrink: 0;
   }
 
-  .ver-mapa {
+  .ver-mapa,
+  .escudo {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -134,6 +198,28 @@
     padding: 0 12px;
     border-radius: 9px;
     color: var(--tenue);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Marcada: el mismo cálido que avisa de lo sensible, para que se lea de un
+     vistazo que esta carpeta protege lo que tiene dentro. */
+  .escudo.marcada {
+    color: var(--calido);
+    background: var(--calido-fondo);
+    font-weight: 500;
+  }
+  .escudo.marcada.confirmando {
+    color: var(--peligro);
+    background: var(--peligro-fondo);
+  }
+  .escudo.heredada {
+    color: var(--calido);
+    max-width: 280px;
+  }
+  .escudo.heredada span {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .modos {

@@ -46,9 +46,13 @@ pub struct IndexReport {
     pub documents_read: usize,
     /// Fragmentos nuevos en el índice de búsqueda.
     pub chunks_new: usize,
-    /// Archivos marcados como sensibles o de bóveda, en total.
+    /// Archivos que la puerta retiene como sensibles o de bóveda, en total: lo
+    /// que dijo el clasificador, lo que corregiste y lo que hereda de una
+    /// carpeta marcada.
     pub sensitive: usize,
     pub vault: usize,
+    /// De ésos, los que lo son por estar dentro de una carpeta que marcaste.
+    pub inherited: usize,
     /// Vectores nuevos. `0` con `semantic = false` si no había modelo.
     pub vectors_new: usize,
     /// ¿Se pasó por la etapa de significado?
@@ -115,8 +119,9 @@ pub fn index(
     let filas = obrain_extract::load_files(store, TimePoint::at(at))?;
     let mut puerta = obrain_guard::GuardReport::default();
     store.transaction(|s| obrain_guard::classify_all(s, &filas, at, false, &mut puerta))?;
-    r.sensitive = puerta.sensitive;
-    r.vault = puerta.vault;
+    r.sensitive = puerta.effective[1];
+    r.vault = puerta.effective[2];
+    r.inherited = puerta.inherited;
 
     // ── M4 · vectorizar ──
     if let Some(modelo) = embedder {

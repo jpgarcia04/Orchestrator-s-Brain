@@ -21,14 +21,15 @@ computadora.
 | Escanear una carpeta y reconocer cada archivo aunque lo muevas o renombres | **Leer fotos y PDF escaneados (OCR)**: hoy una foto de tu pasaporte no tiene texto que buscar |
 | Leer el texto de PDF, Word, HTML y texto plano | **Cifrado de la base**: hoy es un SQLite sin cifrar |
 | Buscar por palabras y por significado (con el modelo local descargado) | Vigilar la carpeta en vivo: hoy se pone al día al abrir la app o con «actualizar» |
-| Marcar lo sensible y no dejarlo salir de la máquina | **Sensibilidad por carpeta**: una foto sin texto (la TIE) hoy no sale como sensible |
-| **Bibliotecas**: el explorador empieza en tu carpeta, no en la raíz del disco | Vencimientos (*¿qué me caduca pronto?*) |
+| Marcar lo sensible y no dejarlo salir de la máquina | Vencimientos (*¿qué me caduca pronto?*) |
+| **Bibliotecas**: el explorador empieza en tu carpeta, no en la raíz del disco | |
 | Carpetas y documentos con nombres legibles, fechas y tamaños claros | |
 | **La interfaz nueva** (Svelte 5): escritorio con barra lateral, Inicio, carpetas en cuadrícula o lista, vista previa, Sensibles, buscador `Ctrl K`, el Mapa enlazado, noche y día | |
 | «Añadir carpeta» desde la app, o `obrain indexar <carpeta>` desde la terminal | |
+| **Sensibilidad por carpeta**: marcas `01 Identidad` y todo lo de dentro es sensible, también lo que llegue después (la foto de la TIE incluida) | |
 | La app se pone al día sola al abrirse, y tiene botón «actualizar» | |
 
-Núcleo en Rust con 276 tests (uno de ellos sólo corre en Windows), interfaz en
+Núcleo en Rust con 302 tests (uno de ellos sólo corre en Windows), interfaz en
 Tauri + Svelte 5, con el mapa en PixiJS.
 
 ## Cómo usarlo hoy (Windows)
@@ -79,6 +80,13 @@ cargo run --release --bin obrain -- indexar       # volver a leer todas
   Desde un documento, «Ver en el mapa» enseña con qué se relaciona.
 - **`Esc`** deshace un escalón: cierra el buscador, la vista previa o la lente
   del mapa.
+- **Carpeta sensible:** dentro de una carpeta, el escudo de arriba a la derecha
+  («Marcar como sensible») hace sensible todo lo que tiene dentro, también lo
+  que llegue después. Para quitar la marca, dos clics. La vista «Sensibles»
+  enseña qué carpetas marcaste. Desde la terminal:
+  `obrain sensible "C:\...\01 Identidad"` (y `--quitar` para deshacerlo).
+  Ojo: si renombras o mueves una carpeta marcada, la marca se queda en la ruta
+  vieja; «Sensibles» te lo avisa en rojo y basta con volver a marcarla.
 - El sol/luna de abajo a la izquierda cambia entre **noche** y **día**.
 
 ## Cómo organizar tu bóveda
@@ -107,7 +115,7 @@ Y nombres que se lean solos, con la fecha delante:
 | 0 | Limpieza: documentación a la medida, README honesto | ✅ Hecha |
 | 1 | El núcleo para tu carpeta: bibliotecas, nombres, `obrain indexar`, «actualizar» | ✅ Hecha |
 | 2 | La interfaz nueva en Svelte 5: el explorador como escritorio estilo sistema operativo, la galaxia como vista «Mapa» enlazada, `Ctrl+K`, vista previa rápida | ✅ Hecha |
-| **3** | **Documentos personales**: OCR, vencimientos, sensibilidad por carpeta, cifrado y PIN | ⏭ Siguiente |
+| **3** | **Documentos personales**: ✅ sensibilidad por carpeta · cifrado y PIN (a decidir contigo) · OCR · vencimientos | ◐ En curso |
 | 4 | La visión original: trámites reconstruidos, la pregunta de la visa | Congelada |
 
 **Congelado** (no se borra, no se sigue): sesiones de trabajo y puentes,
@@ -120,7 +128,11 @@ inicio, la galaxia es la vista «Mapa» y el aspecto de noche es el de por
 defecto (el de día, a un clic). Queda escrito en
 [ADR-0019](adr/0019-el-explorador-es-el-escritorio.md), que sustituye al 0013.
 Falta probarla en tu Windows de verdad: hasta hoy sólo se ha visto en el
-navegador del banco de pruebas.
+navegador del banco de pruebas (el 2026-09-22 aún no la habías corrido).
+
+**Antes de meter tu pasaporte de verdad:** la base todavía no está cifrada. Marcar
+una carpeta como sensible la tapa en pantalla y la deja fuera de cualquier modelo
+remoto, pero no cifra nada en el disco. El cifrado es la siguiente pieza.
 
 ## Mapa del repositorio
 

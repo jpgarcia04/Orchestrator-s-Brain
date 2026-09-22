@@ -24,6 +24,7 @@
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import Lock from "@lucide/svelte/icons/lock";
   import Orbit from "@lucide/svelte/icons/orbit";
+  import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import X from "@lucide/svelte/icons/x";
   import Tipo from "./Tipo.svelte";
   import { app } from "../lib/app.svelte";
@@ -224,11 +225,23 @@
         {#if enLaNube}<span class="chip"><Cloud size={13} /> En tu nube</span>{/if}
       </div>
 
-      {#if hechos.length > 0 || leido}
+      {#if hechos.length > 0 || leido || ficha.protection}
         <section aria-label="Lo que sé de este documento" class="bloque">
           <h3 class="rotulo">Lo que sé de este documento</h3>
           {#if leido}
             <div class="hecho"><span class="clave">Leído</span><span>{leido}</span></div>
+          {/if}
+          {#if ficha.protection}
+            {@const p = ficha.protection}
+            <div class="hecho">
+              <span class="clave">Sensibilidad</span>
+              <span class="valor">
+                {p.level === "vault" ? "Bóveda" : "Sensible"}
+                <button class="por-carpeta hov-fondo" onclick={() => app.abrirCarpeta(p.folder, id)} title="Abrir la carpeta que lo protege">
+                  <ShieldCheck size={13} /> por la carpeta «{nombreBonito(p.label)}», que marcaste tú
+                </button>
+              </span>
+            </div>
           {/if}
           {#each hechos as c (c.assertion)}
             <div class="hecho" style:opacity={c.method === "inferred" && !c.by_user ? Math.max(0.55, c.confidence) : 1}>
@@ -471,6 +484,18 @@
     gap: 4px;
     font-size: 12px;
     color: var(--bien);
+  }
+  .por-carpeta {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    align-self: flex-start;
+    margin-left: -6px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--calido);
+    text-align: left;
   }
 
   .relacion {

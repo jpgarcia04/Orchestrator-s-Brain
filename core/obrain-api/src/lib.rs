@@ -39,10 +39,11 @@
 pub mod entity;
 pub mod indexar;
 pub mod lens;
+pub mod marks;
 pub mod preview;
 pub mod sky;
 
-use obrain_core::{EntityId, Method, NewAssertion, Store, TimePoint, Value};
+use obrain_core::{EntityId, Method, NewAssertion, Sensitivity, Store, TimePoint, Value};
 /// El modelo, para quien lo carga y lo presta sin depender de `obrain-embed`.
 pub use obrain_embed::embedder::Embedder;
 use std::path::Path;
@@ -51,6 +52,7 @@ use std::time::Instant;
 pub use entity::{Claim, EntityView};
 pub use indexar::IndexReport;
 pub use lens::{Edge, Lens, Node};
+pub use marks::{MarkedFolder, Protection};
 pub use preview::Preview;
 pub use sky::{Bridge, Cluster, Crumb, Listing, Region, Row, Sky};
 
@@ -136,6 +138,17 @@ pub fn load_model(model_dir: Option<&Path>) -> Result<Option<Box<dyn Embedder + 
         return Ok(None);
     }
     Ok(Some(Box::new(obrain_embed::e5::E5::load(&dir)?)))
+}
+
+/// Lo que pasó al marcar o desmarcar una carpeta. Ver [`Brain::mark_folder`].
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FolderMarked {
+    /// La marca que queda puesta, o `None` si se quitó.
+    pub level: Option<&'static str>,
+    /// Entidades dentro de la carpeta —ella incluida— recalculadas.
+    pub under: usize,
+    /// De ellas, las que han cambiado de nivel.
+    pub changed: usize,
 }
 
 /// Una consulta y su sustrato, resueltos de una vez. Ver [`Brain::glance`].
@@ -329,6 +342,43 @@ impl Brain {
     pub fn sensitive(&self) -> Result<Vec<Row>> {
         let (_, at) = Self::now();
         Ok(sky::sensitive(&self.store, at)?)
+    }
+
+    /// La carpeta con esta ruta, si el log la conoce. Ver [`marks::folder_at`].
+    pub fn folder_at(&self, path: &str) -> Result<Option<EntityId>> {
+        let (_, at) = Self::now();
+        Ok(marks::folder_at(&self.store, path, at)?)
+    }
+
+    /// Las carpetas que marcaste como sensibles. Ver [`marks::marked`].
+    pub fn marked_folders(&self) -> Result<Vec<MarkedFolder>> {
+        let (_, at) = Self::now();
+        Ok(marks::marked(&self.store, at)?)
+    }
+
+    /// **Marca una carpeta como sensible** —todo lo que tenga dentro lo hereda,
+    /// también lo que llegue después— o, con `None`, le quita la marca.
+    ///
+    /// Es una aserción del usuario (I5): ningún reescaneo la pisa. Va en una
+    /// transacción porque son varias escrituras —la marca y la columna de todo
+    /// lo que cuelga de la carpeta— y la puerta no puede leer un estado a
+    /// medias. Ver [`obrain_guard::mark_folder`] y [ADR-0020].
+    ///
+    /// [ADR-0020]: ../../../docs/adr/0020-sensibilidad-por-carpeta.md
+    pub fn mark_folder(
+        &mut self,
+        folder: &EntityId,
+        level: Option<Sensitivity>,
+    ) -> Result<FolderMarked> {
+        let (now, _) = Self::now();
+        let r = self
+            .store
+            .transaction(|s| obrain_guard::mark_folder(s, folder, level, now))?;
+        Ok(FolderMarked {
+            level: r.level.map(Sensitivity::as_str),
+            under: r.under,
+            changed: r.changed,
+        })
     }
 
     /// Abre la lente sobre una entidad. Ver [`lens`].

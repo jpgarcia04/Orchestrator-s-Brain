@@ -18,6 +18,12 @@ pub enum Error {
 
     #[error("dato corrupto en el log: {0}")]
     Corrupt(String),
+
+    #[error("no es una carpeta: {0}")]
+    NotAFolder(String),
+
+    #[error("una carpeta se marca como sensible o de bóveda, no como {0}")]
+    InvalidMark(String),
 }
 
 impl Error {

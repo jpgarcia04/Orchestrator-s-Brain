@@ -165,6 +165,39 @@ fn reclasificar_a_boveda_saca_del_indice_al_reconstruir() {
     assert_eq!(r2.vectors_written, 0);
 }
 
+/// Y sin reconstruir nada: la pasada siguiente de vectorización ya lo saca.
+/// Es el caso de una foto que se mete en una carpeta marcada como bóveda
+/// (ADR-0020): la marca no conoce la tabla de vectores, pero quien la mantiene
+/// sí conoce la puerta.
+#[test]
+fn la_pasada_siguiente_saca_del_indice_lo_que_subio_a_boveda() {
+    let store = base();
+    let at = 1_000;
+    let e = con_fragmentos(&store, at, &["un escaneo que luego va a la boveda"]);
+    let otro = con_fragmentos(&store, at, &["un recibo normal"]);
+
+    let mut r = EmbedReport::default();
+    obrain_embed::embed_all(&store, &Juguete::default(), at, &mut r).unwrap();
+    assert_eq!(vectores_de(&store, &e), 1);
+    assert!(store.resolve(&e, "embedded_with", TimePoint::at(at)).unwrap().is_some());
+
+    a_la_boveda(&store, &e, at + 1);
+    let mut r2 = EmbedReport::default();
+    obrain_embed::embed_all(&store, &Juguete::default(), at + 2, &mut r2).unwrap();
+
+    assert_eq!(vectores_de(&store, &e), 0);
+    assert_eq!(vectores_de(&store, &otro), 1, "lo demás no se toca");
+    assert_eq!(r2.entities_purged, 1);
+    let tp = TimePoint::at(at + 2);
+    assert!(store.resolve(&e, "embedded_with", tp).unwrap().is_none());
+    assert!(store.resolve(&e, "vector_count", tp).unwrap().is_none());
+
+    // Y otra pasada ya no tiene nada que sacar.
+    let mut r3 = EmbedReport::default();
+    obrain_embed::embed_all(&store, &Juguete::default(), at + 3, &mut r3).unwrap();
+    assert_eq!(r3.entities_purged, 0);
+}
+
 /// Lo `sensitive` **sí** entra en el índice: §5.2 le concede índice vectorial
 /// local. Un control que también dejara fuera lo sensible sería un control que
 /// nadie mantiene encendido, que es el modo real en que fallan.

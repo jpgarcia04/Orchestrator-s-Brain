@@ -139,18 +139,17 @@ impl Store {
     /// 2. **Si no, gana la señal más restrictiva.** Entre "puede ser una clave"
     ///    y "parece normal", el sistema se equivoca hacia el lado que no filtra.
     ///
+    /// Desde [ADR-0020] el usuario también se pronuncia **sobre una carpeta**, y
+    /// esa marca la hereda todo lo que está dentro. Las reglas completas, con la
+    /// herencia, están en [`Store::resolve_sensitivity`].
+    ///
     /// Es una **proyección reconstruible** (I1): tirar la columna y volver a
     /// llamar aquí para cada entidad da exactamente el mismo estado.
+    ///
+    /// [ADR-0020]: ../../../docs/adr/0020-sensibilidad-por-carpeta.md
     pub fn reproject_sensitivity(&self, id: &EntityId, at: TimePoint) -> Result<Sensitivity> {
-        let claims = self.query(Some(id), Some("sensitivity_level"), at)?;
-        let parse = |a: &Assertion| a.object.as_text().and_then(Sensitivity::parse);
-
-        let level = match claims.iter().find(|a| a.method == Method::User) {
-            Some(u) => parse(u).unwrap_or(Sensitivity::Normal),
-            None => claims.iter().filter_map(parse).max().unwrap_or(Sensitivity::Normal),
-        };
-        self.set_sensitivity(id, level)?;
-        Ok(level)
+        let marks = self.folder_marks(at)?;
+        self.reproject_sensitivity_under(id, at, &marks)
     }
 
     /// Cuántas entidades hay en cada nivel. Un control de seguridad tiene que

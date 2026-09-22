@@ -169,6 +169,10 @@ pub const SEED_PREDICATES: &[(&str, &str, &str, &str, Option<&str>)] = &[
     // varias señales pueden apuntar al mismo archivo y todas son parte del
     // porqué. Ver `docs/adr/0006-donde-vive-la-sensibilidad.md`.
     ("sensitivity_level", "nivel de sensibilidad", "many", "inferred", None),
+    // La marca de una **carpeta**: el suelo de sensibilidad de todo lo que
+    // tenga dentro, también lo que llegue después. Sólo la escribe el usuario
+    // (I5); ver `sensitivity.rs` y `docs/adr/0020-sensibilidad-por-carpeta.md`.
+    ("contents_sensitivity", "sensibilidad de lo que contiene", "one", "user", None),
     // ── temporal · determinista ──
     ("occurred_during", "ocurrió durante", "many", "deterministic", None),
     ("precedes", "precede a", "many", "deterministic", None),

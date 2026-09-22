@@ -1,4 +1,4 @@
-//! La aplicación de escritorio. **Diez comandos y ni una decisión.**
+//! La aplicación de escritorio. **Unos pocos comandos y ni una decisión.**
 //!
 //! Todo lo que hay aquí es transporte: coger el cerrojo, llamar a
 //! [`obrain_api`] y aplastar el error a texto. Si algún comando tuviera lógica
@@ -36,9 +36,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use obrain_api::{
-    default_db_path, Brain, Embedder, EntityView, Glance, IndexReport, Lens, Listing, Preview, Row, Sky,
+    default_db_path, Brain, Embedder, EntityView, FolderMarked, Glance, IndexReport, Lens, Listing,
+    MarkedFolder, Preview, Row, Sky,
 };
-use obrain_core::{EntityId, Store};
+use obrain_core::{EntityId, Sensitivity, Store};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -123,6 +124,32 @@ fn recientes(limit: usize, cerebro: State<'_, Cerebro>) -> Result<Vec<Row>, Stri
 fn sensibles(cerebro: State<'_, Cerebro>) -> Result<Vec<Row>, String> {
     let brain = cerebro.0.lock().map_err(texto)?;
     brain.sensitive().map_err(texto)
+}
+
+/// Las carpetas que marcaste como sensibles, para la vista «Sensibles».
+#[tauri::command]
+fn carpetas_marcadas(cerebro: State<'_, Cerebro>) -> Result<Vec<MarkedFolder>, String> {
+    let brain = cerebro.0.lock().map_err(texto)?;
+    brain.marked_folders().map_err(texto)
+}
+
+/// El botón de la cabecera de una carpeta: marcarla como sensible —todo lo
+/// que tenga dentro lo hereda, también lo que llegue después— o, con `nivel`
+/// a `None`, quitarle la marca. Una aserción del usuario (I5), como
+/// [`corregir`]; la diferencia es que ésta recalcula la carpeta entera en una
+/// transacción, y eso lo decide el núcleo, no este comando (ADR-0020).
+#[tauri::command]
+fn marcar_carpeta(
+    carpeta: String,
+    nivel: Option<String>,
+    cerebro: State<'_, Cerebro>,
+) -> Result<FolderMarked, String> {
+    let nivel = match nivel.as_deref() {
+        None => None,
+        Some(n) => Some(Sensitivity::parse(n).ok_or_else(|| format!("nivel desconocido: {n}"))?),
+    };
+    let mut brain = cerebro.0.lock().map_err(texto)?;
+    brain.mark_folder(&EntityId(carpeta), nivel).map_err(texto)
 }
 
 #[tauri::command]
@@ -353,6 +380,8 @@ fn main() {
             explorar,
             recientes,
             sensibles,
+            carpetas_marcadas,
+            marcar_carpeta,
             entidad,
             previsualizar,
             abrir,
