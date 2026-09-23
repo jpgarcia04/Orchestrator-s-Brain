@@ -44,6 +44,8 @@ pub struct IndexReport {
     pub edges_new: usize,
     /// Documentos cuyo texto se leyó en esta pasada.
     pub documents_read: usize,
+    /// De ésos, los que se leyeron con OCR: fotos y PDF escaneados.
+    pub ocr: usize,
     /// Fragmentos nuevos en el índice de búsqueda.
     pub chunks_new: usize,
     /// Archivos que la puerta retiene como sensibles o de bóveda, en total: lo
@@ -69,6 +71,20 @@ pub fn index(
     store: &mut Store,
     roots: &[PathBuf],
     embedder: Option<&dyn Embedder>,
+) -> Result<IndexReport> {
+    // El reconocedor del sistema: en Windows, el suyo; fuera, ninguno y las
+    // fotos se saltan como siempre.
+    let ocr = obrain_ocr::platform();
+    index_with(store, roots, embedder, ocr.as_deref())
+}
+
+/// [`index`] con otro reconocedor de texto (o ninguno). Es la costura por la
+/// que los tests meten un OCR de juguete.
+pub fn index_with(
+    store: &mut Store,
+    roots: &[PathBuf],
+    embedder: Option<&dyn Embedder>,
+    ocr: Option<&dyn obrain_ocr::Ocr>,
 ) -> Result<IndexReport> {
     let started = Instant::now();
     let mut r = IndexReport::default();
@@ -108,8 +124,9 @@ pub fn index(
     let at = obrain_scan::now_ms();
     let filas = obrain_extract::load_files(store, TimePoint::at(at))?;
     let mut extraccion = obrain_extract::ExtractReport::default();
-    store.transaction(|s| obrain_extract::extract_all(s, &filas, at, &mut extraccion))?;
+    store.transaction(|s| obrain_extract::extract_all_with(s, &filas, at, &mut extraccion, ocr))?;
     r.documents_read = extraccion.extracted;
+    r.ocr = extraccion.ocr;
     r.chunks_new = extraccion.chunks;
 
     // ── la puerta · clasificar ──

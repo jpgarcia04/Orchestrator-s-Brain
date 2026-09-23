@@ -165,7 +165,12 @@ pub fn of(
         p.offset = inicio;
         p.highlight = marca;
         p.text = Some(doc[inicio..fin].to_string());
-        return Ok(p);
+        // Una foto con texto reconocido (OCR) se sigue enseñando como foto:
+        // el texto va con ella, debajo. Un escaneo se reconoce por la imagen.
+        let es_imagen = p.path.as_deref().is_some_and(is_image);
+        if !es_imagen {
+            return Ok(p);
+        }
     }
 
     // ── 2. La miniatura. **Aquí sí se abre un archivo**, así que la guarda va
@@ -206,7 +211,8 @@ fn reason(a: Option<Availability>, etiquetado: bool, status: Option<&str>) -> St
     match a {
         Some(Availability::Local) => match status {
             Some("empty") => {
-                "se leyó y no tenía texto — casi siempre es un PDF escaneado, y haría falta OCR"
+                "se leyó y no tenía texto: casi siempre es un documento escaneado, y el reconocedor de texto \
+                 (OCR) de este equipo no encontró nada legible o no está disponible"
                     .to_string()
             }
             Some("binary") => "se leyó y no era texto, aunque lo pareciera por el nombre".to_string(),

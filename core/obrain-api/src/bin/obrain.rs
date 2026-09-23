@@ -312,6 +312,9 @@ fn informe(r: &IndexReport, db: &std::path::Path) {
     println!("  archivos vistos        {}", r.files_seen);
     println!("  nuevos                 {}", r.files_new);
     println!("  documentos leídos      {}", r.documents_read);
+    if r.ocr > 0 {
+        println!("    con OCR              {}", r.ocr);
+    }
     println!("  relaciones nuevas      {}", r.edges_new);
     println!("  sensibles · bóveda     {} · {}", r.sensitive, r.vault);
     if r.inherited > 0 {

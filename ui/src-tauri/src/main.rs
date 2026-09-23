@@ -63,6 +63,9 @@ struct Cerebro(Mutex<Option<Brain>>);
 /// ¿Hay un reindexado en marcha? Dos a la vez escribirían lo mismo dos veces.
 struct Indexando(AtomicBool);
 
+/// El reconocedor de texto (OCR) de este equipo, si lo hay. Se mira una vez.
+struct MotorOcr(Option<String>);
+
 const CERRADA: &str = "la base está cerrada: escribe tu clave de recuperación";
 
 /// Lo que la barra enseña al abrir, antes de que nadie escriba nada.
@@ -79,6 +82,9 @@ struct Estado {
     libraries: Vec<String>,
     /// Hay un reindexado en curso.
     indexing: bool,
+    /// El OCR de este equipo (`windows.media.ocr/es-ES`), o `None` si no hay:
+    /// entonces las fotos y los PDF escaneados no tienen texto que buscar.
+    ocr: Option<String>,
 }
 
 /// Lo que recibe la ventana con el evento `indexado`.
@@ -245,9 +251,14 @@ fn corregir(
 }
 
 #[tauri::command]
-fn estado(cerebro: State<'_, Cerebro>, indexando: State<'_, Indexando>) -> Result<Estado, String> {
+fn estado(
+    cerebro: State<'_, Cerebro>,
+    indexando: State<'_, Indexando>,
+    ocr: State<'_, MotorOcr>,
+) -> Result<Estado, String> {
     let guarda = cerebro.0.lock().map_err(texto)?;
     let db = default_db_path().display().to_string();
+    let ocr = ocr.0.clone();
     let Some(brain) = guarda.as_ref() else {
         return Ok(Estado {
             db,
@@ -257,6 +268,7 @@ fn estado(cerebro: State<'_, Cerebro>, indexando: State<'_, Indexando>) -> Resul
             assertions: 0,
             libraries: Vec::new(),
             indexing: false,
+            ocr,
         });
     };
     let store = brain.store();
@@ -272,6 +284,7 @@ fn estado(cerebro: State<'_, Cerebro>, indexando: State<'_, Indexando>) -> Resul
         assertions: store.log_len().map_err(texto)?,
         libraries: obrain_api::indexar::libraries(store).map_err(texto)?,
         indexing: indexando.0.load(Ordering::SeqCst),
+        ocr,
     })
 }
 
@@ -495,6 +508,7 @@ fn main() {
             app.manage(Cerebro(Mutex::new(brain)));
             // Arranca marcado: el hilo de abajo reindexa en cuanto tenga modelo.
             app.manage(Indexando(AtomicBool::new(abierta)));
+            app.manage(MotorOcr(obrain_api::ocr_engine()));
             if abierta {
                 arrancar_en_fondo(app.handle().clone());
             }

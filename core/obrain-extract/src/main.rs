@@ -6,7 +6,7 @@
 //! sopa de ligaduras ni que una página web indexó su aviso de cookies.
 
 use obrain_core::{Store, TimePoint};
-use obrain_extract::{extract_all, index, load_files, search, ExtractReport};
+use obrain_extract::{extract_all_with, index, load_files, search, ExtractReport};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
@@ -97,7 +97,13 @@ fn main() -> ExitCode {
     let before = store.log_len().unwrap_or(0);
     let started = std::time::Instant::now();
     let mut report = ExtractReport::default();
-    let res = store.transaction(|s| extract_all(s, &files, at, &mut report));
+    // El OCR del sistema, si lo hay (Windows): fotos y PDF escaneados.
+    let ocr = obrain_ocr::platform();
+    match &ocr {
+        Some(o) => println!("  OCR: {}", o.engine()),
+        None => println!("  OCR: no hay reconocedor en este sistema; las fotos se saltan"),
+    }
+    let res = store.transaction(|s| extract_all_with(s, &files, at, &mut report, ocr.as_deref()));
     let elapsed = started.elapsed();
     let _ = std::panic::take_hook();
 
@@ -117,6 +123,7 @@ fn main() -> ExitCode {
     println!("\n── ABIERTOS ───────────────────────────────");
     println!("  archivos abiertos       {}", report.opened);
     println!("      texto extraido      {}", report.extracted);
+    println!("        con OCR           {}", report.ocr);
     println!("      sin texto (vacio)   {}", report.empty);
     println!("      binario disfrazado  {}", report.binary);
     println!("      ruido descartado    {}", report.noise);

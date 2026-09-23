@@ -151,6 +151,12 @@ pub fn default_db_path() -> std::path::PathBuf {
     base.join("obrain").join("brain.obrain")
 }
 
+/// Qué reconocedor de texto (OCR) tiene este sistema, para decirlo: en
+/// Windows, `windows.media.ocr/<idioma>`; fuera, ninguno.
+pub fn ocr_engine() -> Option<String> {
+    obrain_ocr::platform().map(|o| o.engine())
+}
+
 /// Carga el modelo de embeddings, o `None` si todavía no está descargado.
 ///
 /// Fuera de [`Brain`] a propósito: son **2,50 s** que hay que poder pagar en un

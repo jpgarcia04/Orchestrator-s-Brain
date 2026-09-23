@@ -92,6 +92,9 @@ pub fn migrate(conn: &Connection) -> Result<()> {
 /// Lo que ya sabíamos de una entidad, para no repetir trabajo.
 #[derive(Debug, Clone)]
 pub struct Previous {
+    /// Con qué se extrajo: `pdf`, `pdf+ocr`, `image`… Es lo que dice si a un
+    /// PDF escaneado ya se le pasó el OCR o todavía no.
+    pub extractor: String,
     pub extractor_ver: i64,
     pub file_hash: Option<String>,
     pub status: String,
@@ -105,7 +108,7 @@ pub fn previous(
 ) -> Result<Option<Previous>> {
     Ok(conn
         .query_row(
-            "SELECT extractor_ver, file_hash, status FROM extractions
+            "SELECT extractor_ver, file_hash, status, extractor FROM extractions
              WHERE entity = ?1 AND chunker = ?2 AND chunker_ver = ?3",
             params![entity.as_str(), chunker, chunker_ver],
             |r| {
@@ -113,6 +116,7 @@ pub fn previous(
                     extractor_ver: r.get(0)?,
                     file_hash: r.get(1)?,
                     status: r.get(2)?,
+                    extractor: r.get(3)?,
                 })
             },
         )

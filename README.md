@@ -110,6 +110,8 @@ El sistema recorre las carpetas que le indiques y **reconoce** cada archivo — 
 ### 2. 📖 Leer — *Entender el contenido*
 Extrae el texto de cada documento (PDFs, documentos de Office, notas, código) y lo organiza para poder buscarlo.
 
+> Las **fotos y los PDF escaneados** —la foto de tu TIE, el pasaporte escaneado— se leen con el reconocedor de texto (OCR) que **ya trae Windows**, sin conexión: nada sale de tu computadora.
+
 ### 3. 🔗 Relacionar — *Conectar sin adivinar*
 Antes de usar cualquier inteligencia artificial, el sistema ya puede descubrir **miles de relaciones** usando solo señales que existen en tus archivos:
 
@@ -159,7 +161,7 @@ El proyecto está en desarrollo activo. Cada hito se valida contra la pregunta d
 | **Fase 1** — Tu bóveda | Bibliotecas: el explorador empieza en tu carpeta, nombres limpios, `obrain indexar`, la app se pone al día sola | ✅ Completo |
 | **M5c** — Enterarse | Lo nuevo aparece sin lanzar nada | ◐ Al abrir la app y con «actualizar»; falta vigilar la carpeta en vivo |
 | **Fase 2** — La interfaz nueva | Svelte 5: escritorio tipo sistema operativo con vista previa, buscador `Ctrl K`, la galaxia como vista «Mapa» enlazada, aspecto de noche y de día | ✅ Completo |
-| **Fase 3** — Documentos personales | Sensibilidad por carpeta ✅ · cifrado en reposo y PIN ✅ · OCR · vencimientos | ◐ En curso |
+| **Fase 3** — Documentos personales | Sensibilidad por carpeta ✅ · cifrado en reposo y PIN ✅ · OCR ✅ · vencimientos | ◐ En curso |
 | **M6** — Construir conocimiento | Inferencia de procesos y enriquecimiento | ⏳ Planificado |
 | **M7** — La pregunta | Responder la pregunta de la visa | 🎯 Meta final |
 
@@ -231,6 +233,7 @@ Orchestrator's-Brain/
 │   ├── obrain-keys/               #   La llave de la base (DPAPI) y la clave de recuperación
 │   ├── obrain-core/               #   Modelo de datos y almacenamiento (cifrado con SQLCipher)
 │   ├── obrain-scan/               #   Descubrimiento e identidad de archivos
+│   ├── obrain-ocr/                #   Leer fotos y escaneos con el OCR de Windows
 │   ├── obrain-extract/            #   Extracción de texto y búsqueda léxica
 │   ├── obrain-link/               #   Relaciones automáticas entre archivos
 │   ├── obrain-guard/              #   Sensibilidad y control de egreso

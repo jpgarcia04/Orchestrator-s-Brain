@@ -153,6 +153,9 @@ pub const SEED_PREDICATES: &[(&str, &str, &str, &str, Option<&str>)] = &[
     ("text_chars", "caracteres de texto", "one", "deterministic", None),
     ("text_hash", "hash del texto extraido", "one", "deterministic", None),
     ("chunk_count", "número de fragmentos", "one", "deterministic", None),
+    // El texto no estaba en el archivo: lo reconoció un OCR (una foto, un
+    // escaneo). Procedencia (I9): quién lo leyó y en qué idioma.
+    ("ocr_engine", "texto reconocido con", "one", "deterministic", None),
     // El chunker vive en el log, no sólo en la proyección: el invariante I7
     // exige que todo vector sepa con qué chunker se produjo su fragmento.
     ("chunker", "estrategia de fragmentación", "one", "deterministic", None),

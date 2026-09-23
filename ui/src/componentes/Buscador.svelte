@@ -164,7 +164,9 @@
         <p class="nada">
           No encuentro nada con «{buscado}». Busqué en los nombres y en el texto de tus documentos{semantica
             ? ", también por significado"
-            : ""}; las fotos y los PDF escaneados todavía no tienen texto que leer.
+            : ""}{app.info?.ocr
+            ? ", y en lo que se leyó de tus fotos y escaneos."
+            : "; las fotos y los PDF escaneados no tienen texto en este equipo (no hay reconocedor de texto)."}
         </p>
       {/if}
     </div>

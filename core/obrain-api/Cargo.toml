@@ -23,6 +23,8 @@ obrain-scan = { path = "../obrain-scan" }
 thiserror = "2"
 # La llave de la base y la clave de recuperación (ADR-0021).
 obrain-keys = { path = "../obrain-keys" }
+# El OCR de Windows, para fotos y PDF escaneados (se lo pasa a M2 al indexar).
+obrain-ocr = { path = "../obrain-ocr" }
 # El hash del PIN: Argon2id, el mismo que deriva la clave de recuperación.
 argon2 = "0.5"
 getrandom = "0.3"

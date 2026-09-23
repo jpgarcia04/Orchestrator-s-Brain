@@ -1,6 +1,6 @@
 # Estado del proyecto — empieza aquí
 
-**Última revisión:** 2026-09-22
+**Última revisión:** 2026-09-23
 
 Una página para retomar el proyecto sin leer las 2.000 líneas de agosto. El
 diseño completo está en [`PROJECT-MASTER.md`](PROJECT-MASTER.md); el porqué de
@@ -18,7 +18,7 @@ computadora.
 
 | Funciona | Falta |
 |---|---|
-| Escanear una carpeta y reconocer cada archivo aunque lo muevas o renombres | **Leer fotos y PDF escaneados (OCR)**: hoy una foto de tu pasaporte no tiene texto que buscar |
+| Escanear una carpeta y reconocer cada archivo aunque lo muevas o renombres | |
 | Leer el texto de PDF, Word, HTML y texto plano | |
 | Buscar por palabras y por significado (con el modelo local descargado) | Vigilar la carpeta en vivo: hoy se pone al día al abrir la app o con «actualizar» |
 | Marcar lo sensible y no dejarlo salir de la máquina | Vencimientos (*¿qué me caduca pronto?*) |
@@ -28,9 +28,10 @@ computadora.
 | «Añadir carpeta» desde la app, o `obrain indexar <carpeta>` desde la terminal | |
 | **Sensibilidad por carpeta**: marcas `01 Identidad` y todo lo de dentro es sensible, también lo que llegue después (la foto de la TIE incluida) | |
 | **Base cifrada** (SQLCipher) con la llave en Windows y una clave de recuperación; **PIN** opcional para ver lo sensible | Probarlo en tu Windows: DPAPI sólo se ha comprobado que compila |
+| **Leer fotos y PDF escaneados (OCR)** con el reconocedor que ya trae Windows, sin conexión: la foto de la TIE se encuentra buscando «extranjero» y sale sensible por su NIE | Probarlo en tu Windows: el OCR sólo se ha comprobado que compila |
 | La app se pone al día sola al abrirse, y tiene botón «actualizar» | |
 
-Núcleo en Rust con 328 tests (uno de ellos sólo corre en Windows), interfaz en
+Núcleo en Rust con 336 tests (uno de ellos sólo corre en Windows), interfaz en
 Tauri + Svelte 5, con el mapa en PixiJS.
 
 ## Cómo usarlo hoy (Windows)
@@ -139,7 +140,7 @@ Y nombres que se lean solos, con la fecha delante:
 | 0 | Limpieza: documentación a la medida, README honesto | ✅ Hecha |
 | 1 | El núcleo para tu carpeta: bibliotecas, nombres, `obrain indexar`, «actualizar» | ✅ Hecha |
 | 2 | La interfaz nueva en Svelte 5: el explorador como escritorio estilo sistema operativo, la galaxia como vista «Mapa» enlazada, `Ctrl+K`, vista previa rápida | ✅ Hecha |
-| **3** | **Documentos personales**: ✅ sensibilidad por carpeta · ✅ cifrado y PIN · OCR · vencimientos | ◐ En curso |
+| **3** | **Documentos personales**: ✅ sensibilidad por carpeta · ✅ cifrado y PIN · ✅ OCR · vencimientos | ◐ En curso |
 | 4 | La visión original: trámites reconstruidos, la pregunta de la visa | Congelada |
 
 **Congelado** (no se borra, no se sigue): sesiones de trabajo y puentes,
@@ -165,6 +166,12 @@ navegador del banco de pruebas (el 2026-09-22 aún no la habías corrido).
    cifra tus archivos originales**, y lo que hubo en claro puede seguir en el
    espacio libre del SSD hasta que se sobrescriba.
 
+Y para ver el OCR: dale a «actualizar» con alguna foto de un documento en tu
+biblioteca y búscala por algo que diga. En la vista previa, debajo de la foto,
+sale «Texto reconocido en la imagen» y, en el «¿por qué?», *«el OCR de Windows
+(es-ES)»*. Si no sale nada, Windows no tiene el paquete de reconocimiento de tu
+idioma: Configuración › Hora e idioma › Idioma › Español › Opciones.
+
 ## Mapa del repositorio
 
 ```
@@ -173,6 +180,7 @@ core/            el núcleo en Rust
   obrain-core/     el log de aserciones (la verdad), cifrado con SQLCipher
   obrain-scan/     recorrer el disco, identidad de archivos, bibliotecas
   obrain-link/     relaciones sin IA (carpetas, duplicados, descargas)
+  obrain-ocr/      leer fotos y escaneos con el OCR de Windows
   obrain-extract/  leer texto y el índice de búsqueda por palabras
   obrain-guard/    sensibilidad y lo que nunca sale de la máquina
   obrain-embed/    búsqueda por significado con un modelo local

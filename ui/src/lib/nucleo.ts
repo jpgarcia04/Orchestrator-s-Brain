@@ -297,6 +297,8 @@ export interface Estado {
   libraries: string[];
   /** Hay un reindexado en marcha. */
   indexing: boolean;
+  /** El OCR de este equipo (`windows.media.ocr/es-ES`), o `null` si no hay. */
+  ocr: string | null;
 }
 
 /** Cómo está la seguridad de la base (ADR-0021). */
@@ -323,6 +325,8 @@ export interface Informe {
   edges_new: number;
   documents_read: number;
   chunks_new: number;
+  /** De los documentos leídos, los que se leyeron con OCR. */
+  ocr: number;
   sensitive: number;
   vault: number;
   /** De los sensibles, los que lo son por estar en una carpeta marcada. */

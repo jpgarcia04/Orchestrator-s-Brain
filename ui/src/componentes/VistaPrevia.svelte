@@ -150,6 +150,11 @@
     if (c.predicate === "sensitivity_level") {
       return { sensitive: "Sensible", vault: "Bóveda", normal: "Normal" }[c.value] ?? c.value;
     }
+    if (c.predicate === "ocr_engine") {
+      // `windows.media.ocr/es-ES` → «el OCR de Windows (es-ES)»
+      const [motor, idioma] = c.value.split("/");
+      return motor === "windows.media.ocr" ? `el OCR de Windows${idioma ? ` (${idioma})` : ""}` : c.value;
+    }
     if (c.value_time !== null) return fecha(c.value_time);
     return c.value;
   }
@@ -244,6 +249,14 @@
           </div>
         {/if}
       </div>
+
+      {#if vista.kind === "image" && vista.text && !oculto && !bloqueado}
+        <!-- Una foto con texto reconocido (OCR): la foto arriba, lo que dice aquí. -->
+        <details class="reconocido">
+          <summary>Texto reconocido en la imagen</summary>
+          <pre class="papel">{vista.text}</pre>
+        </details>
+      {/if}
 
       <div class="cabeza">
         <h2 class="titular">{titulo.titulo}</h2>
@@ -398,6 +411,18 @@
     max-width: 100%;
     max-height: 300px;
     object-fit: contain;
+  }
+  .reconocido {
+    margin-top: -6px;
+  }
+  .reconocido summary {
+    cursor: pointer;
+    font-size: 12.5px;
+    color: var(--tenue);
+  }
+  .reconocido .papel {
+    width: 100%;
+    margin: 10px 0 0;
   }
   .papel {
     position: relative;

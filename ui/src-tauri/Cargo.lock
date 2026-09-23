@@ -3022,6 +3022,7 @@ dependencies = [
  "obrain-guard",
  "obrain-keys",
  "obrain-link",
+ "obrain-ocr",
  "obrain-scan",
  "serde",
  "serde_json",
@@ -3071,6 +3072,7 @@ dependencies = [
  "ego-tree",
  "encoding_rs",
  "obrain-core",
+ "obrain-ocr",
  "obrain-scan",
  "pdf-extract",
  "quick-xml 0.41.0",
@@ -3106,6 +3108,14 @@ name = "obrain-link"
 version = "0.0.1"
 dependencies = [
  "obrain-core",
+]
+
+[[package]]
+name = "obrain-ocr"
+version = "0.0.1"
+dependencies = [
+ "windows",
+ "windows-future",
 ]
 
 [[package]]

@@ -221,6 +221,8 @@ pub struct ExtractReport {
     /// Texto legítimo que aun así no entra: minificado o diccionario.
     pub noise: usize,
     pub failed: usize,
+    /// De los extraídos, cuántos se leyeron con OCR: fotos y PDF escaneados.
+    pub ocr: usize,
 
     pub bytes_read: u64,
     pub chars: u64,
@@ -251,11 +253,36 @@ impl ExtractReport {
 
 /// Extrae, fragmenta e indexa todo el corpus. El llamante envuelve en
 /// transacción.
+///
+/// Sin OCR: las fotos se saltan y un PDF escaneado sale vacío, como siempre.
 pub fn extract_all(
     store: &Store,
     files: &[FileRow],
     at: i64,
     report: &mut ExtractReport,
+) -> Result<()> {
+    extract_all_with(store, files, at, report, None)
+}
+
+/// [`extract_all`] con un reconocedor de texto para lo que es una imagen.
+///
+/// Con OCR, dos cosas cambian:
+///
+/// - **Las fotos se leen.** La TIE fotografiada, la receta, el escaneo en JPG.
+/// - **Un PDF que sale vacío se vuelve a intentar con OCR**, y los que ya
+///   estaban anotados como vacíos por una pasada sin OCR se reintentan una
+///   vez: se sabe porque su extractor era `pdf` y no `pdf+ocr`.
+///
+/// El texto reconocido entra en el mismo índice que el resto —es una
+/// proyección del archivo como cualquier otra (ADR-0005)— y el log anota quién
+/// lo leyó (`ocr_engine`), porque un texto reconocido puede tener errores y eso
+/// tiene que poder decirse.
+pub fn extract_all_with(
+    store: &Store,
+    files: &[FileRow],
+    at: i64,
+    report: &mut ExtractReport,
+    ocr: Option<&dyn obrain_ocr::Ocr>,
 ) -> Result<()> {
     index::migrate(store.conn())?;
     report.considered = files.len();
@@ -268,6 +295,12 @@ pub fn extract_all(
             report.skipped_unsupported += 1;
             continue;
         };
+        // Una imagen sin reconocedor es, a efectos prácticos, un formato que
+        // no se sabe leer: lo mismo que era antes de que hubiera OCR.
+        if format == Format::Image && ocr.is_none() {
+            report.skipped_unsupported += 1;
+            continue;
+        }
 
         // ── 2 · TRIAJE. Antes de abrir. Sin excepciones. ──
         if !file.may_read_content() {
@@ -287,6 +320,10 @@ pub fn extract_all(
             p.extractor_ver == format.version()
                 && p.file_hash.is_some()
                 && p.file_hash == file.file_hash
+                // Un PDF escaneado que se dio por vacío sin OCR, ahora que hay
+                // OCR, se vuelve a mirar. Una vez: después su extractor ya es
+                // `pdf+ocr`.
+                && !(ocr.is_some() && format == Format::Pdf && p.status == "empty" && p.extractor == "pdf")
         });
         if unchanged {
             report.unchanged += 1;
@@ -300,7 +337,7 @@ pub fn extract_all(
             Err(e) => {
                 report.failed += 1;
                 report.errors.push(format!("{}: {e}", file.file_name()));
-                write_outcome(store, report, file, format, Status::Failed, None, 0, 0, at, tp)?;
+                write_outcome(store, report, file, format.as_str(), Status::Failed, None, None, 0, 0, at, tp)?;
                 continue;
             }
         };
@@ -309,8 +346,37 @@ pub fn extract_all(
         let stat = report.by_format.entry(format.as_str()).or_default();
         stat.files += 1;
 
-        let raw = match format.extract(&bytes) {
+        // Una imagen, directamente al reconocedor; el resto, a su extractor.
+        let extraido = match (format, ocr) {
+            (Format::Image, Some(o)) => o.image(&bytes),
+            _ => format.extract(&bytes),
+        };
+        let mut leido_con: Option<String> = (format == Format::Image).then(|| ocr.map(|o| o.engine())).flatten();
+        let mut extractor = format.as_str();
+        let raw = match extraido {
             Ok(t) => t,
+            // El lector de PDF no pudo con él. Un escaneo raro también hace
+            // eso, y con OCR se puede leer igual.
+            Err(detail) if format == Format::Pdf && ocr.is_some() && detail != "binario" => {
+                extractor = "pdf+ocr";
+                match ocr.and_then(|o| o.pdf(&bytes, obrain_ocr::MAX_PDF_PAGES)) {
+                    Some(Ok(t)) => {
+                        leido_con = ocr.map(|o| o.engine());
+                        t
+                    }
+                    otro => {
+                        let por_que = match otro {
+                            Some(Err(e)) => format!("{detail}; {e}"),
+                            _ => detail,
+                        };
+                        report.failed += 1;
+                        report.errors.push(format!("{}: {por_que}", file.file_name()));
+                        report.by_format.entry(format.as_str()).or_default().failed += 1;
+                        write_outcome(store, report, file, extractor, Status::Failed, None, None, 0, 0, at, tp)?;
+                        continue;
+                    }
+                }
+            }
             Err(detail) => {
                 let status = if detail == "binario" {
                     report.binary += 1;
@@ -321,17 +387,33 @@ pub fn extract_all(
                     report.by_format.entry(format.as_str()).or_default().failed += 1;
                     Status::Failed
                 };
-                write_outcome(store, report, file, format, status, None, 0, 0, at, tp)?;
+                write_outcome(store, report, file, format.as_str(), status, None, None, 0, 0, at, tp)?;
                 continue;
             }
         };
 
         // ── 6 · normalizar ANTES de medir: los offsets son de este texto ──
-        let normalized = text::normalize(&raw);
+        let mut normalized = text::normalize(&raw);
+
+        // Un PDF sin texto es, casi siempre, un escaneo: con OCR se lee.
+        if normalized.is_empty() && format == Format::Pdf && extractor == "pdf" {
+            if let Some(o) = ocr {
+                extractor = "pdf+ocr";
+                match o.pdf(&bytes, obrain_ocr::MAX_PDF_PAGES) {
+                    Some(Ok(t)) => {
+                        normalized = text::normalize(&t);
+                        leido_con = Some(o.engine());
+                    }
+                    Some(Err(e)) => report.errors.push(format!("{}: {e}", file.file_name())),
+                    None => {}
+                }
+            }
+        }
+
         if normalized.is_empty() {
             report.empty += 1;
             report.by_format.entry(format.as_str()).or_default().empty += 1;
-            write_outcome(store, report, file, format, Status::Empty, None, 0, 0, at, tp)?;
+            write_outcome(store, report, file, extractor, Status::Empty, None, None, 0, 0, at, tp)?;
             continue;
         }
 
@@ -346,7 +428,7 @@ pub fn extract_all(
                 noise::Noise::Minified => Status::Minified,
                 noise::Noise::WordList => Status::WordList,
             };
-            write_outcome(store, report, file, format, status, None, 0, 0, at, tp)?;
+            write_outcome(store, report, file, extractor, status, None, None, 0, 0, at, tp)?;
             continue;
         }
 
@@ -355,6 +437,9 @@ pub fn extract_all(
         index::replace_chunks(store.conn(), &file.entity, chunker, chunker_ver, &chunks)?;
 
         report.extracted += 1;
+        if leido_con.is_some() {
+            report.ocr += 1;
+        }
         report.chunks += chunks.len();
         report.chars += normalized.chars().count() as u64;
         let stat = report.by_format.entry(format.as_str()).or_default();
@@ -365,8 +450,9 @@ pub fn extract_all(
             store,
             report,
             file,
-            format,
+            extractor,
             Status::Ok,
+            leido_con.as_deref(),
             Some(&hash),
             normalized.chars().count(),
             chunks.len(),
@@ -383,8 +469,9 @@ fn write_outcome(
     store: &Store,
     report: &mut ExtractReport,
     file: &FileRow,
-    format: Format,
+    extractor: &str,
     status: Status,
+    ocr_engine: Option<&str>,
     text_hash: Option<&str>,
     chars: usize,
     chunk_count: usize,
@@ -395,8 +482,9 @@ fn write_outcome(
         store.conn(),
         index::Record {
             entity: &file.entity,
-            extractor: format.as_str(),
-            extractor_ver: format.version(),
+            extractor,
+            // Hoy todos los extractores son la versión 1 (`Format::version`).
+            extractor_ver: 1,
             chunker: chunk::CHUNKER,
             chunker_ver: chunk::CHUNKER_VERSION,
             status: status.as_str(),
@@ -437,6 +525,16 @@ fn write_outcome(
         // I7: el chunker queda en el log, no sólo en la tabla. Cuando M4
         // escriba vectores, esta aserción es la que dice de qué fragmentos son.
         assert_if_changed(store, report, file, "chunker", chunk::chunker_id().into(), tp, at)?;
+        // Quién leyó el texto, si no estaba en el archivo. Y si ahora sí lo
+        // estaba —el PDF se rehízo con texto—, lo del OCR deja de ser cierto.
+        match ocr_engine {
+            Some(e) => assert_if_changed(store, report, file, "ocr_engine", e.into(), tp, at)?,
+            None => {
+                for a in store.query(Some(&file.entity), Some("ocr_engine"), tp)? {
+                    store.retract(&a.id, at)?;
+                }
+            }
+        }
         // La faceta es lo que convierte a la entidad en algo con contenido
         // buscable, y por tanto en candidata a embeddings en M4.
         if !store
