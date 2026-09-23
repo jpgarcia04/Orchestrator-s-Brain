@@ -30,6 +30,7 @@ computadora.
 | **Base cifrada** (SQLCipher) con la llave en Windows y una clave de recuperación; **PIN** opcional para ver lo sensible | ✅ Probado en tu Windows (2026-09-23). Falta el PIN, si lo quieres |
 | **Leer fotos y PDF escaneados (OCR)** con el reconocedor que ya trae Windows, sin conexión: la foto de la TIE se encuentra buscando «extranjero» y sale sensible por su NIE | ✅ Probado en tu Windows (2026-09-23) |
 | **Vencimientos**: lee cuándo caduca cada documento («VALIDEZ 15 11 2026» en la foto de la TIE, «vence el 30 de septiembre» en el contrato) y el Inicio te enseña **«Caduca pronto»**: lo que vence en 90 días y lo que ya venció. Cada fecha dice por qué la leyó y se corrige en un clic. **Aunque el OCR se coma la palabra** (tu pasaporte): la saca de la zona MRZ (`P<MEX<<…`) con su dígito de control, de la expedición más N años justos en un documento de identidad, o del año solo de la INE (ADR-0028) | Tu pasaporte no daba fecha (2026-09-23): el OCR no leyó «caducidad». Arreglado y comprobado con su texto; falta verlo en tu app |
+| **Una carpeta fija para todo**: la base, su llave y el modelo viven en `C:\Users\pacox\.obrain`, abras obrain desde donde lo abras (una PowerShell, la terminal de Claude o la de Codex). La primera vez, obrain muda sola la base de `%LOCALAPPDATA%\obrain` (ADR-0029) | Tu modelo ya está ahí (2026-09-23). Falta abrir la app para que mude tu base |
 | La app se pone al día sola al abrirse, y tiene botón «actualizar» | |
 | **Vigila tus carpetas en vivo** mientras está abierta: guardas un documento y aparece solo, a los 3 segundos de dejar de tocar la carpeta, sin avisos (sólo el indicador de abajo a la izquierda) | ✅ Probado en tu Windows (2026-09-23) |
 | **Papelera**: lo que borras sale de Recientes, «Caduca pronto», el explorador, el mapa y la búsqueda, y se queda 30 días en la vista «Papelera»; después se olvida lo que se leyó de él (o antes, con «Olvidar ya» o «Vaciar papelera»). Mover y renombrar ya no dejan documentos ni carpetas repetidos | ✅ Probado en tu Windows (2026-09-23) |
@@ -81,17 +82,22 @@ con otra. Lo mismo desde la terminal, si lo prefieres:
 cd core
 cargo run --release --bin obrain -- indexar "C:\Users\pacox\Segundo Cerebro"
 
-# (una sola vez) bajar el modelo de búsqueda por significado, ~465 MB
-cargo run --release --bin obrain-embed -- "$env:LOCALAPPDATA\obrain\brain.obrain" --descargar-modelo
+# (sólo si no lo tienes; el tuyo ya está en C:\Users\pacox\.obrain\models)
+# bajar el modelo de búsqueda por significado, ~465 MB
+cargo run --release --bin obrain-embed -- "$env:USERPROFILE\.obrain\brain.obrain" --descargar-modelo
 ```
 
 Sin ese modelo la búsqueda funciona igual por palabras; el buscador te dice
 abajo a la derecha en qué modo está.
 
-La base vive en `%LOCALAPPDATA%\obrain\brain.obrain` y la comparten la orden
-`obrain` y la aplicación. **Si esa base ya tiene lo que escaneaste en agosto**
-(tu perfil entero), empieza de cero para la bóveda: cierra la app y renombra
-`brain.obrain` antes del primer `obrain indexar`. Otras órdenes útiles:
+**Todo lo de obrain vive en una carpeta fija: `C:\Users\pacox\.obrain`** —la
+base (`brain.obrain`), su llave y el modelo—, y la comparten la orden `obrain`
+y la aplicación, las abras desde donde las abras (ADR-0029). Hasta el
+2026-09-23 vivía en `%LOCALAPPDATA%\obrain`: **la primera vez que abras esta
+versión, obrain la muda sola** (si otra obrain la tiene abierta, esa vez la
+usa donde está y la muda la siguiente). Por qué: Windows le da a la app de
+Claude y a la de Codex su propia copia de `AppData`, y lo que se abría desde
+ellas veía otra base; eso fue el «cifrado a medias». Otras órdenes útiles:
 
 ```powershell
 cargo run --release --bin obrain -- bibliotecas   # qué carpetas tienes registradas

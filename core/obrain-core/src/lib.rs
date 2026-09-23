@@ -50,6 +50,7 @@ pub mod model;
 pub mod schema;
 pub mod sensitivity;
 pub mod store;
+pub mod ubicacion;
 
 /// Reexportado para que las proyecciones (índice léxico, vectorial) hablen con
 /// la **misma** versión de `rusqlite` que el log. Dos versiones distintas del

@@ -142,19 +142,15 @@ pub struct Answer {
 /// nada ni configurar una variable.
 ///
 /// `OBRAIN_DB` manda si está puesta, para poder abrir cualquier otra base. Si
-/// no, en Windows `%LOCALAPPDATA%\obrain\brain.obrain`; en el resto, el
-/// directorio de datos del usuario.
+/// no, en Windows `%USERPROFILE%\.obrain\brain.obrain` —fuera de `AppData`,
+/// donde Windows le da a cada app empaquetada su propia copia (ADR-0029)—, y
+/// la primera vez muda ahí la base de `%LOCALAPPDATA%\obrain`. En el resto, el
+/// directorio de datos del usuario. Ver [`obrain_core::ubicacion`].
 pub fn default_db_path() -> std::path::PathBuf {
-    use std::path::PathBuf;
     if let Ok(p) = std::env::var("OBRAIN_DB") {
-        return PathBuf::from(p);
+        return std::path::PathBuf::from(p);
     }
-    let base = std::env::var_os("LOCALAPPDATA")
-        .or_else(|| std::env::var_os("XDG_DATA_HOME"))
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share")))
-        .unwrap_or_else(|| PathBuf::from("."));
-    base.join("obrain").join("brain.obrain")
+    obrain_core::ubicacion::carpeta().join(obrain_core::ubicacion::BASE)
 }
 
 /// Qué reconocedor de texto (OCR) tiene este sistema, para decirlo: en

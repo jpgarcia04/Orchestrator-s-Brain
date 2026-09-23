@@ -61,7 +61,11 @@ Se le enseñaron al usuario las decisiones con coste antes del código, y eligi�
    pierde nada.
 
 6. **obrain nunca escribe en tus carpetas**, así que indexar no puede
-   provocar otra pasada: la base vive en `%LOCALAPPDATA%\obrain`.
+   provocar otra pasada: la base vive en `%LOCALAPPDATA%\obrain`. (Desde
+   [ADR-0029](0029-una-carpeta-fija-fuera-de-appdata.md) vive en
+   `%USERPROFILE%\.obrain`, y el vigía ignora lo que cuelga de las carpetas
+   con punto del perfil: con el perfil entero como biblioteca, la base cae
+   dentro.)
 
 7. **En la interfaz**: la pasada del vigía avisa al empezar (evento
    `indexando`) y el indicador de abajo a la izquierda pasa a «Leyendo tu

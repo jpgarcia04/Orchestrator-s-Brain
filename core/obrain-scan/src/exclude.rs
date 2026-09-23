@@ -317,6 +317,22 @@ impl ExclusionSet {
         }
     }
 
+    /// ¿Cuelga esta ruta **absoluta** de una carpeta con punto de la raíz del
+    /// perfil? Es la regla de [`Self::dotdir_del_perfil`] para quien no baja
+    /// directorio a directorio, sino que recibe rutas sueltas: el vigía.
+    ///
+    /// Ahí vive la base de obrain, `%USERPROFILE%\.obrain` ([ADR-0029]). Con
+    /// el perfil entero como biblioteca, sin esto cada escritura de la base
+    /// despertaría al vigía, y su pasada volvería a escribir en la base.
+    ///
+    /// [ADR-0029]: ../../../docs/adr/0029-una-carpeta-fija-fuera-de-appdata.md
+    pub fn cuelga_de_dotdir_del_perfil(&self, path: &Path) -> bool {
+        path.ancestors().any(|a| {
+            a.file_name()
+                .is_some_and(|n| self.dotdir_del_perfil(a, &n.to_string_lossy()))
+        })
+    }
+
     /// Asimetría deliberada respecto a [`Self::skip_dir`]: aquí se excluye por
     /// `SYSTEM` pero **no** por `HIDDEN`.
     ///
@@ -440,6 +456,27 @@ mod tests {
                 Some(SkipReason::ToolInternal),
                 "{name} cuelga del perfil y empieza por punto"
             );
+        }
+    }
+
+    /// La misma regla para una ruta suelta, que es lo que recibe el vigía: la
+    /// base de obrain (`.obrain`) y lo de dentro no son de la bóveda.
+    #[test]
+    fn una_ruta_suelta_dentro_de_una_carpeta_con_punto_del_perfil() {
+        let e = con_perfil("C:/Users/x");
+        for ruta in [
+            "C:/Users/x/.obrain/brain.obrain-wal",
+            "C:/Users/x/.obrain/models/multilingual-e5-small/model.onnx",
+            "C:/Users/x/.codex/sesion.json",
+        ] {
+            assert!(e.cuelga_de_dotdir_del_perfil(&d(ruta)), "{ruta}");
+        }
+        for ruta in [
+            "C:/Users/x/Documentos/.borradores/carta.docx",
+            "C:/Users/x/Segundo Cerebro/01 Identidad/pasaporte.pdf",
+            "D:/.obrain/brain.obrain",
+        ] {
+            assert!(!e.cuelga_de_dotdir_del_perfil(&d(ruta)), "{ruta}");
         }
     }
 

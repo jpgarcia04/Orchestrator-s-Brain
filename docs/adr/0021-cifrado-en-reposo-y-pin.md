@@ -7,7 +7,7 @@
 
 ## Contexto
 
-La base (`%LOCALAPPDATA%\obrain\brain.obrain`) es un SQLite **sin cifrar**. Con
+La base (`%LOCALAPPDATA%\obrain\brain.obrain`; desde [ADR-0029](0029-una-carpeta-fija-fuera-de-appdata.md), `%USERPROFILE%\.obrain\brain.obrain`) es un SQLite **sin cifrar**. Con
 una bóveda de documentos personales eso significa que el texto extraído del
 pasaporte, de la póliza y del contrato, sus nombres, sus rutas y las marcas del
 usuario están en claro en un archivo que cualquiera puede copiar. El usuario lo

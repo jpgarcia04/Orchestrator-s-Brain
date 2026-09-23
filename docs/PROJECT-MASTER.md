@@ -462,6 +462,7 @@ el USN Change Journal, sincronización, multi-tenant.
 | [0026](adr/0026-una-fecha-de-caducidad-a-mano.md) | Una fecha de caducidad a mano, donde el detector no vio ninguna | Aceptada — completa 0023 |
 | [0027](adr/0027-la-carpeta-sigue-a-su-fileid.md) | La carpeta sigue a su `FileID`: renombrarla no le quita la marca | Aceptada — resuelve el «En contra» de 0020 |
 | [0028](adr/0028-vencimientos-sin-palabra.md) | Vencimientos sin palabra: la zona MRZ, el plazo exacto y el año solo | Aceptada — completa 0023 |
+| [0029](adr/0029-una-carpeta-fija-fuera-de-appdata.md) | Una carpeta fija fuera de AppData: `%USERPROFILE%\.obrain` | Aceptada — resuelve el «cifrado a medias» del 2026-09-23 |
 
 ## Documentos
 

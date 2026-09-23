@@ -111,6 +111,12 @@ pub fn importa(
     // Sin ruta no se sabe dónde: cuenta.
     e.paths.is_empty()
         || e.paths.iter().any(|p| {
+            // La base de obrain vive en `%USERPROFILE%\.obrain` (ADR-0029): si
+            // tu perfil entero es una biblioteca, la base cae dentro, y cada
+            // pasada se despertaría a sí misma al escribir en ella.
+            if poda.cuelga_de_dotdir_del_perfil(p) {
+                return false;
+            }
             let debajo = raices
                 .iter()
                 .find_map(|r| p.strip_prefix(r).ok())
@@ -335,6 +341,33 @@ mod tests {
             &cambio("/home/jp/AppData/Local/Temp/Boveda/app/node_modules/x.js"),
             &poda,
             std::slice::from_ref(&raiz)
+        ));
+    }
+
+    /// Con el perfil entero como biblioteca, la base de obrain cae dentro
+    /// (ADR-0029). Escribir en ella no puede despertar al vigía: su pasada
+    /// escribe en la base, y sería un bucle.
+    #[test]
+    fn la_base_de_obrain_no_despierta_al_vigia() {
+        let poda = ExclusionSet {
+            profile_root: Some(PathBuf::from("/home/jp")),
+            ..ExclusionSet::new()
+        };
+        let perfil = PathBuf::from("/home/jp");
+        let cambio = |ruta: &str| ev(EventKind::Modify(ModifyKind::Data(DataChange::Any)), ruta);
+        for ruta in [
+            "/home/jp/.obrain/brain.obrain",
+            "/home/jp/.obrain/brain.obrain-wal",
+        ] {
+            assert!(
+                !importa(&cambio(ruta), &poda, std::slice::from_ref(&perfil)),
+                "{ruta}"
+            );
+        }
+        assert!(importa(
+            &cambio("/home/jp/Segundo Cerebro/01 Identidad/pasaporte.pdf"),
+            &poda,
+            std::slice::from_ref(&perfil)
         ));
     }
 

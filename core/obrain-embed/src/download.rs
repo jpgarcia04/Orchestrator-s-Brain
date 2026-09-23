@@ -40,11 +40,11 @@ pub const REMOTE: &[(&str, &str)] = &[
 /// Fuera del repositorio y fuera de la base de datos: un modelo es un binario
 /// grande y reemplazable, compartido entre todas las bases del usuario. La base
 /// guarda **qué** modelo produjo cada vector (I7), no el modelo.
+///
+/// Junto a la base, en la carpeta fija de obrain (ADR-0029): si todavía está
+/// en la carpeta vieja, se usa desde ahí hasta que la base la mude.
 pub fn default_dir() -> PathBuf {
-    let base = std::env::var("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir());
-    base.join("obrain").join("models").join(e5::MODEL.id)
+    obrain_core::ubicacion::modelos().join(e5::MODEL.id)
 }
 
 /// ¿Están los tres archivos?

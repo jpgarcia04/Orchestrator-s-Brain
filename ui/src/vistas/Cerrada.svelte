@@ -12,7 +12,7 @@
 
   let codigo = $state("");
   /** La carpeta de la base, no el archivo: es donde hay que ir a mirar. */
-  const carpeta = $derived((app.info?.db ?? "").replace(/[\\/][^\\/]*$/, "") || "%LOCALAPPDATA%\\obrain");
+  const carpeta = $derived((app.info?.db ?? "").replace(/[\\/][^\\/]*$/, "") || "%USERPROFILE%\\.obrain");
   let error = $state("");
   let ocupado = $state(false);
 
