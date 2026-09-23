@@ -148,6 +148,24 @@ export interface VistaEntidad {
   protection: Proteccion | null;
   observed: Claim[];
   inferred: Claim[];
+  /** Está en la papelera: ya no está en tu bóveda (ADR-0025). */
+  trashed: EnPapelera | null;
+}
+
+/** Un documento de la papelera: lo que ya no está en tu bóveda (ADR-0025). */
+export interface EnPapelera {
+  id: string;
+  /** Su nombre, el de la última ruta donde estuvo. */
+  label: string;
+  /** La última ruta donde estuvo. */
+  path: string;
+  /** La carpeta donde estaba. */
+  folder: string | null;
+  sensitivity: Sensibilidad;
+  /** Cuándo se enteró obrain de que ya no estaba (epoch ms). */
+  since: number;
+  /** Días hasta que se olvide; `0` es hoy. */
+  days_left: number;
 }
 
 /** Una región del cielo. Una «estrella». */
@@ -350,6 +368,10 @@ export interface Informe {
   inherited: number;
   /** Documentos con fecha de caducidad leída de su texto. */
   expiring: number;
+  /** Pasaron a la papelera, volvieron de ella y se olvidaron (ADR-0025). */
+  trashed: number;
+  returned: number;
+  forgotten: number;
   vectors_new: number;
   semantic: boolean;
   elapsed_ms: number;
@@ -408,6 +430,15 @@ export const vencimientos = () => invoke<Vencimiento[]>("vencimientos");
  */
 export const corregirVencimiento = (id: string, fecha: string | null) =>
   invoke<string>("corregir_vencimiento", { id, fecha });
+
+/** Lo que ya no está en tu bóveda y aún no se ha olvidado (ADR-0025). */
+export const papelera = () => invoke<EnPapelera[]>("papelera");
+
+/**
+ * «Olvidar ya» (con `id`) o «Vaciar papelera» (con `null`): borra el texto y
+ * los vectores que obrain guardaba. No toca tus archivos ni el log.
+ */
+export const olvidar = (id: string | null) => invoke<number>("olvidar", { id });
 
 /** Las carpetas que marcaste como sensibles. */
 export const carpetasMarcadas = () => invoke<CarpetaMarcada[]>("carpetas_marcadas");

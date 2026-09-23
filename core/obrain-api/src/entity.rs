@@ -58,6 +58,11 @@ pub struct EntityView {
     /// Sospechas. Heurísticas, clasificadores, importaciones sin verificar.
     /// **Bloque desaturado, y cada línea corregible.**
     pub inferred: Vec<Claim>,
+    /// Está en la papelera: ya no está en tu bóveda ([ADR-0025]). Dónde
+    /// estaba y cuánto le queda.
+    ///
+    /// [ADR-0025]: ../../../docs/adr/0025-lo-que-ya-no-esta.md
+    pub trashed: Option<crate::EnPapelera>,
 }
 
 /// Predicados que no son información sobre la entidad sino contabilidad interna
@@ -72,6 +77,9 @@ const PLUMBING: &[&str] = &[
     "chunk_count",
     "text_chars",
     "vector_count",
+    // La papelera se enseña aparte, como aviso y no como un hecho más.
+    "missing_since",
+    "forgotten_at",
 ];
 
 /// El objeto, en palabras. Un instante sale como fecha y no como
@@ -151,6 +159,7 @@ pub fn view(store: &Store, id: &EntityId, at: TimePoint) -> Result<EntityView> {
         protection: crate::marks::deciding(store, id, at)?,
         observed,
         inferred,
+        trashed: crate::papelera::of(store, id, at)?,
         id: id.0.clone(),
     })
 }

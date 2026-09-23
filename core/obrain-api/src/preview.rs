@@ -197,6 +197,13 @@ pub fn of(
         }
     }
 
+    // En la papelera (ADR-0025) ya no hay archivo que abrir: sólo lo que se
+    // leyó de él, si se leyó algo.
+    if p.path.is_none() && p.availability.is_some() {
+        p.reason =
+            Some("ya no está en tu bóveda, y de este archivo no se había leído texto".to_string());
+        return Ok(p);
+    }
     p.reason = Some(reason(
         disponibilidad,
         p.availability.is_some(),

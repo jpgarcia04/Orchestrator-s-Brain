@@ -105,6 +105,8 @@ Orchestrator's Brain trabaja en capas, como un cerebro real:
 ### 1. 👀 Observar — *Ver tu disco*
 El sistema recorre las carpetas que le indiques y **reconoce** cada archivo — no por su nombre o ubicación (que pueden cambiar), sino por su **contenido**. Si mueves o renombras un archivo, sigue siendo el mismo.
 
+> Y si **borras** un documento, sale de todas partes y pasa a la **Papelera** de la app durante 30 días; después se olvida lo que se leyó de él (o antes, si la vacías). Tus archivos no se tocan: la papelera de obrain sólo guarda lo que obrain leyó. Si lo sacas de la Papelera de Windows, vuelve con todo lo que sabías.
+
 > Inteligencia incluida: detecta archivos que están "en la nube" y no los descarga sin tu permiso. No va a llenar tu disco ni saturar tu internet.
 
 ### 2. 📖 Leer — *Entender el contenido*
@@ -163,7 +165,7 @@ El proyecto está en desarrollo activo. Cada hito se valida contra la pregunta d
 | **Fase 1** — Tu bóveda | Bibliotecas: el explorador empieza en tu carpeta, nombres limpios, `obrain indexar`, la app se pone al día sola | ✅ Completo |
 | **M5c** — Enterarse | Lo nuevo aparece sin lanzar nada | ✅ Completo: al abrir la app, con «actualizar» y vigilando tus carpetas en vivo |
 | **Fase 2** — La interfaz nueva | Svelte 5: escritorio tipo sistema operativo con vista previa, buscador `Ctrl K`, la galaxia como vista «Mapa» enlazada, aspecto de noche y de día | ✅ Completo |
-| **Fase 3** — Documentos personales | Sensibilidad por carpeta ✅ · cifrado en reposo y PIN ✅ · OCR ✅ · vencimientos ✅ · vigilar la carpeta en vivo ✅ | ✅ Completo (falta probarlo en Windows) |
+| **Fase 3** — Documentos personales | Sensibilidad por carpeta ✅ · cifrado en reposo y PIN ✅ · OCR ✅ · vencimientos ✅ · vigilar la carpeta en vivo ✅ · papelera ✅ | ✅ Completo (falta probarlo en Windows) |
 | **M6** — Construir conocimiento | Inferencia de procesos y enriquecimiento | ⏳ Planificado |
 | **M7** — La pregunta | Responder la pregunta de la visa | 🎯 Meta final |
 

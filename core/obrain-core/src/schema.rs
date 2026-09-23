@@ -296,6 +296,20 @@ pub const SEED_PREDICATES: &[(&str, &str, &str, &str, Option<&str>)] = &[
     // partir del texto, una sola por documento; el usuario la corrige y gana
     // (I5). Ver `docs/adr/0023-vencimientos.md`.
     ("expires_on", "caduca el", "one", "inferred", None),
+    // ── lo que ya no está (papelera) ──
+    // Un documento de una biblioteca que el disco confirma que ya no existe:
+    // se retractan su ruta y su carpeta y se afirma cuándo se enteró el
+    // sistema. A los 30 días, o cuando el usuario lo pide, se olvida lo que se
+    // leyó de él (su texto y sus vectores, que son proyecciones) y se afirma
+    // `forgotten_at`. El log se queda. Ver `docs/adr/0025-lo-que-ya-no-esta.md`.
+    (
+        "missing_since",
+        "ya no está desde",
+        "one",
+        "deterministic",
+        None,
+    ),
+    ("forgotten_at", "olvidado el", "one", "deterministic", None),
     // ── temporal · determinista ──
     (
         "occurred_during",

@@ -110,7 +110,7 @@ pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport)
             Edge {
                 subject: &f.entity,
                 predicate: "contained_by",
-                object: Value::Entity(folder),
+                object: Value::Entity(folder.clone()),
                 method: Method::Deterministic,
                 confidence: 1.0,
                 source: "linker:structure",
@@ -118,6 +118,15 @@ pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport)
             at,
         )? {
             report.contained_by += 1;
+        }
+        // La carpeta de antes deja de serlo: el archivo se movió. `contained_by`
+        // es de cardinalidad `one`, y sin esto el archivo salía en las dos
+        // carpetas (ADR-0025). Sólo lo que escribió este enlazador: una carpeta
+        // que eligió el usuario no se la lleva un movimiento (I5).
+        for a in store.query(Some(&f.entity), Some("contained_by"), TimePoint::at(at))? {
+            if a.source == "linker:structure" && a.object.as_entity() != Some(&folder) {
+                store.retract(&a.id, at)?;
+            }
         }
         folders.push(parent.to_string());
     }

@@ -68,13 +68,16 @@ fn snippet_of(store: &Store, chunk: i64, query: &str) -> String {
     }
 }
 
-fn path_of(store: &Store, e: &EntityId, at: TimePoint) -> String {
+fn live_path(store: &Store, e: &EntityId, at: TimePoint) -> Option<String> {
     store
         .resolve(e, "path_observed_at", at)
         .ok()
         .flatten()
         .and_then(|a| a.object.as_text().map(str::to_string))
-        .unwrap_or_else(|| format!("<{e}>"))
+}
+
+fn path_of(store: &Store, e: &EntityId, at: TimePoint) -> String {
+    live_path(store, e, at).unwrap_or_else(|| format!("<{e}>"))
 }
 
 /// Sólo la rama vectorial, **deduplicada por archivo**.
@@ -104,8 +107,12 @@ pub fn semantic(
         if out.iter().any(|h| h.entity == n.entity) {
             continue;
         }
+        // Lo que está en la papelera no tiene ruta y no se busca (ADR-0025).
+        let Some(path) = live_path(store, &n.entity, at) else {
+            continue;
+        };
         out.push(Hit {
-            path: path_of(store, &n.entity, at),
+            path,
             snippet: snippet_of(store, n.chunk, query),
             entity: n.entity,
             score: n.score as f64,

@@ -31,9 +31,10 @@ computadora.
 | **Leer fotos y PDF escaneados (OCR)** con el reconocedor que ya trae Windows, sin conexión: la foto de la TIE se encuentra buscando «extranjero» y sale sensible por su NIE | Probarlo en tu Windows: el OCR sólo se ha comprobado que compila |
 | **Vencimientos**: lee cuándo caduca cada documento («VALIDEZ 15 11 2026» en la foto de la TIE, «vence el 30 de septiembre» en el contrato) y el Inicio te enseña **«Caduca pronto»**: lo que vence en 90 días y lo que ya venció. Cada fecha dice por qué la leyó y se corrige en un clic | Probarlo en tu Windows, con el OCR de verdad |
 | La app se pone al día sola al abrirse, y tiene botón «actualizar» | |
-| **Vigila tus carpetas en vivo** mientras está abierta: guardas un documento y aparece solo, a los 3 segundos de dejar de tocar la carpeta, sin avisos (sólo el indicador de abajo a la izquierda) | Probarlo en tu Windows: aquí se ha probado con el vigía de Linux. **Un documento que borras no desaparece** de Recientes ni de «Caduca pronto»: el escáner nunca ha registrado los borrados (pregunta abierta del maestro, §10) |
+| **Vigila tus carpetas en vivo** mientras está abierta: guardas un documento y aparece solo, a los 3 segundos de dejar de tocar la carpeta, sin avisos (sólo el indicador de abajo a la izquierda) | Probarlo en tu Windows: aquí se ha probado con el vigía de Linux |
+| **Papelera**: lo que borras sale de Recientes, «Caduca pronto», el explorador, el mapa y la búsqueda, y se queda 30 días en la vista «Papelera»; después se olvida lo que se leyó de él (o antes, con «Olvidar ya» o «Vaciar papelera»). Mover y renombrar ya no dejan documentos ni carpetas repetidos | Probarlo en tu Windows: sacar algo de la Papelera de Windows y ver que vuelve solo |
 
-Núcleo en Rust con 369 tests (uno de ellos sólo corre en Windows), interfaz en
+Núcleo en Rust con 380 tests (uno de ellos sólo corre en Windows), interfaz en
 Tauri + Svelte 5, con el mapa en PixiJS.
 
 ## Cómo usarlo hoy (Windows)
@@ -86,6 +87,7 @@ La base vive en `%LOCALAPPDATA%\obrain\brain.obrain` y la comparten la orden
 cargo run --release --bin obrain -- bibliotecas   # qué carpetas tienes registradas
 cargo run --release --bin obrain -- indexar       # volver a leer todas
 cargo run --release --bin obrain -- vencimientos  # lo que caduca en 90 días o ya caducó
+cargo run --release --bin obrain -- papelera      # lo que ya no está en tus carpetas (30 días)
 cargo run --release --bin obrain -- clave         # tu clave de recuperación
 cargo run --release --bin obrain -- recuperar XXXXX-XXXXX-XXXXX-XXXXX-XXXXX   # en otro equipo
 ```
@@ -124,6 +126,16 @@ seguridad de la base sin su clave de recuperación no se abre en otro equipo.
   y un documento que ya renovaste sale de la tarjeta diciéndole «no caduca».
   Con el PIN bloqueado, lo sensible sale sin fecha («fecha protegida con tu
   PIN»).
+- **Papelera:** en la barra lateral, debajo de «Sensibles» (con su cuenta si
+  hay algo). Lo que borras de tu bóveda aparece ahí con la carpeta donde
+  estaba y cuántos días le quedan; un clic lo enseña en la vista previa con lo
+  que se leyó de él. A los **30 días** obrain olvida su texto; «Olvidar ya» o
+  «Vaciar papelera» (dos clics) lo adelantan. **No toca tus archivos**: el
+  archivo ya lo borraste tú. Si lo sacas de la Papelera de Windows —o lo
+  vuelves a copiar con el mismo contenido—, vuelve solo con todo lo que sabías
+  (tus correcciones incluidas). Una carpeta de biblioteca que no está entera
+  (un USB desconectado) no manda nada a la papelera. Desde la terminal:
+  `obrain papelera` y `obrain papelera --vaciar`.
 - **Al día solo:** con la app abierta, lo que guardes, cambies o borres en tu
   bóveda se lee solo tres segundos después de que dejes de tocarla. Abajo a la
   izquierda verás «Leyendo tu bóveda…» un momento y luego «Al día»; lo nuevo
@@ -157,7 +169,7 @@ Y nombres que se lean solos, con la fecha delante:
 | 0 | Limpieza: documentación a la medida, README honesto | ✅ Hecha |
 | 1 | El núcleo para tu carpeta: bibliotecas, nombres, `obrain indexar`, «actualizar» | ✅ Hecha |
 | 2 | La interfaz nueva en Svelte 5: el explorador como escritorio estilo sistema operativo, la galaxia como vista «Mapa» enlazada, `Ctrl+K`, vista previa rápida | ✅ Hecha |
-| **3** | **Documentos personales**: ✅ sensibilidad por carpeta · ✅ cifrado y PIN · ✅ OCR · ✅ vencimientos · ✅ vigilar la carpeta en vivo | ✅ Hecha (falta probarla en tu Windows) |
+| **3** | **Documentos personales**: ✅ sensibilidad por carpeta · ✅ cifrado y PIN · ✅ OCR · ✅ vencimientos · ✅ vigilar la carpeta en vivo · ✅ papelera | ✅ Hecha (falta probarla en tu Windows) |
 | 4 | La visión original: trámites reconstruidos, la pregunta de la visa | Congelada |
 
 **Congelado** (no se borra, no se sigue): sesiones de trabajo y puentes,

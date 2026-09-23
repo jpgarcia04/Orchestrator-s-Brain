@@ -465,6 +465,41 @@ impl Store {
             .optional()?)
     }
 
+    /// Lo **último** que se afirmó de `(sujeto, predicado)` hasta `known`,
+    /// **aunque ya esté retractado**.
+    ///
+    /// Es la pregunta de la historia, no la del presente: *«¿dónde estaba?»*.
+    /// La destapó la papelera ([ADR-0025]): un documento que ya no está tiene
+    /// su ruta retractada —ya no vive ahí— y aun así hay que poder llamarlo por
+    /// su nombre y decir en qué carpeta estaba.
+    ///
+    /// [ADR-0025]: ../../../docs/adr/0025-lo-que-ya-no-esta.md
+    pub fn resolve_last(
+        &self,
+        subject: &EntityId,
+        predicate: &str,
+        known: i64,
+    ) -> Result<Option<Assertion>> {
+        let sql = format!(
+            "SELECT {COLS} FROM assertions
+             WHERE subject = :subject AND predicate = :predicate
+               AND asserted_at <= :known
+             ORDER BY asserted_at DESC, id DESC LIMIT 1"
+        );
+        Ok(self
+            .conn
+            .query_row(
+                &sql,
+                named_params! {
+                    ":subject":   subject.as_str(),
+                    ":predicate": predicate,
+                    ":known":     known,
+                },
+                row_to_assertion,
+            )
+            .optional()?)
+    }
+
     /// Facetas vigentes de una entidad. El "tipo" de una entidad es esto.
     pub fn facets(&self, subject: &EntityId, at: TimePoint) -> Result<Vec<String>> {
         Ok(self

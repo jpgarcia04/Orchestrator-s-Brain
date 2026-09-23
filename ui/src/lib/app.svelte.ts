@@ -20,7 +20,7 @@ import {
 } from "./nucleo";
 import type { Estado, Indexado, Listado, Seguridad } from "./nucleo";
 
-export type Vista = "inicio" | "carpeta" | "mapa" | "sensibles";
+export type Vista = "inicio" | "carpeta" | "mapa" | "sensibles" | "papelera";
 export type Tema = "noche" | "dia";
 export type Modo = "cuadricula" | "lista";
 

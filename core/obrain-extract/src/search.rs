@@ -105,10 +105,16 @@ pub fn search(store: &Store, raw_query: &str, limit: usize, at: TimePoint) -> Re
         if seen.iter().any(|h| h.entity == hit.entity) {
             continue;
         }
-        hit.path = store
+        // Sin ruta vigente, el documento ya no está en tu bóveda: está en la
+        // papelera y no se busca (ADR-0025). Su texto sigue en el índice hasta
+        // que se olvide, para poder verlo desde la papelera.
+        let Some(path) = store
             .resolve(&hit.entity, "path_observed_at", at)?
             .and_then(|a| a.object.as_text().map(str::to_string))
-            .unwrap_or_else(|| format!("<{}>", hit.entity));
+        else {
+            continue;
+        };
+        hit.path = path;
         seen.push(hit);
         if seen.len() >= limit {
             break;

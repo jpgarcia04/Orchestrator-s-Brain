@@ -17,17 +17,22 @@
   import Search from "@lucide/svelte/icons/search";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import Sun from "@lucide/svelte/icons/sun";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
   import { app } from "../lib/app.svelte";
   import { nombreBonito } from "../lib/nombres";
-  import { sensibles } from "../lib/nucleo";
+  import { papelera, sensibles } from "../lib/nucleo";
 
   let cuantosSensibles = $state(0);
+  let enPapelera = $state(0);
 
   $effect(() => {
     void app.version;
     sensibles()
       .then((s) => (cuantosSensibles = s.length))
       .catch(() => (cuantosSensibles = 0));
+    papelera()
+      .then((p) => (enPapelera = p.length))
+      .catch(() => (enPapelera = 0));
   });
 
   const carpetas = $derived((app.raiz?.rows ?? []).filter((r) => r.kind === "folder"));
@@ -76,6 +81,11 @@
       <Lock size={17} />
       <span>Sensibles</span>
       <span class="cuenta">{cuantosSensibles}</span>
+    </button>
+    <button class="item hov-fondo" class:activo={app.vista === "papelera"} onclick={() => app.irVista("papelera")}>
+      <Trash2 size={17} />
+      <span>Papelera</span>
+      {#if enPapelera > 0}<span class="cuenta">{enPapelera}</span>{/if}
     </button>
   </div>
 

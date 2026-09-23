@@ -28,8 +28,15 @@ pub struct IngestReport {
     /// Aserciones omitidas por no aportar nada nuevo. Es la métrica que
     /// mantiene el log proporcionado a la información real.
     pub assertions_unchanged: usize,
-    /// `file_id` caducados que se han retractado al reconciliar.
+    /// `file_id` caducados que se han retractado al reconciliar, y rutas y
+    /// carpetas viejas de lo que se movió o ya no está.
     pub assertions_retracted: usize,
+    /// Documentos que estaban en la papelera (o ya olvidados) y han vuelto: por
+    /// su `FileID` o por su contenido (ADR-0025).
+    pub entities_returned: usize,
+    /// Las entidades que este recorrido ha visto, para saber después qué **no**
+    /// ha visto ([`crate::ausentes::mark_missing`]).
+    pub seen: Vec<EntityId>,
     pub errors: Vec<String>,
 }
 
@@ -80,24 +87,44 @@ pub fn ingest(
                     }
                     e
                 }
-                None => {
-                    let e = store.create_entity(at)?;
-                    report.entities_created += 1;
-                    write(
-                        store,
-                        report,
-                        &e,
-                        "has_facet",
-                        Facet::Addressable.as_str(),
-                        at,
-                    )?;
-                    if let Some(h) = &id_hex {
-                        write(store, report, &e, "file_id", h.as_str(), at)?;
+                None => match returning(store, c, tp)? {
+                    // Un documento de la papelera, con el mismo contenido y
+                    // otro `FileID`: lo copiaste de una copia de seguridad.
+                    Some(e) => {
+                        if let Some(a) = store.resolve(&e, "file_id", tp)? {
+                            store.retract(&a.id, at)?;
+                            report.assertions_retracted += 1;
+                        }
+                        if let Some(h) = &id_hex {
+                            write(store, report, &e, "file_id", h.as_str(), at)?;
+                        }
+                        e
                     }
-                    e
-                }
+                    None => {
+                        let e = store.create_entity(at)?;
+                        report.entities_created += 1;
+                        write(
+                            store,
+                            report,
+                            &e,
+                            "has_facet",
+                            Facet::Addressable.as_str(),
+                            at,
+                        )?;
+                        if let Some(h) = &id_hex {
+                            write(store, report, &e, "file_id", h.as_str(), at)?;
+                        }
+                        e
+                    }
+                },
             },
         };
+
+        // ── 1b · ¿volvía de la papelera? ──
+        if crate::ausentes::bring_back(store, &entity, at)? {
+            report.entities_returned += 1;
+        }
+        report.seen.push(entity.clone());
 
         // ── 2 · observaciones ──
         let path = c.path.to_string_lossy().to_string();
@@ -106,10 +133,21 @@ pub fn ingest(
             report,
             &entity,
             "path_observed_at",
-            Value::Text(path),
+            Value::Text(path.clone()),
             tp,
             at,
         )?;
+        // Las rutas de antes dejan de estar vigentes: el archivo ya no está
+        // ahí. Sin esto, un archivo movido seguía «observado» en su sitio
+        // viejo, y quien leía todas las rutas lo enseñaba en los dos
+        // (ADR-0025). Retractar y no borrar (I4): el log sigue sabiendo dónde
+        // estuvo y hasta cuándo.
+        for a in store.query(Some(&entity), Some("path_observed_at"), tp)? {
+            if a.object.as_text() != Some(path.as_str()) {
+                store.retract(&a.id, at)?;
+                report.assertions_retracted += 1;
+            }
+        }
         write_if_changed(
             store,
             report,
@@ -222,6 +260,28 @@ fn reconcile(
         }
     }
     Ok(Some(old.clone()))
+}
+
+/// El documento de la papelera que vuelve con **el mismo contenido**: el único
+/// que no está en el disco y tiene este hash (ADR-0025, §5).
+///
+/// Sólo entre lo que ya no está, y sólo si es uno: si dos documentos borrados
+/// tenían el mismo contenido, no hay forma de saber cuál de los dos es éste, y
+/// un documento nuevo es mejor que heredar las correcciones del equivocado.
+fn returning(store: &Store, c: &Candidate, tp: TimePoint) -> obrain_core::Result<Option<EntityId>> {
+    let Some(h) = &c.hash else {
+        return Ok(None);
+    };
+    let mut gone = Vec::new();
+    for e in store.find_subjects_by_value("has_hash", h, tp)? {
+        if crate::ausentes::is_missing(store, &e, tp)? {
+            gone.push(e);
+        }
+    }
+    Ok(match <[EntityId; 1]>::try_from(gone) {
+        Ok([e]) => Some(e),
+        Err(_) => None,
+    })
 }
 
 fn write(

@@ -23,6 +23,7 @@
   import Cerrada from "./vistas/Cerrada.svelte";
   import Inicio from "./vistas/Inicio.svelte";
   import Mapa from "./vistas/Mapa.svelte";
+  import Papelera from "./vistas/Papelera.svelte";
   import Sensibles from "./vistas/Sensibles.svelte";
 
   $effect(() => {
@@ -82,6 +83,8 @@
           <Carpeta />
         {:else if app.vista === "mapa"}
           <Mapa />
+        {:else if app.vista === "papelera"}
+          <Papelera />
         {:else}
           <Sensibles />
         {/if}

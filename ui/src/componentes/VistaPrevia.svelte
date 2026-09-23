@@ -26,6 +26,7 @@
   import LockOpen from "@lucide/svelte/icons/lock-open";
   import Orbit from "@lucide/svelte/icons/orbit";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
   import Tipo from "./Tipo.svelte";
   import { app } from "../lib/app.svelte";
@@ -35,6 +36,7 @@
     corregirVencimiento,
     desdeBytes,
     entidad,
+    olvidar,
     previsualizar,
     revelar,
   } from "../lib/nucleo";
@@ -244,6 +246,20 @@
     }
   }
 
+  /** «Olvidar ya» desde la vista previa de algo de la papelera (ADR-0025). */
+  async function olvidarYa(): Promise<void> {
+    guardando = true;
+    try {
+      await olvidar(id);
+      app.seleccion = null;
+      app.version++;
+    } catch (e) {
+      app.avisar(`No se pudo olvidar — ${e}`);
+    } finally {
+      guardando = false;
+    }
+  }
+
   /**
    * Abrir o revelar algo sensible con el PIN puesto pide desbloquear antes: el
    * núcleo se niega y aquí se pide el PIN y se vuelve a intentar una vez.
@@ -355,6 +371,22 @@
         {#if enLaNube}<span class="chip"><Cloud size={13} /> En tu nube</span>{/if}
       </div>
 
+      {#if ficha.trashed}
+        {@const p = ficha.trashed}
+        <section class="fuera" aria-label="En la papelera">
+          <Trash2 size={16} />
+          <div>
+            <p class="que">Ya no está en tu bóveda</p>
+            <p class="detalle">
+              {p.folder ? `Estaba en «${nombreBonito(p.folder)}». ` : ""}{p.days_left <= 0
+                ? "obrain olvida hoy lo que leyó de él."
+                : `obrain olvida lo que leyó de él en ${p.days_left === 1 ? "1 día" : `${p.days_left} días`}.`}
+              Si lo sacas de la Papelera de Windows, vuelve solo.
+            </p>
+          </div>
+        </section>
+      {/if}
+
       {#if hechos.length > 0 || leido || ficha.protection}
         <section aria-label="Lo que sé de este documento" class="bloque">
           <h3 class="rotulo">Lo que sé de este documento</h3>
@@ -429,6 +461,13 @@
         </section>
       {/if}
 
+      {#if ficha.trashed}
+        <div class="salidas">
+          <button class="boton hov" disabled={guardando} onclick={olvidarYa}>
+            <Trash2 size={16} /> Olvidar ya
+          </button>
+        </div>
+      {:else}
       <div class="salidas">
         <button class="primario hov" onclick={abrirArchivo} title={enLaNube ? "Está en tu nube: abrirlo lo descargará" : "Abrir con su programa"}>
           <ExternalLink size={16} /> {enLaNube ? "Abrir · se descargará" : "Abrir"}
@@ -441,6 +480,7 @@
         </button>
       </div>
       <p class="nota">Orchestrator's Brain nunca escribe en tus archivos; el programa que lo abra sí puede.</p>
+      {/if}
 
       <div class="tecnico">
         <button class="desplegar" onclick={() => (tecnico = !tecnico)} aria-expanded={tecnico}>
@@ -461,6 +501,30 @@
 </aside>
 
 <style>
+  .fuera {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: var(--calido-fondo);
+    color: var(--calido);
+  }
+  .fuera p {
+    margin: 0;
+  }
+  .fuera :global(svg) {
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .fuera .que {
+    color: var(--tinta);
+    font-weight: 500;
+  }
+  .fuera .detalle {
+    color: var(--tenue);
+    font-size: 13px;
+  }
   .previa {
     width: var(--ancho-previa);
     flex-shrink: 0;

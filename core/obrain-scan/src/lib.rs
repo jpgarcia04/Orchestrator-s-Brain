@@ -20,6 +20,7 @@
 //! [`triage`] trabaja sobre los atributos que ya vienen en la enumeración del
 //! directorio, sin pedir un solo handle.
 
+pub mod ausentes;
 pub mod exclude;
 pub mod identity;
 pub mod ingest;

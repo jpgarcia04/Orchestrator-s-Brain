@@ -280,6 +280,13 @@ pub fn label(store: &Store, e: &EntityId, at: TimePoint) -> String {
             return de_carpeta(t);
         }
     }
+    // Un documento de la papelera ya no vive en ninguna ruta, pero se sigue
+    // llamando como se llamaba (ADR-0025).
+    if let Ok(Some(a)) = store.resolve_last(e, "path_observed_at", at.known) {
+        if let Some(t) = a.object.as_text() {
+            return de_ruta(t);
+        }
+    }
     // `session_span` vive en el eje de **validez** —la sesión ocurrió entonces,
     // no ahora— así que `resolve` con el presente no la encuentra nunca. Hay
     // que preguntar por lo que el sistema sostiene, no por lo que es cierto hoy.

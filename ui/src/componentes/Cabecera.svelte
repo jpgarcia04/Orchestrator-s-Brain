@@ -46,7 +46,7 @@
     ir: () => void;
   }
 
-  const NOMBRES = { inicio: "Inicio", mapa: "Mapa", sensibles: "Sensibles" } as const;
+  const NOMBRES = { inicio: "Inicio", mapa: "Mapa", sensibles: "Sensibles", papelera: "Papelera" } as const;
 
   const migas = $derived.by((): Miga[] => {
     if (app.vista !== "carpeta" || !app.listado) {

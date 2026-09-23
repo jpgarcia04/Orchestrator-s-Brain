@@ -52,8 +52,8 @@
 use obrain_api::seguridad::{self, Estado as EstadoSeguridad};
 use obrain_api::vigilar::{self, Vigia};
 use obrain_api::{
-    Brain, Embedder, EntityView, Expiring, FolderMarked, Glance, IndexReport, Lens, Listing,
-    MarkedFolder, Preview, Row, Sky, default_db_path,
+    Brain, Embedder, EnPapelera, EntityView, Expiring, FolderMarked, Glance, IndexReport, Lens,
+    Listing, MarkedFolder, Preview, Row, Sky, default_db_path,
 };
 use obrain_core::{EntityId, Sensitivity, Store};
 use std::path::PathBuf;
@@ -186,6 +186,20 @@ fn corregir_vencimiento(
     cerebro: State<'_, Cerebro>,
 ) -> Result<String, String> {
     con(&cerebro, |b| b.set_expiry(&EntityId(id), fecha.as_deref()))
+}
+
+/// Lo que ya no está en tu bóveda: la vista «Papelera» (ADR-0025).
+#[tauri::command]
+fn papelera(cerebro: State<'_, Cerebro>) -> Result<Vec<EnPapelera>, String> {
+    con(&cerebro, |b| b.trash())
+}
+
+/// «Olvidar ya» (con `id`) o «Vaciar papelera» (sin él): borra el texto y los
+/// vectores que obrain guardaba de lo que ya no está. **No toca tus archivos**
+/// —ya no están— ni el log (I4). Devuelve cuántos se olvidaron.
+#[tauri::command]
+fn olvidar(id: Option<String>, cerebro: State<'_, Cerebro>) -> Result<usize, String> {
+    con(&cerebro, |b| b.forget(id.map(EntityId).as_ref()))
 }
 
 /// Las carpetas que marcaste como sensibles, para la vista «Sensibles».
@@ -644,6 +658,8 @@ fn main() {
             sensibles,
             vencimientos,
             corregir_vencimiento,
+            papelera,
+            olvidar,
             carpetas_marcadas,
             marcar_carpeta,
             entidad,

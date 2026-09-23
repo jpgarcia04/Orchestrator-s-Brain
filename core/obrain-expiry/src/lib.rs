@@ -194,8 +194,15 @@ fn previas(store: &Store, tp: TimePoint) -> Result<HashMap<EntityId, Vec<Asserti
 /// sobrevive a cualquier reindexado (I5).
 pub fn detect_all(store: &Store, at: i64, report: &mut ExpiryReport) -> Result<()> {
     let tp = TimePoint::at(at);
-    let todas = candidatas(store.conn())?;
+    let mut todas = candidatas(store.conn())?;
     let mut antes = previas(store, tp)?;
+    // Lo que está en la papelera o ya se olvidó no se toca (ADR-0025): al
+    // olvidarse se queda sin texto, y sin esta guarda la pasada siguiente
+    // retractaría su fecha como si el documento ya no la dijera.
+    for a in store.query(None, Some("missing_since"), tp)? {
+        todas.remove(&a.subject);
+        antes.remove(&a.subject);
+    }
     report.with_text = todas.len();
 
     for (entity, lista) in &todas {

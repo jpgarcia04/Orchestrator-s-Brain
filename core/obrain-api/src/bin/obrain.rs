@@ -28,6 +28,9 @@ USO:
   obrain sensible <carpeta> --quitar         le quita la marca
   obrain sensibles                           lista las carpetas marcadas
   obrain vencimientos                        lo que caduca en 90 días o ya caducó
+  obrain papelera                            lo que ya no está en tus carpetas (30 días)
+  obrain papelera --vaciar                   olvida ya lo que obrain leyó de ello (tus
+                                             archivos no se tocan)
   obrain clave                               enseña la clave de recuperación de la base
   obrain clave --guardada                    dice que ya la guardaste (la app deja de pedirlo)
   obrain recuperar <clave>                   abre la base en un equipo que no tiene su llave
@@ -53,6 +56,7 @@ fn main() -> ExitCode {
     let mut boveda = false;
     let mut quitar = false;
     let mut guardada = false;
+    let mut vaciar = false;
     let mut sueltos: Vec<&str> = Vec::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -62,6 +66,7 @@ fn main() -> ExitCode {
             "--boveda" => boveda = true,
             "--quitar" => quitar = true,
             "--guardada" => guardada = true,
+            "--vaciar" => vaciar = true,
             otro if otro.starts_with("--") => {
                 eprintln!("opción desconocida: {otro}\n\n{AYUDA}");
                 return ExitCode::from(2);
@@ -231,6 +236,48 @@ fn main() -> ExitCode {
                 }
             }
         }
+        "papelera" => {
+            let mut b = Brain::from_store(store);
+            if vaciar {
+                return match b.forget(None) {
+                    Ok(0) => {
+                        println!("la papelera ya estaba vacía.");
+                        ExitCode::SUCCESS
+                    }
+                    Ok(n) => {
+                        println!(
+                            "olvidado lo que se leyó de {n} documento{}. Tus archivos no se han tocado.",
+                            if n == 1 { "" } else { "s" }
+                        );
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => {
+                        eprintln!("{e}");
+                        ExitCode::FAILURE
+                    }
+                };
+            }
+            match b.trash() {
+                Ok(v) if v.is_empty() => {
+                    println!("la papelera está vacía.");
+                    ExitCode::SUCCESS
+                }
+                Ok(v) => {
+                    for p in v {
+                        let cuando = match p.days_left {
+                            0 => "se olvida hoy".to_string(),
+                            d => format!("se olvida en {}", dias(d)),
+                        };
+                        println!("  {cuando:<22} {}", p.path);
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         "indexar" => {
             let modelo = if sin_modelo {
                 None
@@ -368,6 +415,15 @@ fn informe(r: &IndexReport, db: &std::path::Path) {
     }
     if r.expiring > 0 {
         println!("  con fecha de caducidad {}", r.expiring);
+    }
+    if r.trashed > 0 {
+        println!("  a la papelera          {}", r.trashed);
+    }
+    if r.returned > 0 {
+        println!("  de vuelta              {}", r.returned);
+    }
+    if r.forgotten > 0 {
+        println!("  olvidados (30 días)    {}", r.forgotten);
     }
     if r.semantic {
         println!("  vectores nuevos        {}", r.vectors_new);

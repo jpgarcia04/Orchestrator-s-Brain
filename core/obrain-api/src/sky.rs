@@ -1307,19 +1307,32 @@ pub fn children(store: &Store, focus: Option<&EntityId>, at: TimePoint) -> Resul
         // La raíz: las carpetas sin madre. No hay ninguna entidad que las
         // contenga, así que no hay nada que preguntar al log.
         None => (tree.roots(), Vec::new()),
+        // Una subcarpeta sin nada dentro no se enseña, igual que una raíz
+        // vacía: es el nombre viejo de una carpeta que se renombró, o una de
+        // la que todo se fue a la papelera (ADR-0025).
         Some(f) if tree.folders.contains_key(f) => (
-            tree.children.get(f).cloned().unwrap_or_default(),
+            tree.children
+                .get(f)
+                .map(|cs| {
+                    cs.iter()
+                        .filter(|c| tree.weight.get(*c).copied().unwrap_or(0) > 0)
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default(),
             tree.direct.get(f).cloned().unwrap_or_default(),
         ),
         // No es una carpeta: entonces es cualquier otra cosa que contenga, y lo
         // que contiene es lo que la señala. Aquí es donde entran las sesiones —
         // y donde entrarán las menciones de M6 sin tocar esta función.
         Some(f) => {
+            let fuera = obrain_scan::ausentes::missing_set(store, at)?;
             let mut v: Vec<EntityId> = store
                 .query_by_object(f, at)?
                 .into_iter()
                 .filter(|a| CONTAINMENT.contains(&a.predicate.as_str()))
                 .map(|a| a.subject)
+                .filter(|e| !fuera.contains(e))
                 .collect();
             v.sort();
             v.dedup();

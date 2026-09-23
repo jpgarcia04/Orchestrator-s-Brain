@@ -40,6 +40,7 @@ pub mod entity;
 pub mod indexar;
 pub mod lens;
 pub mod marks;
+pub mod papelera;
 pub mod preview;
 pub mod seguridad;
 pub mod sky;
@@ -55,6 +56,7 @@ pub use entity::{Claim, EntityView};
 pub use indexar::IndexReport;
 pub use lens::{Edge, Lens, Node};
 pub use marks::{MarkedFolder, Protection};
+pub use papelera::EnPapelera;
 pub use preview::Preview;
 pub use sky::{Bridge, Cluster, Crumb, Expiring, Listing, Region, Row, Sky};
 
@@ -452,6 +454,24 @@ impl Brain {
         Ok(id.0)
     }
 
+    /// **La papelera**: lo que ya no está en tu bóveda y todavía no se ha
+    /// olvidado. Ver [`papelera`] y [ADR-0025].
+    ///
+    /// [ADR-0025]: ../../../docs/adr/0025-lo-que-ya-no-esta.md
+    pub fn trash(&self) -> Result<Vec<EnPapelera>> {
+        let (_, at) = Self::now();
+        Ok(papelera::list(&self.store, at)?)
+    }
+
+    /// **Olvida** lo que se leyó de un documento de la papelera, o de todos
+    /// con `None` («Vaciar papelera»). No toca tus archivos: borra el texto y
+    /// los vectores que obrain guardaba de ellos. El log se queda (I4).
+    pub fn forget(&mut self, id: Option<&EntityId>) -> Result<usize> {
+        let (now, _) = Self::now();
+        self.store
+            .transaction(|s| papelera::forget(s, id, Method::User, now))
+    }
+
     /// Lo que la puerta retiene. Ver [`sky::sensitive`].
     pub fn sensitive(&self) -> Result<Vec<Row>> {
         let (_, at) = Self::now();
@@ -555,6 +575,15 @@ impl Brain {
         };
         v.observed.retain(vale);
         v.inferred.retain(vale);
+        // Lo que está en la papelera no es «Relacionado» de nadie (ADR-0025).
+        let fuera = obrain_scan::ausentes::missing_set(&self.store, at)?;
+        let vivo = |c: &Claim| {
+            c.value_entity
+                .as_ref()
+                .is_none_or(|e| !fuera.contains(&EntityId(e.clone())))
+        };
+        v.observed.retain(vivo);
+        v.inferred.retain(vivo);
         Ok(v)
     }
 

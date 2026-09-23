@@ -11,8 +11,8 @@
 //! misma transacción, en el mismo orden:
 //!
 //! ```text
-//! escanear → enlazar → extraer → clasificar → vencimientos → vectorizar
-//!    M1        M3        M2      puerta (I11)    ADR-0023        M4
+//! escanear → enlazar → extraer → clasificar → vencimientos → vectorizar → olvidar
+//!    M1        M3        M2      puerta (I11)    ADR-0023        M4       ADR-0025
 //! ```
 //!
 //! El orden no es arbitrario: la puerta clasifica con el texto que dejó M2, y
@@ -42,6 +42,14 @@ pub struct IndexReport {
     pub files_seen: usize,
     /// De ésos, los que el sistema no conocía.
     pub files_new: usize,
+    /// Documentos que ya no están en el disco y pasan a la papelera
+    /// (ADR-0025).
+    pub trashed: usize,
+    /// Documentos de la papelera que han vuelto.
+    pub returned: usize,
+    /// Documentos de la papelera que se olvidaron en esta pasada, por llevar
+    /// ahí 30 días.
+    pub forgotten: usize,
     /// Relaciones nuevas.
     pub edges_new: usize,
     /// Documentos cuyo texto se leyó en esta pasada.
@@ -108,12 +116,17 @@ pub fn index_with(
 
         let at = obrain_scan::now_ms();
         let mut ingesta = obrain_scan::IngestReport::default();
-        store.transaction(|s| -> obrain_core::Result<()> {
+        let ausentes = store.transaction(|s| -> obrain_core::Result<usize> {
             obrain_scan::ingest(s, &candidatos, at, &mut ingesta)?;
             obrain_scan::register_library(s, &root, at)?;
-            Ok(())
+            // Lo que el log cree que hay aquí y el disco dice que ya no existe
+            // pasa a la papelera (ADR-0025). Después de hashear: el hueco de un
+            // guardado atómico ya se ha cerrado.
+            obrain_scan::ausentes::mark_missing(s, &root, &ingesta.seen, obrain_scan::now_ms())
         })?;
         r.files_new += ingesta.entities_created;
+        r.trashed += ausentes;
+        r.returned += ingesta.entities_returned;
         r.libraries.push(ruta);
     }
 
@@ -159,6 +172,10 @@ pub fn index_with(
         r.vectors_new = vectores.vectors_written;
         r.semantic = true;
     }
+
+    // ── la papelera · olvidar lo que lleva ahí 30 días ──
+    let at = obrain_scan::now_ms();
+    r.forgotten = store.transaction(|s| crate::papelera::expire(s, at))?;
 
     r.elapsed_ms = started.elapsed().as_millis() as u64;
     Ok(r)
