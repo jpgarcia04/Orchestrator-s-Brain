@@ -1182,6 +1182,108 @@ pub fn sensitive(store: &Store, at: TimePoint) -> Result<Vec<Row>> {
     Ok(filas)
 }
 
+/// Un documento que caduca pronto, o que ya caducó: una fila de la tarjeta
+/// «Caduca pronto» del inicio ([ADR-0023]).
+///
+/// Es una [`Row`] como las de «Recientes» y «Sensibles» —mismo nombre, mismo
+/// nivel, misma carpeta— más lo que dice de su fecha.
+///
+/// [ADR-0023]: ../../../docs/adr/0023-vencimientos.md
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Expiring {
+    #[serde(flatten)]
+    pub row: Row,
+    /// El nombre legible de la carpeta donde vive. Es lo que da contexto
+    /// cuando el nombre lo puso una cámara (`IMG_2291.jpg`), y lo único que se
+    /// enseña, además del nombre, de lo sensible bloqueado.
+    pub folder: Option<String>,
+    /// `AAAA-MM-DD`. `None` si es sensible y el PIN lo tiene bloqueado: la
+    /// fecha sale del texto, y el texto de lo sensible no sale del núcleo
+    /// hasta desbloquear ([ADR-0021]).
+    ///
+    /// [ADR-0021]: ../../../docs/adr/0021-cifrado-en-reposo-y-pin.md
+    pub date: Option<String>,
+    /// Días de hoy (en UTC) a la fecha; negativo si ya caducó. `None` con la
+    /// fecha oculta.
+    pub days: Option<i64>,
+    /// La fecha la dijo el usuario (I5).
+    pub by_user: bool,
+    /// Es sensible y está bloqueado: se sabe que está aquí, no cuándo.
+    pub locked: bool,
+}
+
+/// **Lo que caduca pronto**: lo que vence en `ventana` días o menos y **todo
+/// lo que ya venció**, hasta que el usuario lo corrija (ADR-0023). Lo que dice
+/// «no caduca» no sale.
+///
+/// En orden de fecha, lo caducado arriba. Lo sensible bloqueado va al final y
+/// por nombre, para que ni el orden delate su fecha.
+pub fn expiring(
+    store: &Store,
+    at: TimePoint,
+    hoy: obrain_expiry::Fecha,
+    ventana: i64,
+    ocultar_sensibles: bool,
+) -> Result<Vec<Expiring>> {
+    let f = Filas::cargar(store, at)?;
+    let mut visibles = Vec::new();
+    let mut ocultas = Vec::new();
+    for v in obrain_expiry::resolved(store, at)? {
+        let Some(fecha) = v.vence.fecha() else {
+            continue;
+        };
+        // Sólo lo que vive en una biblioteca: es lo que enseña el explorador.
+        let Some(casa) = f.tree.home.get(&v.entity) else {
+            continue;
+        };
+        let dias = fecha.dias() - hoy.dias();
+        if dias > ventana {
+            continue;
+        }
+        let row = f.fila(&v.entity, false);
+        let folder = Some(
+            f.nombres
+                .get(casa)
+                .map_or_else(|| obrain_link::label(store, casa, at), str::to_string),
+        );
+        if ocultar_sensibles && row.sensitivity != "normal" {
+            ocultas.push(Expiring {
+                row,
+                folder,
+                date: None,
+                days: None,
+                by_user: false,
+                locked: true,
+            });
+        } else {
+            visibles.push((
+                fecha,
+                Expiring {
+                    row,
+                    folder,
+                    date: Some(fecha.iso()),
+                    days: Some(dias),
+                    by_user: v.by_user,
+                    locked: false,
+                },
+            ));
+        }
+    }
+    visibles.sort_by(|(a, x), (b, y)| a.cmp(b).then_with(|| x.row.label.cmp(&y.row.label)));
+    ocultas.sort_by(|x, y| {
+        x.row
+            .label
+            .to_lowercase()
+            .cmp(&y.row.label.to_lowercase())
+            .then_with(|| x.row.id.cmp(&y.row.id))
+    });
+    Ok(visibles
+        .into_iter()
+        .map(|(_, e)| e)
+        .chain(ocultas)
+        .collect())
+}
+
 /// **Qué hay dentro de esto.** El tercer corte del árbol de contención.
 ///
 /// Con `focus` a `None` devuelve las raíces, que es por donde se entra cuando

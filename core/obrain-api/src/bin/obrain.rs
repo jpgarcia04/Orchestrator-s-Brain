@@ -27,6 +27,7 @@ USO:
   obrain sensible <carpeta> --boveda         lo mismo, pero como bóveda
   obrain sensible <carpeta> --quitar         le quita la marca
   obrain sensibles                           lista las carpetas marcadas
+  obrain vencimientos                        lo que caduca en 90 días o ya caducó
   obrain clave                               enseña la clave de recuperación de la base
   obrain clave --guardada                    dice que ya la guardaste (la app deja de pedirlo)
   obrain recuperar <clave>                   abre la base en un equipo que no tiene su llave
@@ -203,6 +204,33 @@ fn main() -> ExitCode {
                 }
             }
         }
+        "vencimientos" => {
+            let b = Brain::from_store(store);
+            match b.expiring() {
+                Ok(v) if v.is_empty() => {
+                    println!("nada caduca en los próximos 90 días.");
+                    ExitCode::SUCCESS
+                }
+                Ok(v) => {
+                    for e in v {
+                        let cuando = match e.days {
+                            Some(d) if d < 0 => format!("caducó hace {}", dias(-d)),
+                            Some(0) => "caduca hoy".to_string(),
+                            Some(d) => format!("caduca en {}", dias(d)),
+                            None => "fecha protegida con tu PIN".to_string(),
+                        };
+                        let fecha = e.date.as_deref().unwrap_or("··········");
+                        let tuya = if e.by_user { "  (lo dijiste tú)" } else { "" };
+                        println!("  {fecha}  {cuando:<22} {}{tuya}", e.row.path);
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         "indexar" => {
             let modelo = if sin_modelo {
                 None
@@ -338,6 +366,9 @@ fn informe(r: &IndexReport, db: &std::path::Path) {
     if r.inherited > 0 {
         println!("    por su carpeta       {}", r.inherited);
     }
+    if r.expiring > 0 {
+        println!("  con fecha de caducidad {}", r.expiring);
+    }
     if r.semantic {
         println!("  vectores nuevos        {}", r.vectors_new);
     }
@@ -346,4 +377,13 @@ fn informe(r: &IndexReport, db: &std::path::Path) {
         r.elapsed_ms as f64 / 1000.0,
         db.display()
     );
+}
+
+/// `1 día`, `53 días`.
+fn dias(n: i64) -> String {
+    if n == 1 {
+        "1 día".to_string()
+    } else {
+        format!("{n} días")
+    }
 }

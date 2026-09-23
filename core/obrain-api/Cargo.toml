@@ -11,6 +11,8 @@ obrain-core = { path = "../obrain-core" }
 obrain-extract = { path = "../obrain-extract" }
 obrain-embed = { path = "../obrain-embed" }
 obrain-guard = { path = "../obrain-guard" }
+# Los vencimientos: la etapa que los lee del texto y su lectura (ADR-0023).
+obrain-expiry = { path = "../obrain-expiry" }
 # Sólo para reutilizar `label`: el nombre legible de una entidad ya se decide
 # en M3 y no puede decidirse otra vez aquí.
 obrain-link = { path = "../obrain-link" }

@@ -124,6 +124,36 @@ export function haceCuanto(ms: number, ahora = Date.now()): string {
   return fecha(ms);
 }
 
+/** `2026-11-15` → «15 nov 2026». La fecha es de calendario: sin zona horaria. */
+export function fechaIso(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  const mes = m ? MESES[Number(m[2]) - 1] : undefined;
+  return m && mes ? `${Number(m[3])} ${mes} ${m[1]}` : iso;
+}
+
+/**
+ * Días de hoy —en **tu** zona horaria— a una fecha `AAAA-MM-DD`. Negativo si
+ * ya pasó. El núcleo lo calcula en UTC; esto es lo que se enseña.
+ */
+export function diasHasta(iso: string, hoy = new Date()): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return null;
+  const vence = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const ahora = Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+  return Math.round((vence - ahora) / 86_400_000);
+}
+
+/** `53` → «en 53 días»; `-12` → «caducó hace 12 días»; `0` → «caduca hoy». */
+export function plazo(dias: number): string {
+  if (dias === 0) return "caduca hoy";
+  if (dias === 1) return "caduca mañana";
+  if (dias === -1) return "caducó ayer";
+  const n = Math.abs(dias);
+  const cuanto =
+    n < 60 ? `${n} días` : n < 365 ? `${Math.round(n / 30.4)} meses` : n < 730 ? "1 año" : `${Math.floor(n / 365)} años`;
+  return dias > 0 ? `en ${cuanto}` : `caducó hace ${cuanto}`;
+}
+
 /** Saludo según la hora. */
 export function saludo(d = new Date()): string {
   const h = d.getHours();

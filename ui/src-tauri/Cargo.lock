@@ -3018,6 +3018,7 @@ dependencies = [
  "image",
  "obrain-core",
  "obrain-embed",
+ "obrain-expiry",
  "obrain-extract",
  "obrain-guard",
  "obrain-keys",
@@ -3062,6 +3063,14 @@ dependencies = [
  "ort",
  "thiserror 2.0.20",
  "tokenizers",
+]
+
+[[package]]
+name = "obrain-expiry"
+version = "0.0.1"
+dependencies = [
+ "obrain-core",
+ "regex",
 ]
 
 [[package]]

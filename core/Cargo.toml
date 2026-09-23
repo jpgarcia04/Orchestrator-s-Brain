@@ -1,6 +1,6 @@
 ﻿[workspace]
 resolver = "3"
-members = ["obrain-keys", "obrain-ocr", "obrain-core", "obrain-scan", "obrain-link", "obrain-extract", "obrain-guard", "obrain-embed", "obrain-api"]
+members = ["obrain-keys", "obrain-ocr", "obrain-core", "obrain-scan", "obrain-link", "obrain-extract", "obrain-guard", "obrain-expiry", "obrain-embed", "obrain-api"]
 
 [workspace.package]
 edition = "2024"

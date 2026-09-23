@@ -290,6 +290,12 @@ pub const SEED_PREDICATES: &[(&str, &str, &str, &str, Option<&str>)] = &[
         "user",
         None,
     ),
+    // ── vencimientos (Fase 3.4) ──
+    // La fecha en que deja de valer un documento, en ISO (`2026-11-15`), o
+    // `nunca` si el usuario dice que no caduca. La infiere `obrain-expiry` a
+    // partir del texto, una sola por documento; el usuario la corrige y gana
+    // (I5). Ver `docs/adr/0023-vencimientos.md`.
+    ("expires_on", "caduca el", "one", "inferred", None),
     // ── temporal · determinista ──
     (
         "occurred_during",

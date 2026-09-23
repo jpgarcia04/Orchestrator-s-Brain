@@ -46,8 +46,8 @@
 
 use obrain_api::seguridad::{self, Estado as EstadoSeguridad};
 use obrain_api::{
-    Brain, Embedder, EntityView, FolderMarked, Glance, IndexReport, Lens, Listing, MarkedFolder,
-    Preview, Row, Sky, default_db_path,
+    Brain, Embedder, EntityView, Expiring, FolderMarked, Glance, IndexReport, Lens, Listing,
+    MarkedFolder, Preview, Row, Sky, default_db_path,
 };
 use obrain_core::{EntityId, Sensitivity, Store};
 use std::path::PathBuf;
@@ -153,6 +153,26 @@ fn sensibles(cerebro: State<'_, Cerebro>) -> Result<Vec<Row>, String> {
     con(&cerebro, |b| b.sensitive())
 }
 
+/// Lo que caduca pronto o ya caducó: la tarjeta del inicio (ADR-0023). Con
+/// el PIN bloqueado, lo sensible llega sin fecha: lo decide el núcleo.
+#[tauri::command]
+fn vencimientos(cerebro: State<'_, Cerebro>) -> Result<Vec<Expiring>, String> {
+    con(&cerebro, |b| b.expiring())
+}
+
+/// «cambiar» en la vista previa: la fecha en que caduca un documento
+/// (`AAAA-MM-DD`), o `None` para «no caduca». Una aserción del usuario, que
+/// gana para siempre (I5), como [`corregir`]; va aparte porque el núcleo
+/// comprueba que la fecha exista y que lo sensible esté desbloqueado.
+#[tauri::command]
+fn corregir_vencimiento(
+    id: String,
+    fecha: Option<String>,
+    cerebro: State<'_, Cerebro>,
+) -> Result<String, String> {
+    con(&cerebro, |b| b.set_expiry(&EntityId(id), fecha.as_deref()))
+}
+
 /// Las carpetas que marcaste como sensibles, para la vista «Sensibles».
 #[tauri::command]
 fn carpetas_marcadas(cerebro: State<'_, Cerebro>) -> Result<Vec<MarkedFolder>, String> {
@@ -237,7 +257,7 @@ fn revelar(id: String, app: tauri::AppHandle, cerebro: State<'_, Cerebro>) -> Re
 
 /// La corrección de I5. Escribe una aserción del usuario, que gana para
 /// siempre. Es el único comando que **escribe** en el log, además de marcar
-/// una carpeta.
+/// una carpeta y de [`corregir_vencimiento`].
 #[tauri::command]
 fn corregir(
     subject: String,
@@ -551,6 +571,8 @@ fn main() {
             explorar,
             recientes,
             sensibles,
+            vencimientos,
+            corregir_vencimiento,
             carpetas_marcadas,
             marcar_carpeta,
             entidad,

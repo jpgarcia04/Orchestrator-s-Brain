@@ -213,6 +213,23 @@ export interface Fila {
   facets: string[];
 }
 
+/**
+ * Un documento que caduca pronto o ya caducó: una fila de la tarjeta «Caduca
+ * pronto» (ADR-0023). Es una {@link Fila} más lo que dice de su fecha.
+ */
+export interface Vencimiento extends Fila {
+  /** El nombre de la carpeta donde vive: el contexto de un `IMG_2291.jpg`. */
+  folder: string | null;
+  /** `AAAA-MM-DD`. `null` si es sensible y el PIN lo tiene bloqueado. */
+  date: string | null;
+  /** Días de hoy (UTC, según el núcleo) a la fecha; negativo si caducó. */
+  days: number | null;
+  /** La fecha la dijo el usuario (I5). */
+  by_user: boolean;
+  /** Sensible y bloqueado: se sabe que está aquí, no cuándo caduca. */
+  locked: boolean;
+}
+
 /** Lo que hay dentro de un contenedor, con la ruta hasta él. */
 export interface Listado {
   focus: string | null;
@@ -331,6 +348,8 @@ export interface Informe {
   vault: number;
   /** De los sensibles, los que lo son por estar en una carpeta marcada. */
   inherited: number;
+  /** Documentos con fecha de caducidad leída de su texto. */
+  expiring: number;
   vectors_new: number;
   semantic: boolean;
   elapsed_ms: number;
@@ -377,6 +396,16 @@ export const recientes = (limit = 8) => invoke<Fila[]>("recientes", { limit });
 
 /** Lo que la puerta de egreso retiene: la vista «Sensibles». */
 export const sensibles = () => invoke<Fila[]>("sensibles");
+
+/** Lo que caduca en 90 días o ya caducó: la tarjeta del inicio. */
+export const vencimientos = () => invoke<Vencimiento[]>("vencimientos");
+
+/**
+ * «cambiar» en la vista previa: cuándo caduca un documento (`AAAA-MM-DD`), o
+ * `null` para «no caduca». Una aserción tuya, que gana para siempre (I5).
+ */
+export const corregirVencimiento = (id: string, fecha: string | null) =>
+  invoke<string>("corregir_vencimiento", { id, fecha });
 
 /** Las carpetas que marcaste como sensibles. */
 export const carpetasMarcadas = () => invoke<CarpetaMarcada[]>("carpetas_marcadas");

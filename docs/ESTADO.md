@@ -21,7 +21,7 @@ computadora.
 | Escanear una carpeta y reconocer cada archivo aunque lo muevas o renombres | |
 | Leer el texto de PDF, Word, HTML y texto plano | |
 | Buscar por palabras y por significado (con el modelo local descargado) | Vigilar la carpeta en vivo: hoy se pone al día al abrir la app o con «actualizar» |
-| Marcar lo sensible y no dejarlo salir de la máquina | Vencimientos (*¿qué me caduca pronto?*) |
+| Marcar lo sensible y no dejarlo salir de la máquina | |
 | **Bibliotecas**: el explorador empieza en tu carpeta, no en la raíz del disco | |
 | Carpetas y documentos con nombres legibles, fechas y tamaños claros | |
 | **La interfaz nueva** (Svelte 5): escritorio con barra lateral, Inicio, carpetas en cuadrícula o lista, vista previa, Sensibles, buscador `Ctrl K`, el Mapa enlazado, noche y día | |
@@ -29,9 +29,10 @@ computadora.
 | **Sensibilidad por carpeta**: marcas `01 Identidad` y todo lo de dentro es sensible, también lo que llegue después (la foto de la TIE incluida) | |
 | **Base cifrada** (SQLCipher) con la llave en Windows y una clave de recuperación; **PIN** opcional para ver lo sensible | Probarlo en tu Windows: DPAPI sólo se ha comprobado que compila |
 | **Leer fotos y PDF escaneados (OCR)** con el reconocedor que ya trae Windows, sin conexión: la foto de la TIE se encuentra buscando «extranjero» y sale sensible por su NIE | Probarlo en tu Windows: el OCR sólo se ha comprobado que compila |
+| **Vencimientos**: lee cuándo caduca cada documento («VALIDEZ 15 11 2026» en la foto de la TIE, «vence el 30 de septiembre» en el contrato) y el Inicio te enseña **«Caduca pronto»**: lo que vence en 90 días y lo que ya venció. Cada fecha dice por qué la leyó y se corrige en un clic | Probarlo en tu Windows, con el OCR de verdad |
 | La app se pone al día sola al abrirse, y tiene botón «actualizar» | |
 
-Núcleo en Rust con 336 tests (uno de ellos sólo corre en Windows), interfaz en
+Núcleo en Rust con 362 tests (uno de ellos sólo corre en Windows), interfaz en
 Tauri + Svelte 5, con el mapa en PixiJS.
 
 ## Cómo usarlo hoy (Windows)
@@ -83,6 +84,7 @@ La base vive en `%LOCALAPPDATA%\obrain\brain.obrain` y la comparten la orden
 ```powershell
 cargo run --release --bin obrain -- bibliotecas   # qué carpetas tienes registradas
 cargo run --release --bin obrain -- indexar       # volver a leer todas
+cargo run --release --bin obrain -- vencimientos  # lo que caduca en 90 días o ya caducó
 cargo run --release --bin obrain -- clave         # tu clave de recuperación
 cargo run --release --bin obrain -- recuperar XXXXX-XXXXX-XXXXX-XXXXX-XXXXX   # en otro equipo
 ```
@@ -112,6 +114,15 @@ seguridad de la base sin su clave de recuperación no se abre en otro equipo.
   lo sensible no se enseña —ni en la vista previa, ni en la búsqueda, ni al
   abrirlo— hasta escribirlo, y se queda a la vista 5 minutos desde la última vez
   que lo miras. ¿Olvidaste el PIN? Se restablece con la clave de recuperación.
+- **Caduca pronto:** en el Inicio, entre el buscador y «Recientes», sólo si hay
+  algo: lo que caduca en los próximos 90 días y lo que ya caducó (en rojo), con
+  cuántos días faltan. La fecha sale del propio documento —también de las
+  fotos, con el OCR—. En la vista previa, «Caduca el» tiene su **«¿por qué?»**
+  (con qué palabra la leyó, y el tramo marcado en el texto), **«es correcto»**
+  y **«cambiar»**: otra fecha o **«no caduca»**. Lo que digas tú gana siempre,
+  y un documento que ya renovaste sale de la tarjeta diciéndole «no caduca».
+  Con el PIN bloqueado, lo sensible sale sin fecha («fecha protegida con tu
+  PIN»).
 - El sol/luna de abajo a la izquierda cambia entre **noche** y **día**.
 
 ## Cómo organizar tu bóveda
@@ -140,7 +151,7 @@ Y nombres que se lean solos, con la fecha delante:
 | 0 | Limpieza: documentación a la medida, README honesto | ✅ Hecha |
 | 1 | El núcleo para tu carpeta: bibliotecas, nombres, `obrain indexar`, «actualizar» | ✅ Hecha |
 | 2 | La interfaz nueva en Svelte 5: el explorador como escritorio estilo sistema operativo, la galaxia como vista «Mapa» enlazada, `Ctrl+K`, vista previa rápida | ✅ Hecha |
-| **3** | **Documentos personales**: ✅ sensibilidad por carpeta · ✅ cifrado y PIN · ✅ OCR · vencimientos | ◐ En curso |
+| **3** | **Documentos personales**: ✅ sensibilidad por carpeta · ✅ cifrado y PIN · ✅ OCR · ✅ vencimientos · vigilar la carpeta en vivo | ◐ Casi: falta vigilar en vivo |
 | 4 | La visión original: trámites reconstruidos, la pregunta de la visa | Congelada |
 
 **Congelado** (no se borra, no se sigue): sesiones de trabajo y puentes,
@@ -172,6 +183,11 @@ sale «Texto reconocido en la imagen» y, en el «¿por qué?», *«el OCR de Wi
 (es-ES)»*. Si no sale nada, Windows no tiene el paquete de reconocimiento de tu
 idioma: Configuración › Hora e idioma › Idioma › Español › Opciones.
 
+Y para ver los vencimientos: si esa foto (o cualquier documento) dice cuándo
+caduca —«VALIDEZ», «válida hasta», «vence el», «caduca»—, en la vista previa
+sale «Caduca el» y, si es dentro de 90 días o ya pasó, aparece en «Caduca
+pronto» del Inicio. Si el OCR leyó mal un número, «cambiar» lo arregla.
+
 ## Mapa del repositorio
 
 ```
@@ -183,6 +199,7 @@ core/            el núcleo en Rust
   obrain-ocr/      leer fotos y escaneos con el OCR de Windows
   obrain-extract/  leer texto y el índice de búsqueda por palabras
   obrain-guard/    sensibilidad y lo que nunca sale de la máquina
+  obrain-expiry/   vencimientos: la fecha de caducidad, leída del texto
   obrain-embed/    búsqueda por significado con un modelo local
   obrain-api/      lo que ve la interfaz, y la orden `obrain`
 ui/              la aplicación de escritorio (Tauri + Svelte 5)

@@ -1190,6 +1190,7 @@ dependencies = [
  "image",
  "obrain-core",
  "obrain-embed",
+ "obrain-expiry",
  "obrain-extract",
  "obrain-guard",
  "obrain-keys",
@@ -1221,6 +1222,15 @@ dependencies = [
  "ort",
  "thiserror",
  "tokenizers",
+]
+
+[[package]]
+name = "obrain-expiry"
+version = "0.0.1"
+dependencies = [
+ "obrain-core",
+ "obrain-extract",
+ "regex",
 ]
 
 [[package]]

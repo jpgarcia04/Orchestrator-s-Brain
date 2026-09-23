@@ -11,12 +11,14 @@
 //! misma transacción, en el mismo orden:
 //!
 //! ```text
-//! escanear → enlazar → extraer → clasificar → vectorizar
-//!    M1        M3        M2      puerta (I11)     M4
+//! escanear → enlazar → extraer → clasificar → vencimientos → vectorizar
+//!    M1        M3        M2      puerta (I11)    ADR-0023        M4
 //! ```
 //!
 //! El orden no es arbitrario: la puerta clasifica con el texto que dejó M2, y
-//! M4 sólo vectoriza lo que la puerta deja pasar.
+//! M4 sólo vectoriza lo que la puerta deja pasar. Los vencimientos también se
+//! leen del texto de M2 —el de las fotos incluido— y no dependen de la puerta;
+//! van antes de vectorizar porque son baratos y la vectorización no.
 //!
 //! **Es idempotente.** Volver a indexar una biblioteca sin cambios no escribe
 //! nada: cada etapa compara con lo que ya sabía (ADR-0001). Por eso la
@@ -55,6 +57,8 @@ pub struct IndexReport {
     pub vault: usize,
     /// De ésos, los que lo son por estar dentro de una carpeta que marcaste.
     pub inherited: usize,
+    /// Documentos con fecha de caducidad leída de su texto (ADR-0023).
+    pub expiring: usize,
     /// Vectores nuevos. `0` con `semantic = false` si no había modelo.
     pub vectors_new: usize,
     /// ¿Se pasó por la etapa de significado?
@@ -139,6 +143,12 @@ pub fn index_with(
     r.sensitive = puerta.effective[1];
     r.vault = puerta.effective[2];
     r.inherited = puerta.inherited;
+
+    // ── vencimientos ──
+    let at = obrain_scan::now_ms();
+    let mut vencimientos = obrain_expiry::ExpiryReport::default();
+    store.transaction(|s| obrain_expiry::detect_all(s, at, &mut vencimientos))?;
+    r.expiring = vencimientos.found;
 
     // ── M4 · vectorizar ──
     if let Some(modelo) = embedder {

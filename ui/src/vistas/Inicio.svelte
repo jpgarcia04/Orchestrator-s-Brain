@@ -4,26 +4,50 @@
   Nada de métricas ni avisos que reclamen atención (`EXPERIENCE.md` §7): un
   saludo, dónde buscar, lo último que tocaste, tu mapa en pequeño y tus
   carpetas. Si la bóveda está vacía, lo único que se enseña es cómo empezarla.
+
+  «Caduca pronto» (ADR-0023) sólo aparece si hay algo que decir: lo que
+  caduca en 90 días o ya caducó. No notifica nada; está donde miras.
 -->
 <script lang="ts">
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Folder from "@lucide/svelte/icons/folder";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
+  import Lock from "@lucide/svelte/icons/lock";
   import Search from "@lucide/svelte/icons/search";
   import Tipo from "../componentes/Tipo.svelte";
   import { app } from "../lib/app.svelte";
-  import { cielo, recientes } from "../lib/nucleo";
-  import type { Cielo, Fila } from "../lib/nucleo";
-  import { carpetaDe, haceCuanto, nombreBonito, saludo, tipoDe, tituloDe } from "../lib/nombres";
+  import { cielo, recientes, vencimientos } from "../lib/nucleo";
+  import type { Cielo, Fila, Vencimiento } from "../lib/nucleo";
+  import {
+    carpetaDe,
+    diasHasta,
+    fechaIso,
+    haceCuanto,
+    nombreBonito,
+    plazo,
+    saludo,
+    tipoDe,
+    tituloDe,
+  } from "../lib/nombres";
 
   let ultimos = $state<Fila[]>([]);
   let mapa = $state<Cielo | null>(null);
+  let caducan = $state<Vencimiento[]>([]);
+  let todos = $state(false);
 
   $effect(() => {
     void app.version;
     recientes(6).then((r) => (ultimos = r)).catch(() => (ultimos = []));
     cielo(30).then((c) => (mapa = c)).catch(() => (mapa = null));
+    vencimientos().then((v) => (caducan = v)).catch(() => (caducan = []));
   });
+
+  /** Filas que se ven sin desplegar. Más, y la tarjeta se come el inicio. */
+  const PRIMERAS = 4;
+  const visibles = $derived(todos ? caducan : caducan.slice(0, PRIMERAS));
+
+  /** Días en tu zona horaria; si no hay fecha (PIN), no se sabe. */
+  const diasDe = (v: Vencimiento) => (v.date ? diasHasta(v.date) : null);
 
   const carpetas = $derived((app.raiz?.rows ?? []).filter((r) => r.kind === "folder"));
   const total = $derived(
@@ -77,6 +101,46 @@
       <span>Busca por nombre o por lo que significa…</span>
       <kbd>Ctrl K</kbd>
     </button>
+
+    {#if caducan.length > 0}
+      <section aria-label="Caduca pronto" class="bloque">
+        <h2 class="rotulo">Caduca pronto</h2>
+        <div class="caducan">
+          {#each visibles as v (v.id)}
+            {@const d = diasDe(v)}
+            <button
+              class="reciente hov-fondo"
+              class:elegida={app.seleccion === v.id}
+              onclick={() => app.ver(v.id)}
+              title={v.path}
+            >
+              <Tipo tipo={tipoDe(v.label)} />
+              <span class="texto">
+                <span class="nombre">{tituloDe(v.label).titulo}</span>
+                <span class="donde">
+                  {nombreBonito(v.folder ?? carpetaDe(v.path))} ·
+                  {#if v.locked}
+                    fecha protegida con tu PIN
+                  {:else if v.date}
+                    {d !== null && d < 0 ? "caducó el" : "caduca el"} {fechaIso(v.date)}{v.by_user ? " · lo dijiste tú" : ""}
+                  {/if}
+                </span>
+              </span>
+              {#if v.locked}
+                <span class="plazo"><Lock size={12} /> PIN</span>
+              {:else if d !== null}
+                <span class="plazo" class:caducado={d < 0} class:cerca={d >= 0 && d <= 30}>{plazo(d)}</span>
+              {/if}
+            </button>
+          {/each}
+          {#if caducan.length > PRIMERAS}
+            <button class="mas hov-fondo" onclick={() => (todos = !todos)}>
+              {todos ? "Ver menos" : `Ver los ${caducan.length}`}
+            </button>
+          {/if}
+        </div>
+      </section>
+    {/if}
 
     <div class="dos">
       <section aria-label="Recientes" class="bloque">
@@ -220,6 +284,52 @@
   .nada {
     font-size: 12.5px;
     color: var(--tenue);
+  }
+
+  .caducan {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+    gap: 2px 14px;
+    padding: 6px;
+    border-radius: 16px;
+    background: var(--tarjeta);
+    border: 1px solid var(--linea);
+  }
+  .caducan .texto {
+    flex-grow: 1;
+  }
+  .caducan .donde {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .plazo {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--chip);
+    color: var(--tenue);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .plazo.cerca {
+    background: var(--calido-fondo);
+    color: var(--calido);
+  }
+  .plazo.caducado {
+    background: var(--peligro-fondo);
+    color: var(--peligro);
+  }
+  .mas {
+    grid-column: 1 / -1;
+    padding: 8px 10px;
+    border-radius: 10px;
+    color: var(--acento);
+    font-size: 13px;
+    text-align: left;
   }
 
   .mini {

@@ -29,9 +29,17 @@
   import X from "@lucide/svelte/icons/x";
   import Tipo from "./Tipo.svelte";
   import { app } from "../lib/app.svelte";
-  import { abrir, corregir, desdeBytes, entidad, previsualizar, revelar } from "../lib/nucleo";
+  import {
+    abrir,
+    corregir,
+    corregirVencimiento,
+    desdeBytes,
+    entidad,
+    previsualizar,
+    revelar,
+  } from "../lib/nucleo";
   import type { Claim, Vista, VistaEntidad } from "../lib/nucleo";
-  import { fecha, nombreBonito, tipoDe, tipoLargo, tituloDe } from "../lib/nombres";
+  import { diasHasta, fecha, fechaIso, nombreBonito, plazo, tipoDe, tipoLargo, tituloDe } from "../lib/nombres";
 
   let { id, consulta }: { id: string; consulta: string } = $props();
 
@@ -41,6 +49,9 @@
   let tecnico = $state(false);
   let recarga = $state(0);
   let porques = new SvelteSet<string>();
+  /** «cambiar» abierto sobre la fecha de caducidad, con la fecha que se edita. */
+  let cambiando = $state<string | null>(null);
+  let guardando = $state(false);
 
   $effect(() => {
     const miId = id;
@@ -114,9 +125,27 @@
     return "";
   });
 
+  /** La fecha de caducidad, si la hay: la tuya o la que leí. */
+  const vence = $derived(
+    [...(ficha?.observed ?? []), ...(ficha?.inferred ?? [])].find((c) => c.predicate === "expires_on") ?? null,
+  );
+
+  /**
+   * El tramo que explica la fecha de caducidad, dentro del texto que se ve,
+   * cuando se pide su «¿por qué?». La evidencia dice los bytes **del
+   * documento** (ADR-0023); el texto de la vista previa empieza en `offset`.
+   */
+  const tramoVence = $derived.by((): [number, number] | null => {
+    if (!vence || !vista?.text || !porques.has(vence.assertion)) return null;
+    const m = /bytes=(\d+)\.\.(\d+)/.exec(vence.evidence ?? "");
+    if (!m) return null;
+    const [a, b] = [Number(m[1]) - vista.offset, Number(m[2]) - vista.offset];
+    return a >= 0 && b > a ? [a, b] : null;
+  });
+
   const texto = $derived.by(() => {
     const t = vista?.text ?? "";
-    const h = vista?.highlight;
+    const h = tramoVence ?? vista?.highlight;
     if (!h) return { antes: t, marca: "", despues: "" };
     const [a, b] = [desdeBytes(t, h[0]), desdeBytes(t, h[1])];
     return { antes: t.slice(0, a), marca: t.slice(a, b), despues: t.slice(b) };
@@ -155,14 +184,64 @@
       const [motor, idioma] = c.value.split("/");
       return motor === "windows.media.ocr" ? `el OCR de Windows${idioma ? ` (${idioma})` : ""}` : c.value;
     }
+    if (c.predicate === "expires_on") {
+      if (c.value === "nunca") return "No caduca";
+      const d = diasHasta(c.value);
+      return d === null ? c.value : `${fechaIso(c.value)} · ${plazo(d)}`;
+    }
     if (c.value_time !== null) return fecha(c.value_time);
     return c.value;
   }
 
+  /** Las palabras de caducidad de ADR-0023, dichas como las leería una persona. */
+  const PALABRAS: Record<string, string> = {
+    caducidad: "«caduca» o «caducidad»",
+    validez: "«validez» o «válido hasta»",
+    vencimiento: "«vence» o «vencimiento»",
+    vigencia: "«vigencia»",
+    hasta: "«hasta», con la vigencia del documento cerca",
+  };
+
+  /** El «¿por qué?» de una fecha de caducidad: la evidencia, en palabras. */
+  function porqueVence(c: Claim): string {
+    const ev = c.evidence ?? "";
+    const regla = /regla=(\w+)/.exec(ev)?.[1] ?? "";
+    const otras = Number(/otras=(\d+)/.exec(ev)?.[1] ?? 0);
+    let s = `La leí en el texto, junto a ${PALABRAS[regla] ?? "una palabra de caducidad"}.`;
+    if (otras > 0) {
+      s += ` Había ${otras === 1 ? "otra fecha" : `otras ${otras} fechas`}; me quedé con la de la palabra más clara y, entre ésas, la más lejana.`;
+    }
+    if (tramoVence && !oculto && !bloqueado) s += " Está marcada arriba.";
+    else if (tramoVence && oculto) s += " Pulsa «Mostrar» para verla marcada.";
+    return s;
+  }
+
   function confirmar(c: Claim): void {
     corregir(id, c.predicate, c.value)
-      .then(() => recarga++)
+      .then(() => {
+        recarga++;
+        if (c.predicate === "expires_on") app.version++; // la tarjeta del inicio
+      })
       .catch((e) => app.avisar(`No se pudo guardar — ${e}`));
+  }
+
+  function empezarCambio(c: Claim): void {
+    cambiando = /^\d{4}-\d{2}-\d{2}$/.test(c.value) ? c.value : "";
+  }
+
+  /** Guarda tu fecha —o «no caduca», con `null`—: gana para siempre (I5). */
+  async function guardarVence(nueva: string | null): Promise<void> {
+    if (nueva === "") return;
+    guardando = true;
+    try {
+      await corregirVencimiento(id, nueva);
+      cambiando = null;
+      app.version++; // la vista previa y la tarjeta del inicio
+    } catch (e) {
+      app.avisar(`No se pudo guardar — ${e}`);
+    } finally {
+      guardando = false;
+    }
   }
 
   /**
@@ -252,9 +331,9 @@
 
       {#if vista.kind === "image" && vista.text && !oculto && !bloqueado}
         <!-- Una foto con texto reconocido (OCR): la foto arriba, lo que dice aquí. -->
-        <details class="reconocido">
+        <details class="reconocido" open={!!tramoVence}>
           <summary>Texto reconocido en la imagen</summary>
-          <pre class="papel">{vista.text}</pre>
+          <pre class="papel">{texto.antes}{#if texto.marca}<mark use:centrar>{texto.marca}</mark>{/if}{texto.despues}</pre>
         </details>
       {/if}
 
@@ -300,15 +379,33 @@
               <span class="valor">
                 {valor(c)}
                 {#if c.by_user}
-                  <span class="tuyo"><Check size={13} /> lo dijiste tú</span>
+                  <span class="acciones-hecho">
+                    <span class="tuyo"><Check size={13} /> lo dijiste tú</span>
+                    {#if c.predicate === "expires_on" && cambiando === null}
+                      <button class="enlace" onclick={() => empezarCambio(c)}>cambiar</button>
+                    {/if}
+                  </span>
                 {:else if c.method === "inferred"}
                   <span class="acciones-hecho">
                     <button class="enlace" onclick={() => (porques.has(c.assertion) ? porques.delete(c.assertion) : porques.add(c.assertion))}>¿por qué?</button>
                     <button class="enlace" onclick={() => confirmar(c)}>es correcto</button>
+                    {#if c.predicate === "expires_on" && cambiando === null}
+                      <button class="enlace" onclick={() => empezarCambio(c)}>cambiar</button>
+                    {/if}
                   </span>
                   {#if porques.has(c.assertion)}
-                    <span class="porque">{c.evidence ?? c.source}</span>
+                    <span class="porque">{c.predicate === "expires_on" ? porqueVence(c) : (c.evidence ?? c.source)}</span>
                   {/if}
+                {/if}
+                {#if c.predicate === "expires_on" && cambiando !== null}
+                  <span class="cambio">
+                    <input type="date" bind:value={cambiando} aria-label="Caduca el" disabled={guardando} />
+                    <span class="acciones-hecho">
+                      <button class="enlace" disabled={guardando || !cambiando} onclick={() => guardarVence(cambiando)}>guardar</button>
+                      <button class="enlace" disabled={guardando} onclick={() => guardarVence(null)}>no caduca</button>
+                      <button class="enlace tenue" disabled={guardando} onclick={() => (cambiando = null)}>cancelar</button>
+                    </span>
+                  </span>
                 {/if}
               </span>
             </div>
@@ -544,6 +641,29 @@
   .enlace {
     font-size: 12px;
     color: var(--acento);
+  }
+  .enlace:disabled {
+    opacity: 0.45;
+  }
+  .enlace.tenue {
+    color: var(--tenue);
+  }
+  .cambio {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 2px;
+  }
+  .cambio input {
+    width: fit-content;
+    padding: 5px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--linea);
+    background: var(--chip);
+    color: var(--tinta);
+    font: inherit;
+    font-size: 13px;
+    color-scheme: light dark;
   }
   .porque {
     padding-left: 10px;

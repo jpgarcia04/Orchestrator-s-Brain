@@ -55,7 +55,7 @@ pub use indexar::IndexReport;
 pub use lens::{Edge, Lens, Node};
 pub use marks::{MarkedFolder, Protection};
 pub use preview::Preview;
-pub use sky::{Bridge, Cluster, Crumb, Listing, Region, Row, Sky};
+pub use sky::{Bridge, Cluster, Crumb, Expiring, Listing, Region, Row, Sky};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -75,6 +75,9 @@ pub enum Error {
 
     #[error("está protegido con tu PIN: desbloquéalo para verlo o abrirlo")]
     Bloqueado,
+
+    #[error("«{0}» no es una fecha: tiene que ser AAAA-MM-DD, y existir")]
+    FechaInvalida(String),
 }
 
 impl Error {
@@ -401,6 +404,53 @@ impl Brain {
         Ok(sky::recent(&self.store, limit, at)?)
     }
 
+    /// **Lo que caduca pronto**: la tarjeta del inicio. Ver
+    /// [`sky::expiring`] y [ADR-0023].
+    ///
+    /// Con el PIN puesto y bloqueado, lo sensible sale con su nombre y su
+    /// carpeta y **sin la fecha**: la fecha sale del texto del documento, y
+    /// el texto de lo sensible no sale del núcleo hasta desbloquear.
+    ///
+    /// [ADR-0023]: ../../../docs/adr/0023-vencimientos.md
+    pub fn expiring(&self) -> Result<Vec<Expiring>> {
+        let (now, at) = Self::now();
+        let ocultar = !self.contenido_visible()?;
+        Ok(sky::expiring(
+            &self.store,
+            at,
+            obrain_expiry::Fecha::hoy(now),
+            obrain_expiry::VENTANA_DIAS,
+            ocultar,
+        )?)
+    }
+
+    /// **Corrige cuándo caduca un documento**: `Some("2027-08-31")`, o `None`
+    /// para «no caduca». Una aserción del usuario, que gana para siempre (I5)
+    /// y ningún reindexado pisa.
+    ///
+    /// Con el PIN bloqueado, lo sensible no se corrige: para corregir una
+    /// fecha hay que poder verla.
+    pub fn set_expiry(&self, id: &EntityId, fecha: Option<&str>) -> Result<String> {
+        let sensible = self
+            .store
+            .sensitivity(id)
+            .map_err(|_| Error::UnknownEntity(id.0.clone()))?
+            != Sensitivity::Normal;
+        if sensible && !self.contenido_visible()? {
+            return Err(Error::Bloqueado);
+        }
+        let fecha = match fecha {
+            Some(t) => Some(
+                obrain_expiry::Fecha::parse_iso(t.trim())
+                    .ok_or_else(|| Error::FechaInvalida(t.to_string()))?,
+            ),
+            None => None,
+        };
+        let (now, _) = Self::now();
+        let id = obrain_expiry::set_by_user(&self.store, id, fecha, now)?;
+        Ok(id.0)
+    }
+
     /// Lo que la puerta retiene. Ver [`sky::sensitive`].
     pub fn sensitive(&self) -> Result<Vec<Row>> {
         let (_, at) = Self::now();
@@ -481,10 +531,30 @@ impl Brain {
         // Que exista se comprueba aquí y no dentro: una entidad desconocida es
         // un error del llamante, no una vista vacía que parezca un archivo sin
         // datos.
-        self.store
+        let nivel = self
+            .store
             .sensitivity(id)
             .map_err(|_| Error::UnknownEntity(id.0.clone()))?;
-        Ok(entity::view(&self.store, id, at)?)
+        let mut v = entity::view(&self.store, id, at)?;
+        // Un documento caduca una vez: se enseña **la fecha que manda** —la
+        // tuya si la corregiste (I5)— y no también la inferencia corregida,
+        // que sigue en el log pero ya no es lo que el sistema sostiene
+        // (EXPERIENCE §4.5: de pálida a sólida). Y la fecha sale del texto del
+        // documento: con el PIN bloqueado, la de lo sensible no sale del
+        // núcleo (ADR-0023).
+        let manda = if nivel != Sensitivity::Normal && !self.contenido_visible()? {
+            None
+        } else {
+            self.store
+                .resolve(id, obrain_expiry::PREDICATE, at)?
+                .map(|a| a.id.0)
+        };
+        let vale = |c: &Claim| {
+            c.predicate != obrain_expiry::PREDICATE || Some(&c.assertion) == manda.as_ref()
+        };
+        v.observed.retain(vale);
+        v.inferred.retain(vale);
+        Ok(v)
     }
 
     /// **Qué se ve del archivo.** Ver [`preview`].
