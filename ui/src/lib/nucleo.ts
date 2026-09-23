@@ -101,6 +101,11 @@ export interface Claim {
   source: string;
   evidence: string | null;
   by_user: boolean;
+  /**
+   * El tramo del documento que lo explica, en bytes del texto entero: la
+   * fecha de caducidad y la sensibilidad que salió del contenido.
+   */
+  span: [number, number] | null;
 }
 
 /**

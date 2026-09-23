@@ -351,3 +351,46 @@ fn una_fecha_a_mano_en_un_documento_sin_fecha() {
         .collect();
     assert_eq!(fechas, [(dentro_de(20).iso(), true)]);
 }
+
+/// El «¿por qué?» señala el tramo del texto (pieza 3): en la foto de la TIE,
+/// la fecha de caducidad y el NIE que la hizo sensible, cada uno con sus
+/// bytes. El NIE no está en el log: el tramo se recalcula al enseñar la ficha.
+#[test]
+fn el_por_que_senala_el_tramo_del_texto() {
+    let b_dir = boveda("tramo");
+    let mut store = Store::open_in_memory().unwrap();
+    indexar(&mut store, &b_dir);
+    let b = Brain::from_store(store);
+    let tie = EntityId(
+        b.search("extranjero", 5)
+            .unwrap()
+            .hits
+            .into_iter()
+            .find(|h| h.label == "IMG_2291.png")
+            .expect("la foto de la TIE")
+            .entity,
+    );
+    let texto = obrain_extract::index::document_text(b.store().conn(), &tie)
+        .unwrap()
+        .unwrap();
+
+    let ficha = b.entity(&tie).unwrap();
+    let tramo = |pred: &str| {
+        let c = ficha
+            .observed
+            .iter()
+            .chain(&ficha.inferred)
+            .find(|c| c.predicate == pred)
+            .unwrap_or_else(|| panic!("sin {pred}"));
+        let [x, y] = c.span.unwrap_or_else(|| panic!("{pred} sin tramo"));
+        (c.evidence.clone().unwrap(), texto[x..y].to_string())
+    };
+    let (ev, nie) = tramo("sensitivity_level");
+    assert_eq!(nie, "X1234567L");
+    assert!(
+        !ev.contains("X1234567L"),
+        "el log guarda la dirección, no el NIE"
+    );
+    let (_, fecha) = tramo("expires_on");
+    assert!(fecha.starts_with("VALIDEZ"), "{fecha}");
+}

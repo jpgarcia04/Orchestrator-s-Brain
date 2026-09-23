@@ -140,17 +140,21 @@
   const puedeAnadirFecha = $derived(!!ficha && !vence && !bloqueado && !ficha.trashed && ficha.path !== null);
 
   /**
-   * El tramo que explica la fecha de caducidad, dentro del texto que se ve,
-   * cuando se pide su «¿por qué?». La evidencia dice los bytes **del
-   * documento** (ADR-0023); el texto de la vista previa empieza en `offset`.
+   * El tramo que explica una afirmación —la fecha de caducidad, o lo que hizo
+   * sensible al documento—, dentro del texto que se ve, cuando se pide su
+   * «¿por qué?». El núcleo da los bytes **del documento**; el texto de la
+   * vista previa empieza en `offset`.
    */
-  const tramoVence = $derived.by((): [number, number] | null => {
-    if (!vence || !vista?.text || !porques.has(vence.assertion)) return null;
-    const m = /bytes=(\d+)\.\.(\d+)/.exec(vence.evidence ?? "");
-    if (!m) return null;
-    const [a, b] = [Number(m[1]) - vista.offset, Number(m[2]) - vista.offset];
-    return a >= 0 && b > a ? [a, b] : null;
+  const marcado = $derived.by((): { claim: string; rango: [number, number] } | null => {
+    if (!vista?.text) return null;
+    for (const c of [...(ficha?.observed ?? []), ...(ficha?.inferred ?? [])]) {
+      if (!c.span || !porques.has(c.assertion)) continue;
+      const [a, b] = [c.span[0] - vista.offset, c.span[1] - vista.offset];
+      if (a >= 0 && b > a) return { claim: c.assertion, rango: [a, b] };
+    }
+    return null;
   });
+  const tramoVence = $derived(marcado?.rango ?? null);
 
   const texto = $derived.by(() => {
     const t = vista?.text ?? "";
@@ -220,9 +224,62 @@
     if (otras > 0) {
       s += ` Había ${otras === 1 ? "otra fecha" : `otras ${otras} fechas`}; me quedé con la de la palabra más clara y, entre ésas, la más lejana.`;
     }
-    if (tramoVence && !oculto && !bloqueado) s += " Está marcada arriba.";
-    else if (tramoVence && oculto) s += " Pulsa «Mostrar» para verla marcada.";
-    return s;
+    return s + marcaDicha(c, "marcada");
+  }
+
+  /** «Está marcada arriba», si el tramo de esta afirmación es el que se ve. */
+  function marcaDicha(c: Claim, genero: "marcada" | "marcado"): string {
+    if (marcado?.claim !== c.assertion) return "";
+    if (oculto) return ` Pulsa «Mostrar» para ${genero === "marcada" ? "verla marcada" : "verlo marcado"}.`;
+    return bloqueado ? "" : ` Está ${genero} arriba.`;
+  }
+
+  /** Lo que encontró cada regla de contenido de la puerta, dicho por una persona. */
+  const HALLAZGOS: Record<string, string> = {
+    "dni-o-nie": "un DNI o NIE, con su letra de control correcta",
+    iban: "un número de cuenta (IBAN) que cuadra con su dígito de control",
+    "tarjeta-de-pago": "un número de tarjeta de pago válido",
+    "clave-privada-pem": "una clave privada",
+    "clave-de-aws": "una clave de acceso de Amazon (AWS)",
+    "token-de-github": "una clave de acceso de GitHub",
+    "token-de-slack": "una clave de acceso de Slack",
+    "clave-de-google": "una clave de acceso de Google",
+    "clave-de-modelo": "una clave de acceso de un servicio de IA",
+    jwt: "un token de sesión (JWT)",
+    "variable-con-secreto": "una línea que guarda una contraseña o un secreto",
+    "url-con-contrasena": "una dirección con la contraseña escrita dentro",
+  };
+
+  /** Lo que dice el nombre, para las reglas de nombre de la puerta. */
+  const NOMBRES_SENSIBLES: Record<string, string> = {
+    identidad: "suena a documento de identidad (pasaporte, cédula, visado…)",
+    "sigla-de-identidad": "lleva una sigla de identidad (DNI, NIE, CURP…)",
+    financiero: "suena a papeles de dinero (nómina, banco, hipoteca…)",
+    salud: "suena a un documento médico",
+    contractual: "suena a contrato o póliza",
+    secreto: "habla de contraseñas o secretos",
+    monedero: "suena a un monedero de criptomonedas",
+    "codigo-de-respaldo": "suena a códigos de recuperación",
+    "material-de-clave": "es de los que guardan claves",
+    dotenv: "es un archivo de configuración con secretos (.env)",
+  };
+
+  /** El «¿por qué?» de la sensibilidad, en palabras, como el de los vencimientos. */
+  function porqueSensible(c: Claim): string {
+    const regla = /regla=(\S+)/.exec(c.evidence ?? "")?.[1] ?? "";
+    const [familia, cual] = regla.split(":");
+    const nivel = c.value === "vault" ? "de bóveda" : "sensible";
+    if (familia === "contenido") {
+      return `Lo leí en el texto: hay ${HALLAZGOS[cual ?? ""] ?? "algo que no debería salir de tu computadora"}.${marcaDicha(c, "marcado")}`;
+    }
+    if (familia === "carpeta") {
+      const casa = carpeta ? `«${nombreBonito(carpeta.value)}»` : "donde está";
+      return `Por la carpeta ${casa}: su nombre suena a documentos personales, así que lo que tiene dentro lo trato como ${nivel}.`;
+    }
+    if (familia === "nombre" || familia === "extension") {
+      return `Por su nombre, «${ficha?.label ?? ""}», que ${NOMBRES_SENSIBLES[cual ?? ""] ?? "suena a algo personal"}. No he tenido que leerlo.`;
+    }
+    return c.evidence ?? c.source;
   }
 
   function confirmar(c: Claim): void {
@@ -433,7 +490,7 @@
                     {/if}
                   </span>
                   {#if porques.has(c.assertion)}
-                    <span class="porque">{c.predicate === "expires_on" ? porqueVence(c) : (c.evidence ?? c.source)}</span>
+                    <span class="porque">{c.predicate === "expires_on" ? porqueVence(c) : c.predicate === "sensitivity_level" ? porqueSensible(c) : (c.evidence ?? c.source)}</span>
                   {/if}
                 {/if}
                 {#if c.predicate === "expires_on" && cambiando !== null}

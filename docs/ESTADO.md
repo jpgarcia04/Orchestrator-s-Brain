@@ -34,7 +34,7 @@ computadora.
 | **Vigila tus carpetas en vivo** mientras está abierta: guardas un documento y aparece solo, a los 3 segundos de dejar de tocar la carpeta, sin avisos (sólo el indicador de abajo a la izquierda) | Probarlo en tu Windows: aquí se ha probado con el vigía de Linux |
 | **Papelera**: lo que borras sale de Recientes, «Caduca pronto», el explorador, el mapa y la búsqueda, y se queda 30 días en la vista «Papelera»; después se olvida lo que se leyó de él (o antes, con «Olvidar ya» o «Vaciar papelera»). Mover y renombrar ya no dejan documentos ni carpetas repetidos | Probarlo en tu Windows: sacar algo de la Papelera de Windows y ver que vuelve solo |
 
-Núcleo en Rust con 380 tests (uno de ellos sólo corre en Windows), interfaz en
+Núcleo en Rust con 383 tests (uno de ellos sólo corre en Windows), interfaz en
 Tauri + Svelte 5, con el mapa en PixiJS.
 
 ## Cómo usarlo hoy (Windows)
@@ -105,6 +105,11 @@ seguridad de la base sin su clave de recuperación no se abre en otro equipo.
   Desde un documento, «Ver en el mapa» enseña con qué se relaciona.
 - **`Esc`** deshace un escalón: cierra el buscador, la vista previa o la lente
   del mapa.
+- **«¿Por qué?» de la sensibilidad:** en la vista previa, junto a «Sensible»,
+  dice con palabras si lo leyó en el texto (*«hay un DNI o NIE, con su letra de
+  control correcta»*, y el NIE sale marcado en el texto) o si fue por su
+  nombre o su carpeta. El NIE no se guarda en ningún log: el tramo se vuelve a
+  buscar al enseñarlo.
 - **Carpeta sensible:** dentro de una carpeta, el escudo de arriba a la derecha
   («Marcar como sensible») hace sensible todo lo que tiene dentro, también lo
   que llegue después. Para quitar la marca, dos clics. La vista «Sensibles»

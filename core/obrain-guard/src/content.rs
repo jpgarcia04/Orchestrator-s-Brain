@@ -25,58 +25,79 @@
 
 use crate::rules::Signal;
 use obrain_core::Sensitivity;
+use std::ops::Range;
 
 /// La señal más fuerte que aparezca en el texto, o `None`.
 ///
 /// Las de bóveda se comprueban primero y cortan: si hay una clave privada
 /// dentro, da igual que además haya un IBAN.
 pub fn scan(text: &str) -> Option<Signal> {
+    locate(text).map(|(s, _)| s)
+}
+
+/// Como [`scan`], y además **dónde**: el tramo de bytes de `text` que disparó
+/// la señal.
+///
+/// El tramo no viaja al log —la evidencia sigue siendo una dirección, regla y
+/// fragmento—: se recalcula al enseñar el «¿por qué?», sobre el texto que ya
+/// está en `chunks`, para marcarlo en la vista previa como los vencimientos.
+pub fn locate(text: &str) -> Option<(Signal, Range<usize>)> {
     vault_signal(text).or_else(|| sensitive_signal(text))
 }
 
 // ────────────────────────────────────────────────────────────────── bóveda
 
-fn vault_signal(text: &str) -> Option<Signal> {
+fn vault_signal(text: &str) -> Option<(Signal, Range<usize>)> {
     // Una clave privada en PEM no se puede confundir con nada.
-    if text.contains("-----BEGIN") && text.contains("PRIVATE KEY-----") {
-        return Some(sig("contenido:clave-privada-pem", Sensitivity::Vault, 0.99));
+    if let Some(r) = find_pem(text) {
+        return Some((
+            sig("contenido:clave-privada-pem", Sensitivity::Vault, 0.99),
+            r,
+        ));
     }
-    if prefix_then_run(text, "AKIA", 16, 16, is_upper_alnum) {
-        return Some(sig("contenido:clave-de-aws", Sensitivity::Vault, 0.95));
+    if let Some(r) = prefix_then_run(text, "AKIA", 16, 16, is_upper_alnum) {
+        return Some((sig("contenido:clave-de-aws", Sensitivity::Vault, 0.95), r));
     }
     for p in ["ghp_", "gho_", "ghu_", "ghs_", "ghr_"] {
-        if prefix_then_run(text, p, 30, 255, is_token_char) {
-            return Some(sig("contenido:token-de-github", Sensitivity::Vault, 0.95));
+        if let Some(r) = prefix_then_run(text, p, 30, 255, is_token_char) {
+            return Some((
+                sig("contenido:token-de-github", Sensitivity::Vault, 0.95),
+                r,
+            ));
         }
     }
     for p in ["xoxb-", "xoxp-", "xoxa-", "xoxs-", "xoxr-"] {
-        if prefix_then_run(text, p, 10, 255, |c| is_token_char(c) || c == b'-') {
-            return Some(sig("contenido:token-de-slack", Sensitivity::Vault, 0.95));
+        if let Some(r) = prefix_then_run(text, p, 10, 255, |c| is_token_char(c) || c == b'-') {
+            return Some((sig("contenido:token-de-slack", Sensitivity::Vault, 0.95), r));
         }
     }
-    if prefix_then_run(text, "AIza", 35, 35, is_token_char) {
-        return Some(sig("contenido:clave-de-google", Sensitivity::Vault, 0.95));
+    if let Some(r) = prefix_then_run(text, "AIza", 35, 35, is_token_char) {
+        return Some((
+            sig("contenido:clave-de-google", Sensitivity::Vault, 0.95),
+            r,
+        ));
     }
     // `sk-` es corto; lo que lo hace fiable es exigir 32 caracteres de token
     // detrás sin un espacio.
-    if prefix_then_run(text, "sk-", 32, 255, is_token_char) {
-        return Some(sig("contenido:clave-de-modelo", Sensitivity::Vault, 0.90));
-    }
-    if has_jwt(text) {
-        return Some(sig("contenido:jwt", Sensitivity::Vault, 0.85));
-    }
-    if has_env_secret(text) {
-        return Some(sig(
-            "contenido:variable-con-secreto",
-            Sensitivity::Vault,
-            0.90,
+    if let Some(r) = prefix_then_run(text, "sk-", 32, 255, is_token_char) {
+        return Some((
+            sig("contenido:clave-de-modelo", Sensitivity::Vault, 0.90),
+            r,
         ));
     }
-    if has_url_password(text) {
-        return Some(sig(
-            "contenido:url-con-contrasena",
-            Sensitivity::Vault,
-            0.85,
+    if let Some(r) = find_jwt(text) {
+        return Some((sig("contenido:jwt", Sensitivity::Vault, 0.85), r));
+    }
+    if let Some(r) = find_env_secret(text) {
+        return Some((
+            sig("contenido:variable-con-secreto", Sensitivity::Vault, 0.90),
+            r,
+        ));
+    }
+    if let Some(r) = find_url_password(text) {
+        return Some((
+            sig("contenido:url-con-contrasena", Sensitivity::Vault, 0.85),
+            r,
         ));
     }
     None
@@ -84,21 +105,33 @@ fn vault_signal(text: &str) -> Option<Signal> {
 
 // ────────────────────────────────────────────────────────────────── sensible
 
-fn sensitive_signal(text: &str) -> Option<Signal> {
-    if has_iban(text) {
-        return Some(sig("contenido:iban", Sensitivity::Sensitive, 0.90));
+fn sensitive_signal(text: &str) -> Option<(Signal, Range<usize>)> {
+    if let Some(r) = find_iban(text) {
+        return Some((sig("contenido:iban", Sensitivity::Sensitive, 0.90), r));
     }
-    if has_dni(text) {
-        return Some(sig("contenido:dni-o-nie", Sensitivity::Sensitive, 0.85));
+    if let Some(r) = find_dni(text) {
+        return Some((sig("contenido:dni-o-nie", Sensitivity::Sensitive, 0.85), r));
     }
-    if has_card(text) {
-        return Some(sig(
-            "contenido:tarjeta-de-pago",
-            Sensitivity::Sensitive,
-            0.80,
+    if let Some(r) = find_card(text) {
+        return Some((
+            sig("contenido:tarjeta-de-pago", Sensitivity::Sensitive, 0.80),
+            r,
         ));
     }
     None
+}
+
+/// `-----BEGIN … PRIVATE KEY-----`: de la cabecera al final de su marcador.
+fn find_pem(text: &str) -> Option<Range<usize>> {
+    let fin_marca = "PRIVATE KEY-----";
+    if !(text.contains("-----BEGIN") && text.contains(fin_marca)) {
+        return None;
+    }
+    let i = text.find("-----BEGIN")?;
+    let f = text[i..]
+        .find(fin_marca)
+        .map_or(i + "-----BEGIN".len(), |k| i + k + fin_marca.len());
+    Some(i..f)
 }
 
 const fn sig(rule: &'static str, level: Sensitivity, confidence: f64) -> Signal {
@@ -124,28 +157,34 @@ fn is_token_char(c: u8) -> bool {
 ///
 /// El límite superior importa tanto como el inferior: `AKIA` seguido de 200
 /// mayúsculas es un volcado hexadecimal, no una credencial de AWS.
-fn prefix_then_run(text: &str, prefix: &str, min: usize, max: usize, pred: fn(u8) -> bool) -> bool {
+fn prefix_then_run(
+    text: &str,
+    prefix: &str,
+    min: usize,
+    max: usize,
+    pred: fn(u8) -> bool,
+) -> Option<Range<usize>> {
     let b = text.as_bytes();
-    text.match_indices(prefix).any(|(i, _)| {
+    text.match_indices(prefix).find_map(|(i, _)| {
         let start = i + prefix.len();
         let mut n = 0;
         while start + n < b.len() && pred(b[start + n]) {
             n += 1;
         }
-        n >= min && n <= max
+        (n >= min && n <= max).then_some(i..start + n)
     })
 }
 
 /// `eyJ…·eyJ…·` — cabecera y cuerpo de un JWT, ambos base64 de un `{`.
-fn has_jwt(text: &str) -> bool {
+fn find_jwt(text: &str) -> Option<Range<usize>> {
     let b = text.as_bytes();
-    text.match_indices("eyJ").any(|(i, _)| {
+    text.match_indices("eyJ").find_map(|(i, _)| {
         let mut j = i;
         while j < b.len() && is_token_char(b[j]) {
             j += 1;
         }
         // cabecera de al menos 10 caracteres, y detrás un punto y otro `eyJ`
-        j - i >= 10 && b.get(j) == Some(&b'.') && b[j + 1..].starts_with(b"eyJ")
+        (j - i >= 10 && b.get(j) == Some(&b'.') && b[j + 1..].starts_with(b"eyJ")).then_some(i..j)
     })
 }
 
@@ -183,7 +222,7 @@ fn is_placeholder(v: &str) -> bool {
 /// `const token = fetchToken()` en un `.ts`. El precio es que un `.ini` con
 /// claves en minúscula se escapa; queda anotado como límite conocido y no
 /// escondido detrás de una heurística de entropía que nadie podría auditar.
-fn has_env_secret(text: &str) -> bool {
+fn find_env_secret(text: &str) -> Option<Range<usize>> {
     const PALABRAS: &[&str] = &[
         "PASSWORD",
         "PASSWD",
@@ -196,13 +235,17 @@ fn has_env_secret(text: &str) -> bool {
         "CLAVE",
         "CREDENTIAL",
     ];
-    text.lines().any(|line| {
-        let line = line.trim();
+    let mut desde = 0;
+    for bruta in text.split_inclusive('\n') {
+        let inicio = desde;
+        desde += bruta.len();
+        let sin_salto = bruta.trim_end_matches(['\n', '\r']);
+        let line = sin_salto.trim();
         if line.starts_with('#') || line.starts_with("//") {
-            return false;
+            continue;
         }
         let Some((key, value)) = line.split_once('=') else {
-            return false;
+            continue;
         };
         let key = key.trim().trim_start_matches("export ").trim();
         let bien_formado = !key.is_empty()
@@ -210,19 +253,23 @@ fn has_env_secret(text: &str) -> bool {
                 .bytes()
                 .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == b'_')
             && key.bytes().any(|c| c.is_ascii_uppercase());
-        bien_formado && PALABRAS.iter().any(|p| key.contains(p)) && !is_placeholder(value)
-    })
+        if bien_formado && PALABRAS.iter().any(|p| key.contains(p)) && !is_placeholder(value) {
+            let izq = sin_salto.len() - sin_salto.trim_start().len();
+            return Some(inicio + izq..inicio + sin_salto.trim_end().len());
+        }
+    }
+    None
 }
 
 /// `postgres://usuario:contrasena@host` — la credencial más filtrada del mundo.
-fn has_url_password(text: &str) -> bool {
-    text.match_indices("://").any(|(i, _)| {
+fn find_url_password(text: &str) -> Option<Range<usize>> {
+    text.match_indices("://").find_map(|(i, _)| {
         let resto = &text[i + 3..];
         let fin = resto
             .find(|c: char| c == '/' || c.is_whitespace() || c == '"' || c == '\'')
             .unwrap_or(resto.len());
         let autoridad = &resto[..fin];
-        match (autoridad.find(':'), autoridad.find('@')) {
+        let ok = match (autoridad.find(':'), autoridad.find('@')) {
             (Some(c), Some(a)) if c < a => {
                 let pass = &autoridad[c + 1..a];
                 // Ni vacía, ni un marcador, ni un número de puerto.
@@ -232,7 +279,8 @@ fn has_url_password(text: &str) -> bool {
                     && !is_placeholder(pass)
             }
             _ => false,
-        }
+        };
+        ok.then_some(i + 3..i + 3 + fin)
     })
 }
 
@@ -246,7 +294,7 @@ const IBAN_PAISES: &[&str] = &[
     "RO", "RS", "SE", "SI", "SK", "SM", "TR", "UA",
 ];
 
-fn has_iban(text: &str) -> bool {
+fn find_iban(text: &str) -> Option<Range<usize>> {
     let b = text.as_bytes();
     for i in 0..b.len().saturating_sub(14) {
         // frontera por delante, y forma `LL DD`
@@ -277,10 +325,10 @@ fn has_iban(text: &str) -> bool {
             }
         }
         if limpio.len() >= 15 && iban_mod97(&limpio) {
-            return true;
+            return Some(i..j);
         }
     }
-    false
+    None
 }
 
 /// Los cuatro primeros caracteres pasan al final, las letras valen 10..35, y
@@ -300,7 +348,7 @@ fn iban_mod97(s: &str) -> bool {
 const DNI_LETRAS: &[u8] = b"TRWAGMYFPDXBNJZSQVHLCKE";
 
 /// DNI (`12345678Z`) y NIE (`X1234567L`), ambos con letra de control.
-fn has_dni(text: &str) -> bool {
+fn find_dni(text: &str) -> Option<Range<usize>> {
     let b = text.as_bytes();
     for i in 0..b.len() {
         if i > 0 && b[i - 1].is_ascii_alphanumeric() {
@@ -337,10 +385,10 @@ fn has_dni(text: &str) -> bool {
             n = n * 10 + (d - b'0') as u32;
         }
         if DNI_LETRAS[(n % 23) as usize] == letra {
-            return true;
+            return Some(i..inicio + esperados + 1);
         }
     }
-    false
+    None
 }
 
 /// Tarjeta de pago: Luhn **y** prefijo de emisor conocido.
@@ -348,7 +396,7 @@ fn has_dni(text: &str) -> bool {
 /// Luhn sola acierta por casualidad una vez de cada diez, que en un disco lleno
 /// de identificadores numéricos es demasiado. El prefijo es lo que la hace
 /// utilizable.
-fn has_card(text: &str) -> bool {
+fn find_card(text: &str) -> Option<Range<usize>> {
     let b = text.as_bytes();
     let mut i = 0;
     while i < b.len() {
@@ -386,12 +434,12 @@ fn has_card(text: &str) -> bool {
             && emisor_conocido(&digitos)
             && luhn(&digitos)
         {
-            return true;
+            return Some(i..j);
         }
         // saltar el número entero: no reprocesar sus dígitos uno a uno
         i = j.max(i + 1);
     }
-    false
+    None
 }
 
 fn emisor_conocido(d: &str) -> bool {
@@ -427,6 +475,40 @@ mod tests {
 
     fn nivel(t: &str) -> Option<Sensitivity> {
         scan(t).map(|s| s.level)
+    }
+
+    /// El tramo de [`locate`]: exactamente lo que disparó la señal, para
+    /// marcarlo en la vista previa.
+    #[test]
+    fn locate_dice_donde_esta_lo_que_encontro() {
+        fn tramo(t: &str) -> (&'static str, &str) {
+            let (s, r) = locate(t).unwrap();
+            (s.rule, &t[r])
+        }
+        assert_eq!(
+            tramo("TARJETA DE IDENTIDAD\nNIE X1234567L  RESIDENCIA"),
+            ("contenido:dni-o-nie", "X1234567L")
+        );
+        assert_eq!(
+            tramo("Domiciliación: ES91 2100 0418 4502 0005 1332, a nombre de…"),
+            ("contenido:iban", "ES91 2100 0418 4502 0005 1332")
+        );
+        assert_eq!(
+            tramo("Pago con 4111 1111 1111 1111 el lunes"),
+            ("contenido:tarjeta-de-pago", "4111 1111 1111 1111")
+        );
+        assert_eq!(
+            tramo("# config\n  DB_PASSWORD=hunter2hunter2\nOTRA=1"),
+            (
+                "contenido:variable-con-secreto",
+                "DB_PASSWORD=hunter2hunter2"
+            )
+        );
+        assert_eq!(
+            tramo("url postgres://jp:s3creta99@db.local/app"),
+            ("contenido:url-con-contrasena", "jp:s3creta99@db.local")
+        );
+        assert!(locate("Apuntes de SQL con Oracle.").is_none());
     }
 
     #[test]

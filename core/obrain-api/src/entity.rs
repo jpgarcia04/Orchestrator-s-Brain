@@ -36,6 +36,12 @@ pub struct Claim {
     pub evidence: Option<String>,
     /// La afirmó el usuario. Precedencia permanente (I5) y no vuelve a cambiar.
     pub by_user: bool,
+    /// El tramo del documento que lo explica, en bytes del texto entero: lo
+    /// que el «¿por qué?» marca en la vista previa. Lo tienen la fecha de
+    /// caducidad (su evidencia lo dice) y la sensibilidad que salió del
+    /// contenido, que se **recalcula** aquí sobre el fragmento que dice su
+    /// evidencia: el log sólo guarda la dirección, nunca lo encontrado.
+    pub span: Option<[usize; 2]>,
 }
 
 /// Todo lo que el sistema sabe de una entidad, ordenado como se enseña.
@@ -142,6 +148,7 @@ pub fn view(store: &Store, id: &EntityId, at: TimePoint) -> Result<EntityView> {
             source: a.source.clone(),
             evidence: a.evidence.clone(),
             by_user: a.method == Method::User,
+            span: span(store, id, a),
         };
         match a.method {
             Method::Deterministic | Method::User => observed.push(claim),
@@ -162,6 +169,44 @@ pub fn view(store: &Store, id: &EntityId, at: TimePoint) -> Result<EntityView> {
         trashed: crate::papelera::of(store, id, at)?,
         id: id.0.clone(),
     })
+}
+
+/// El tramo que explica una aserción, si se sabe. Ver [`Claim::span`].
+fn span(store: &Store, id: &EntityId, a: &Assertion) -> Option<[usize; 2]> {
+    let ev = a.evidence.as_deref()?;
+    let campo = |k: &str| {
+        ev.split_whitespace()
+            .find_map(|p| p.strip_prefix(k).map(str::to_string))
+    };
+    match a.predicate.as_str() {
+        "expires_on" => {
+            let (x, y) = campo("bytes=")?
+                .split_once("..")
+                .map(|(x, y)| (x.to_string(), y.to_string()))?;
+            Some([x.parse().ok()?, y.parse().ok()?])
+        }
+        "sensitivity_level" => {
+            let regla = campo("regla=")?;
+            let fragmento: i64 = campo("fragmento=")?.parse().ok()?;
+            let (texto, base): (String, i64) = store
+                .conn()
+                .query_row(
+                    "SELECT text, byte_start FROM chunks WHERE entity = ?1 AND ordinal = ?2
+                     ORDER BY chunker_ver DESC LIMIT 1",
+                    obrain_core::rusqlite::params![id.as_str(), fragmento],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .ok()?;
+            let (s, r) = obrain_guard::content::locate(&texto)?;
+            // Si el texto de hoy dispara otra regla, el tramo no explicaría
+            // esta aserción: mejor no marcar nada que marcar otra cosa.
+            (s.rule == regla).then(|| {
+                let b = base.max(0) as usize;
+                [b + r.start, b + r.end]
+            })
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]
