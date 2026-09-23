@@ -179,7 +179,7 @@
             ></span>
           {/each}
           <span class="pie-mini">
-            <span>{mapa ? `${mapa.regions.length} regiones` : ""}</span>
+            <span>{mapa ? (mapa.regions.length === 1 ? "1 región" : `${mapa.regions.length} regiones`) : ""}</span>
             <span class="abrir">Abrir el mapa <ChevronRight size={14} /></span>
           </span>
         </button>

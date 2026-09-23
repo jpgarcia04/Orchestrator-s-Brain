@@ -80,7 +80,7 @@
         const c = await cielo(30);
         if (mio !== pedido) return;
         foco = "";
-        resumen = `${c.regions.length} regiones · ${c.files.toLocaleString("es")} documentos`;
+        resumen = `${c.regions.length === 1 ? "1 región" : `${c.regions.length} regiones`} · ${c.files === 1 ? "1 documento" : `${c.files.toLocaleString("es")} documentos`}`;
         await encajar(m);
         m.cielo(c);
       }
