@@ -55,8 +55,11 @@ impl Boveda {
         indexar::index_with(&mut self.store, std::slice::from_ref(&self.lib), None, None).unwrap()
     }
 
+    /// `rel` con `/`, que en Windows se convierte en `\`: el escáner guarda
+    /// la ruta con el separador del sistema, y buscarla con otro no la
+    /// encuentra.
     fn ruta(&self, rel: &str) -> PathBuf {
-        self.lib.join(rel)
+        rel.split('/').fold(self.lib.clone(), |p, t| p.join(t))
     }
 
     fn at(&self) -> TimePoint {
@@ -161,7 +164,11 @@ fn lo_que_borras_sale_de_todas_partes_y_entra_en_la_papelera() {
     let r = b.indexar();
     assert_eq!(r.trashed, 1);
 
-    assert_eq!(b.recientes(), ["poliza.txt", "receta.txt"]);
+    // Sin orden: «Recientes» pone primero lo último que se modificó, y en
+    // NTFS la receta, escrita después, es más reciente; en Linux empatan.
+    let mut recientes = b.recientes();
+    recientes.sort();
+    assert_eq!(recientes, ["poliza.txt", "receta.txt"]);
     assert!(!b.caduca().contains(&"pasaporte.txt".to_string()));
     assert!(b.buscar("pasaporte").is_empty());
     assert_eq!(

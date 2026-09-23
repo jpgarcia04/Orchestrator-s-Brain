@@ -18,8 +18,8 @@ use notify::event::{AccessKind, EventKind, MetadataKind, ModifyKind};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use obrain_scan::ExclusionSet;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Cuánto hay que esperar sin cambios antes de releer. Lo eligió el usuario
@@ -77,7 +77,15 @@ impl Pausa {
 
 /// ¿Este evento puede cambiar lo que sabe obrain? Ante la duda, sí: releer es
 /// barato y nunca pierde nada; no releer puede dejar un documento fuera.
-pub fn importa(evento: &notify::Result<notify::Event>, poda: &ExclusionSet) -> bool {
+///
+/// `raices` son las bibliotecas vigiladas. Lo que se poda se mira **debajo**
+/// de ellas, como hace el escáner: una bóveda dentro de `AppData` —o de una
+/// carpeta que se llame `env`— se indexa, y tiene que vigilarse igual.
+pub fn importa(
+    evento: &notify::Result<notify::Event>,
+    poda: &ExclusionSet,
+    raices: &[PathBuf],
+) -> bool {
     let Ok(e) = evento else {
         // Un error del vigía (la cola del sistema desbordada, una carpeta que
         // desapareció): no se sabe qué cambió, así que se relee.
@@ -89,10 +97,26 @@ pub fn importa(evento: &notify::Result<notify::Event>, poda: &ExclusionSet) -> b
         EventKind::Access(AccessKind::Read | AccessKind::Open(_) | AccessKind::Close(_))
         | EventKind::Access(AccessKind::Any | AccessKind::Other) => return false,
         EventKind::Modify(ModifyKind::Metadata(MetadataKind::AccessTime)) => return false,
+        // En Windows, crear o borrar algo dentro de una carpeta le cambia la
+        // fecha a la carpeta, y llega como `Modify(Any)` sobre ella. Lo que
+        // cambió de verdad llega en su propio evento, con su ruta: contar el de
+        // la carpeta hacía que el candado de Word despertara al vigía.
+        EventKind::Modify(ModifyKind::Any)
+            if !e.paths.is_empty() && e.paths.iter().all(|p| p.is_dir()) =>
+        {
+            return false;
+        }
         _ => {}
     }
     // Sin ruta no se sabe dónde: cuenta.
-    e.paths.is_empty() || e.paths.iter().any(|p| ruta_importa(p, poda))
+    e.paths.is_empty()
+        || e.paths.iter().any(|p| {
+            let debajo = raices
+                .iter()
+                .find_map(|r| p.strip_prefix(r).ok())
+                .unwrap_or(p);
+            ruta_importa(debajo, poda)
+        })
 }
 
 /// ¿Un cambio en esta ruta puede cambiar la bóveda? No, si es un temporal o
@@ -121,7 +145,9 @@ pub fn ruta_importa(ruta: &Path, poda: &ExclusionSet) -> bool {
 /// canal y el hilo termina.
 pub struct Vigia {
     watcher: Mutex<RecommendedWatcher>,
-    raices: Mutex<Vec<PathBuf>>,
+    /// Compartidas con el hilo, que las necesita para saber qué parte de la
+    /// ruta de un evento cuelga de una biblioteca.
+    raices: Arc<Mutex<Vec<PathBuf>>>,
 }
 
 impl Vigia {
@@ -135,6 +161,8 @@ impl Vigia {
     ) -> Result<Self, notify::Error> {
         let (tx, rx) = mpsc::channel::<notify::Result<notify::Event>>();
         let watcher = notify::recommended_watcher(tx)?;
+        let raices: Arc<Mutex<Vec<PathBuf>>> = Arc::default();
+        let del_hilo = Arc::clone(&raices);
         std::thread::Builder::new()
             .name("obrain-vigia".into())
             .spawn(move || {
@@ -153,7 +181,8 @@ impl Vigia {
                         },
                     };
                     if let Some(e) = evento {
-                        if importa(&e, &poda) {
+                        let vigiladas = del_hilo.lock().map(|r| r.clone()).unwrap_or_default();
+                        if importa(&e, &poda, &vigiladas) {
                             pausa.anotar(Instant::now());
                         }
                     }
@@ -165,7 +194,7 @@ impl Vigia {
             .map_err(|e| notify::Error::generic(&e.to_string()))?;
         Ok(Vigia {
             watcher: Mutex::new(watcher),
-            raices: Mutex::new(Vec::new()),
+            raices,
         })
     }
 
@@ -230,33 +259,39 @@ mod tests {
         let doc = "/boveda/01 Identidad/IMG_2291.jpg";
         assert!(!importa(
             &ev(EventKind::Access(AccessKind::Read), doc),
-            &poda
+            &poda,
+            &[]
         ));
         assert!(!importa(
             &ev(
                 EventKind::Access(AccessKind::Open(notify::event::AccessMode::Read)),
                 doc
             ),
-            &poda
+            &poda,
+            &[]
         ));
         assert!(!importa(
             &ev(
                 EventKind::Modify(ModifyKind::Metadata(MetadataKind::AccessTime)),
                 doc
             ),
-            &poda
+            &poda,
+            &[]
         ));
         assert!(importa(
             &ev(EventKind::Create(CreateKind::File), doc),
-            &poda
+            &poda,
+            &[]
         ));
         assert!(importa(
             &ev(EventKind::Modify(ModifyKind::Data(DataChange::Any)), doc),
-            &poda
+            &poda,
+            &[]
         ));
         assert!(importa(
             &ev(EventKind::Remove(notify::event::RemoveKind::Any), doc),
-            &poda
+            &poda,
+            &[]
         ));
     }
 
@@ -284,13 +319,33 @@ mod tests {
         }
     }
 
+    /// Lo que hay por encima de la biblioteca no se poda: una bóveda dentro de
+    /// `AppData` se indexa, y se vigila igual. Lo de dentro sí se poda.
+    #[test]
+    fn se_poda_por_debajo_de_la_biblioteca_no_por_encima() {
+        let poda = ExclusionSet::new();
+        let raiz = PathBuf::from("/home/jp/AppData/Local/Temp/Boveda");
+        let cambio = |ruta: &str| ev(EventKind::Create(CreateKind::File), ruta);
+        assert!(importa(
+            &cambio("/home/jp/AppData/Local/Temp/Boveda/01 Identidad/tie.jpg"),
+            &poda,
+            std::slice::from_ref(&raiz)
+        ));
+        assert!(!importa(
+            &cambio("/home/jp/AppData/Local/Temp/Boveda/app/node_modules/x.js"),
+            &poda,
+            std::slice::from_ref(&raiz)
+        ));
+    }
+
     #[test]
     fn ante_la_duda_se_relee() {
         let poda = ExclusionSet::new();
         assert!(importa(
             &Err(notify::Error::generic("cola desbordada")),
-            &poda
+            &poda,
+            &[]
         ));
-        assert!(importa(&Ok(notify::Event::new(EventKind::Any)), &poda));
+        assert!(importa(&Ok(notify::Event::new(EventKind::Any)), &poda, &[]));
     }
 }
