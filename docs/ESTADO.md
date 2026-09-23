@@ -24,15 +24,15 @@ computadora.
 | Marcar lo sensible y no dejarlo salir de la máquina | |
 | **Bibliotecas**: el explorador empieza en tu carpeta, no en la raíz del disco | |
 | Carpetas y documentos con nombres legibles, fechas y tamaños claros | |
-| **La interfaz nueva** (Svelte 5): escritorio con barra lateral, Inicio, carpetas en cuadrícula o lista, vista previa, Sensibles, buscador `Ctrl K`, el Mapa enlazado, noche y día | |
+| **La interfaz nueva** (Svelte 5): escritorio con barra lateral, Inicio, carpetas en cuadrícula o lista, vista previa, Sensibles, buscador `Ctrl K`, el Mapa enlazado, noche y día | ✅ Probado en tu Windows (2026-09-23) |
 | «Añadir carpeta» desde la app, o `obrain indexar <carpeta>` desde la terminal | |
-| **Sensibilidad por carpeta**: marcas `01 Identidad` y todo lo de dentro es sensible, también lo que llegue después (la foto de la TIE incluida). Si la renombras o la mueves dentro del mismo disco, la marca va con ella | Probarlo en tu Windows: renombrar una carpeta marcada y ver que sigue en «Sensibles» con sus documentos |
-| **Base cifrada** (SQLCipher) con la llave en Windows y una clave de recuperación; **PIN** opcional para ver lo sensible | Verlo en la app, en «Seguridad». La llave de Windows (DPAPI) ya funciona en tu laptop: se probó con la orden `obrain` el 2026-09-23 |
-| **Leer fotos y PDF escaneados (OCR)** con el reconocedor que ya trae Windows, sin conexión: la foto de la TIE se encuentra buscando «extranjero» y sale sensible por su NIE | Probarlo en tu Windows: el OCR sólo se ha comprobado que compila |
-| **Vencimientos**: lee cuándo caduca cada documento («VALIDEZ 15 11 2026» en la foto de la TIE, «vence el 30 de septiembre» en el contrato) y el Inicio te enseña **«Caduca pronto»**: lo que vence en 90 días y lo que ya venció. Cada fecha dice por qué la leyó y se corrige en un clic | Probarlo en tu Windows, con el OCR de verdad |
+| **Sensibilidad por carpeta**: marcas `01 Identidad` y todo lo de dentro es sensible, también lo que llegue después (la foto de la TIE incluida). Si la renombras o la mueves dentro del mismo disco, la marca va con ella | ✅ Probado en tu Windows (2026-09-23) |
+| **Base cifrada** (SQLCipher) con la llave en Windows y una clave de recuperación; **PIN** opcional para ver lo sensible | ✅ Probado en tu Windows (2026-09-23). Falta el PIN, si lo quieres |
+| **Leer fotos y PDF escaneados (OCR)** con el reconocedor que ya trae Windows, sin conexión: la foto de la TIE se encuentra buscando «extranjero» y sale sensible por su NIE | ✅ Probado en tu Windows (2026-09-23) |
+| **Vencimientos**: lee cuándo caduca cada documento («VALIDEZ 15 11 2026» en la foto de la TIE, «vence el 30 de septiembre» en el contrato) y el Inicio te enseña **«Caduca pronto»**: lo que vence en 90 días y lo que ya venció. Cada fecha dice por qué la leyó y se corrige en un clic | Probarlo en tu Windows con un documento que diga cuándo caduca |
 | La app se pone al día sola al abrirse, y tiene botón «actualizar» | |
-| **Vigila tus carpetas en vivo** mientras está abierta: guardas un documento y aparece solo, a los 3 segundos de dejar de tocar la carpeta, sin avisos (sólo el indicador de abajo a la izquierda) | Probarlo en la app. Sus tests ya pasan en tu Windows (2026-09-23), tras arreglar dos cosas que sólo pasaban ahí |
-| **Papelera**: lo que borras sale de Recientes, «Caduca pronto», el explorador, el mapa y la búsqueda, y se queda 30 días en la vista «Papelera»; después se olvida lo que se leyó de él (o antes, con «Olvidar ya» o «Vaciar papelera»). Mover y renombrar ya no dejan documentos ni carpetas repetidos | Probarlo en tu Windows: sacar algo de la Papelera de Windows y ver que vuelve solo |
+| **Vigila tus carpetas en vivo** mientras está abierta: guardas un documento y aparece solo, a los 3 segundos de dejar de tocar la carpeta, sin avisos (sólo el indicador de abajo a la izquierda) | ✅ Probado en tu Windows (2026-09-23) |
+| **Papelera**: lo que borras sale de Recientes, «Caduca pronto», el explorador, el mapa y la búsqueda, y se queda 30 días en la vista «Papelera»; después se olvida lo que se leyó de él (o antes, con «Olvidar ya» o «Vaciar papelera»). Mover y renombrar ya no dejan documentos ni carpetas repetidos | ✅ Probado en tu Windows (2026-09-23) |
 
 Núcleo en Rust con 400 tests, **todos en verde en tu Windows** (2026-09-23;
 hasta entonces sólo se habían corrido en Linux), interfaz en Tauri + Svelte 5,
@@ -192,7 +192,7 @@ Y nombres que se lean solos, con la fecha delante:
 | 0 | Limpieza: documentación a la medida, README honesto | ✅ Hecha |
 | 1 | El núcleo para tu carpeta: bibliotecas, nombres, `obrain indexar`, «actualizar» | ✅ Hecha |
 | 2 | La interfaz nueva en Svelte 5: el explorador como escritorio estilo sistema operativo, la galaxia como vista «Mapa» enlazada, `Ctrl+K`, vista previa rápida | ✅ Hecha |
-| **3** | **Documentos personales**: ✅ sensibilidad por carpeta (y la marca sigue a la carpeta si la renombras) · ✅ cifrado y PIN · ✅ OCR · ✅ vencimientos · ✅ vigilar la carpeta en vivo · ✅ papelera | ✅ Hecha (falta probarla en tu Windows) |
+| **3** | **Documentos personales**: ✅ sensibilidad por carpeta (y la marca sigue a la carpeta si la renombras) · ✅ cifrado y PIN · ✅ OCR · ✅ vencimientos · ✅ vigilar la carpeta en vivo · ✅ papelera | ✅ Hecha y probada en tu Windows (2026-09-23), salvo vencimientos |
 | 4 | La visión original: trámites reconstruidos, la pregunta de la visa | Congelada (JP, 2026-09-23: primero usar la app en Windows) |
 
 **Decidido el 2026-09-23, por construir** (el orden, después de probar la app
@@ -211,15 +211,16 @@ de la Fase 2 y la interfaz se queda como está: el explorador es la pantalla de
 inicio, la galaxia es la vista «Mapa» y el aspecto de noche es el de por
 defecto (el de día, a un clic). Queda escrito en
 [ADR-0019](adr/0019-el-explorador-es-el-escritorio.md), que sustituye al 0013.
-Falta probarla en tu Windows de verdad: hasta hoy sólo se ha visto en el
-navegador del banco de pruebas (el 2026-09-22 aún no la habías corrido).
+**Y ya corre en tu Windows (2026-09-23):** la abriste con tu carpeta de
+pruebas y funcionaron el cifrado, Sensibles con su «¿por qué?», el OCR, el
+vigía, la papelera y la carpeta marcada.
 
 **Antes de meter tu pasaporte de verdad**, tres cosas:
 
-1. **Corre la app una vez en tu Windows** y mira en «Seguridad» que diga *«Tu
-   base está cifrada»* (con la llave de Windows). La llave de Windows ya se
-   probó en tu laptop con la orden `obrain`; falta verla desde la app.
-2. **Guarda la clave de recuperación** que te enseña la app.
+1. ~~Corre la app y mira en «Seguridad» que la base está cifrada.~~ Hecho el
+   2026-09-23.
+2. ~~Guarda la clave de recuperación.~~ Hecho (la de la base nueva; la
+   primera que guardaste ese día ya no sirve).
 3. **Activa el Cifrado de dispositivo** de Windows si tu laptop lo tiene
    (Configuración › Privacidad y seguridad): cifrar la base de obrain **no
    cifra tus archivos originales**, y lo que hubo en claro puede seguir en el
