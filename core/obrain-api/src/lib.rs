@@ -43,6 +43,7 @@ pub mod marks;
 pub mod preview;
 pub mod seguridad;
 pub mod sky;
+pub mod vigilar;
 
 use obrain_core::{EntityId, Method, NewAssertion, Sensitivity, Store, TimePoint, Value};
 /// El modelo, para quien lo carga y lo presta sin depender de `obrain-embed`.

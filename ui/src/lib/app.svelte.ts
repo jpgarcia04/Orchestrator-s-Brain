@@ -8,6 +8,7 @@
 
 import {
   actualizar as pedirActualizar,
+  alEmpezarIndexado,
   alIndexar,
   anadirBiblioteca,
   entidad,
@@ -93,6 +94,7 @@ class App {
 
   async arrancar(): Promise<void> {
     await alIndexar((i) => void this.terminoIndexado(i));
+    await alEmpezarIndexado(() => (this.indexando = true));
     await this.refrescar();
   }
 
@@ -132,7 +134,8 @@ class App {
     await this.refrescar();
     if (i.error) {
       this.avisar(`No se pudo actualizar: ${i.error}`);
-    } else if (i.report && i.report.files_new > 0) {
+    } else if (!i.live && i.report && i.report.files_new > 0) {
+      // Lo que encuentra el vigía no se anuncia: aparece y ya (ADR-0024).
       const n = i.report.files_new;
       this.avisar(n === 1 ? "Hay 1 documento nuevo en tu bóveda." : `Hay ${n} documentos nuevos en tu bóveda.`);
     }

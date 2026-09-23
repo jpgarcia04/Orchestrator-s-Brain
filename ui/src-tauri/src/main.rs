@@ -34,6 +34,11 @@
 //! base está en modo WAL), y el modelo se presta al indexador en vez de cargarse
 //! dos veces. Al terminar se avisa a la ventana con el evento `indexado`.
 //!
+//! Y mientras está abierta, **un vigía** (ADR-0024) mira tus bibliotecas:
+//! cuando algo cambia y lleva tres segundos quieto, lanza esa misma pasada
+//! —sin aviso: sólo el indicador de abajo a la izquierda lo dice—. Nunca dos a
+//! la vez: si algo cambia a media pasada, al terminar sale una más.
+//!
 //! ## La base está cifrada, y puede estar cerrada
 //!
 //! Al abrir, la base se cifra si venía en claro (ADR-0021) y se abre con la
@@ -45,6 +50,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use obrain_api::seguridad::{self, Estado as EstadoSeguridad};
+use obrain_api::vigilar::{self, Vigia};
 use obrain_api::{
     Brain, Embedder, EntityView, Expiring, FolderMarked, Glance, IndexReport, Lens, Listing,
     MarkedFolder, Preview, Row, Sky, default_db_path,
@@ -65,6 +71,13 @@ struct Indexando(AtomicBool);
 
 /// El reconocedor de texto (OCR) de este equipo, si lo hay. Se mira una vez.
 struct MotorOcr(Option<String>);
+
+/// El vigía de las bibliotecas (ADR-0024), o `None` si el sistema no deja
+/// vigilar: entonces todo sigue como antes, al abrir y con «actualizar».
+struct Vigilante(Mutex<Option<Vigia>>);
+
+/// Algo cambió con una pasada en marcha: al terminar, sale otra.
+struct Pendiente(AtomicBool);
 
 const CERRADA: &str = "la base está cerrada: escribe tu clave de recuperación";
 
@@ -92,6 +105,8 @@ struct Estado {
 struct Indexado {
     report: Option<IndexReport>,
     error: Option<String>,
+    /// La lanzó el vigía, no tú: la ventana no avisa de lo nuevo (ADR-0024).
+    live: bool,
 }
 
 fn texto<E: std::fmt::Display>(e: E) -> String {
@@ -412,7 +427,7 @@ fn actualizar(
         .lock()
         .ok()
         .and_then(|mut g| g.as_mut().and_then(Brain::take_embedder));
-    std::thread::spawn(move || indexar_en_fondo(&app, None, modelo));
+    std::thread::spawn(move || indexar_en_fondo(&app, None, modelo, false));
     true
 }
 
@@ -460,7 +475,7 @@ async fn anadir_biblioteca(app: AppHandle) -> Result<bool, String> {
         .lock()
         .ok()
         .and_then(|mut g| g.as_mut().and_then(Brain::take_embedder));
-    std::thread::spawn(move || indexar_en_fondo(&app, Some(vec![ruta]), modelo));
+    std::thread::spawn(move || indexar_en_fondo(&app, Some(vec![ruta]), modelo, false));
     Ok(true)
 }
 
@@ -473,16 +488,29 @@ fn indexar_en_fondo(
     app: &AppHandle,
     raices: Option<Vec<PathBuf>>,
     modelo: Option<Box<dyn Embedder + Send>>,
+    vivo: bool,
 ) {
     let res = Store::open(default_db_path())
         .map_err(texto)
         .and_then(|mut store| {
             let m = modelo.as_deref().map(|m| m as &dyn Embedder);
-            match &raices {
+            let r = match &raices {
                 Some(r) => obrain_api::indexar::index(&mut store, r, m),
                 None => obrain_api::indexar::reindex(&mut store, m),
             }
-            .map_err(texto)
+            .map_err(texto)?;
+            // El vigía mira exactamente tus bibliotecas: también la que se
+            // acaba de añadir.
+            let vigilante = app.state::<Vigilante>();
+            if let (Ok(bibliotecas), Ok(vigia)) =
+                (obrain_api::indexar::libraries(&store), vigilante.0.lock())
+            {
+                if let Some(v) = vigia.as_ref() {
+                    let b: Vec<PathBuf> = bibliotecas.into_iter().map(PathBuf::from).collect();
+                    v.sincronizar(&b);
+                }
+            }
+            Ok(r)
         });
     // El modelo vuelve al cerebro pase lo que pase.
     if let Some(m) = modelo {
@@ -497,16 +525,22 @@ fn indexar_en_fondo(
         Ok(r) => Indexado {
             report: Some(r),
             error: None,
+            live: vivo,
         },
         Err(e) => {
             eprintln!("no se pudo actualizar: {e}");
             Indexado {
                 report: None,
                 error: Some(e),
+                live: vivo,
             }
         }
     };
     let _ = app.emit("indexado", aviso);
+    // Lo que cambió mientras tanto, en una pasada más.
+    if app.state::<Pendiente>().0.swap(false, Ordering::SeqCst) {
+        por_cambio(app);
+    }
 }
 
 /// El modelo, fuera del cerrojo, y después **tus bibliotecas al día**: lo que
@@ -529,8 +563,37 @@ fn arrancar_en_fondo(handle: AppHandle) {
                 None
             }
         };
-        indexar_en_fondo(&handle, None, modelo);
+        indexar_en_fondo(&handle, None, modelo, false);
     });
+}
+
+/// **Algo cambió en tus bibliotecas** y lleva la pausa quieto: la misma
+/// pasada que «actualizar». Si ya hay una en marcha, se anota y sale al
+/// terminar ésa: un archivo guardado después de que el escáner pasara por su
+/// carpeta no puede quedarse fuera.
+fn por_cambio(app: &AppHandle) {
+    if app
+        .state::<Cerebro>()
+        .0
+        .lock()
+        .map(|g| g.is_none())
+        .unwrap_or(true)
+    {
+        return;
+    }
+    if app.state::<Indexando>().0.swap(true, Ordering::SeqCst) {
+        app.state::<Pendiente>().0.store(true, Ordering::SeqCst);
+        return;
+    }
+    let _ = app.emit("indexando", ());
+    let modelo = app
+        .state::<Cerebro>()
+        .0
+        .lock()
+        .ok()
+        .and_then(|mut g| g.as_mut().and_then(Brain::take_embedder));
+    let app = app.clone();
+    std::thread::spawn(move || indexar_en_fondo(&app, None, modelo, true));
 }
 
 fn main() {
@@ -559,6 +622,14 @@ fn main() {
             // Arranca marcado: el hilo de abajo reindexa en cuanto tenga modelo.
             app.manage(Indexando(AtomicBool::new(abierta)));
             app.manage(MotorOcr(obrain_api::ocr_engine()));
+            // El vigía empieza sin vigilar nada: cada pasada le dice qué
+            // bibliotecas mirar, empezando por la del arranque.
+            let handle = app.handle().clone();
+            let vigia = Vigia::empezar(vigilar::PAUSA, move || por_cambio(&handle))
+                .map_err(|e| eprintln!("no se puede vigilar tus carpetas: {e}"))
+                .ok();
+            app.manage(Vigilante(Mutex::new(vigia)));
+            app.manage(Pendiente(AtomicBool::new(false)));
             if abierta {
                 arrancar_en_fondo(app.handle().clone());
             }

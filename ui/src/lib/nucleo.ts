@@ -358,6 +358,8 @@ export interface Informe {
 export interface Indexado {
   report: Informe | null;
   error: string | null;
+  /** La lanzó el vigía al ver un cambio, no tú: no se avisa (ADR-0024). */
+  live: boolean;
 }
 
 /** Una consulta y lo que enciende, en una sola llamada. */
@@ -496,5 +498,18 @@ export async function alIndexar(f: (i: Indexado) => void): Promise<void> {
     await listen<Indexado>("indexado", (e) => f(e.payload));
   } catch {
     // sin eventos: la interfaz funciona igual, sólo que no se refresca sola
+  }
+}
+
+/**
+ * Avisa cuando **empieza** una pasada que no pediste: la del vigía, al ver
+ * que algo cambió en tus bibliotecas (ADR-0024). Las que pides tú ya las
+ * sabe la ventana.
+ */
+export async function alEmpezarIndexado(f: () => void): Promise<void> {
+  try {
+    await listen("indexando", () => f());
+  } catch {
+    // sin eventos, igual que arriba
   }
 }

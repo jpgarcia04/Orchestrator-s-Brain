@@ -20,7 +20,7 @@ computadora.
 |---|---|
 | Escanear una carpeta y reconocer cada archivo aunque lo muevas o renombres | |
 | Leer el texto de PDF, Word, HTML y texto plano | |
-| Buscar por palabras y por significado (con el modelo local descargado) | Vigilar la carpeta en vivo: hoy se pone al día al abrir la app o con «actualizar» |
+| Buscar por palabras y por significado (con el modelo local descargado) | |
 | Marcar lo sensible y no dejarlo salir de la máquina | |
 | **Bibliotecas**: el explorador empieza en tu carpeta, no en la raíz del disco | |
 | Carpetas y documentos con nombres legibles, fechas y tamaños claros | |
@@ -31,8 +31,9 @@ computadora.
 | **Leer fotos y PDF escaneados (OCR)** con el reconocedor que ya trae Windows, sin conexión: la foto de la TIE se encuentra buscando «extranjero» y sale sensible por su NIE | Probarlo en tu Windows: el OCR sólo se ha comprobado que compila |
 | **Vencimientos**: lee cuándo caduca cada documento («VALIDEZ 15 11 2026» en la foto de la TIE, «vence el 30 de septiembre» en el contrato) y el Inicio te enseña **«Caduca pronto»**: lo que vence en 90 días y lo que ya venció. Cada fecha dice por qué la leyó y se corrige en un clic | Probarlo en tu Windows, con el OCR de verdad |
 | La app se pone al día sola al abrirse, y tiene botón «actualizar» | |
+| **Vigila tus carpetas en vivo** mientras está abierta: guardas un documento y aparece solo, a los 3 segundos de dejar de tocar la carpeta, sin avisos (sólo el indicador de abajo a la izquierda) | Probarlo en tu Windows: aquí se ha probado con el vigía de Linux. **Un documento que borras no desaparece** de Recientes ni de «Caduca pronto»: el escáner nunca ha registrado los borrados (pregunta abierta del maestro, §10) |
 
-Núcleo en Rust con 362 tests (uno de ellos sólo corre en Windows), interfaz en
+Núcleo en Rust con 369 tests (uno de ellos sólo corre en Windows), interfaz en
 Tauri + Svelte 5, con el mapa en PixiJS.
 
 ## Cómo usarlo hoy (Windows)
@@ -123,6 +124,11 @@ seguridad de la base sin su clave de recuperación no se abre en otro equipo.
   y un documento que ya renovaste sale de la tarjeta diciéndole «no caduca».
   Con el PIN bloqueado, lo sensible sale sin fecha («fecha protegida con tu
   PIN»).
+- **Al día solo:** con la app abierta, lo que guardes, cambies o borres en tu
+  bóveda se lee solo tres segundos después de que dejes de tocarla. Abajo a la
+  izquierda verás «Leyendo tu bóveda…» un momento y luego «Al día»; lo nuevo
+  sale en Recientes y, si caduca pronto, en la tarjeta. Los temporales (`~$` de
+  Word, descargas a medias) no cuentan. «Actualizar» sigue ahí por si acaso.
 - El sol/luna de abajo a la izquierda cambia entre **noche** y **día**.
 
 ## Cómo organizar tu bóveda
@@ -151,7 +157,7 @@ Y nombres que se lean solos, con la fecha delante:
 | 0 | Limpieza: documentación a la medida, README honesto | ✅ Hecha |
 | 1 | El núcleo para tu carpeta: bibliotecas, nombres, `obrain indexar`, «actualizar» | ✅ Hecha |
 | 2 | La interfaz nueva en Svelte 5: el explorador como escritorio estilo sistema operativo, la galaxia como vista «Mapa» enlazada, `Ctrl+K`, vista previa rápida | ✅ Hecha |
-| **3** | **Documentos personales**: ✅ sensibilidad por carpeta · ✅ cifrado y PIN · ✅ OCR · ✅ vencimientos · vigilar la carpeta en vivo | ◐ Casi: falta vigilar en vivo |
+| **3** | **Documentos personales**: ✅ sensibilidad por carpeta · ✅ cifrado y PIN · ✅ OCR · ✅ vencimientos · ✅ vigilar la carpeta en vivo | ✅ Hecha (falta probarla en tu Windows) |
 | 4 | La visión original: trámites reconstruidos, la pregunta de la visa | Congelada |
 
 **Congelado** (no se borra, no se sigue): sesiones de trabajo y puentes,
