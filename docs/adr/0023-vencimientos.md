@@ -53,7 +53,7 @@ entre medias («el», «de», «:», «fecha»…).
 | `validez` | validez, válido/a hasta, valid until | 3 | 0,85 |
 | `vencimiento` | vence, vencimiento | 3 | 0,75 |
 | `vigencia` | vigencia, vigente hasta | 2 | 0,70 |
-| `hasta` | «hasta» suelto, **sólo** si poco antes aparece vigencia, cobertura, periodo, contrato, póliza, seguro o «desde» | 1 | 0,55 |
+| `hasta` | «hasta» suelto, **sólo** si en los 100 caracteres de antes aparece vigencia, vigente, válido, cobertura, periodo, duración, contrato, póliza, seguro o «desde» | 1 | 0,55 |
 
 «Vence» pesa menos que «caduca» porque también se usa para pagos. «Hasta»
 suelto es la señal más débil y sólo cuenta con contexto: «abierto hasta las
@@ -105,6 +105,9 @@ Si tras la palabra viene un **intervalo** («vigencia: del 1 de septiembre de
   corregida se conserva (qué creía el sistema y en qué se equivocó).
 - La resolución es la de siempre, `Store::resolve`: por precedencia de método,
   el usuario manda.
+- La ficha de la vista previa enseña **sólo la fecha que manda**. La inferida
+  que corregiste sigue en el log, pero enseñarla debajo de la tuya haría dudar
+  de cuál vale (EXPERIENCE §4.5: la aserción pasa de pálida a sólida).
 
 ### 5 · La tarjeta «Caduca pronto»
 
@@ -116,7 +119,9 @@ Si tras la palabra viene un **intervalo** («vigencia: del 1 de septiembre de
   que lo corrijas —otra fecha o «no caduca»—. En orden de fecha: lo caducado
   arriba, en rojo («caducó hace 12 días»); lo que viene, debajo («en 53 días»).
 - Cada fila abre el documento en la vista previa, donde está la fecha, su
-  «¿por qué?» y «cambiar».
+  «¿por qué?» —con qué palabra se leyó, cuántas otras había, y el tramo
+  marcado en el texto— y «cambiar».
+- Desde la terminal, `obrain vencimientos` lista lo mismo.
 - **Con PIN y bloqueado**, lo sensible sale con su nombre y su carpeta y **sin
   la fecha**: el núcleo no la manda (como el texto, ADR-0021), y la fila dice
   «desbloquea para ver la fecha». Van al final, para que ni el orden la delate.
