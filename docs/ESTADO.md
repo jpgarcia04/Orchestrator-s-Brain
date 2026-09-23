@@ -214,6 +214,28 @@ caduca —«VALIDEZ», «válida hasta», «vence el», «caduca»—, en la vis
 sale «Caduca el» y, si es dentro de 90 días o ya pasó, aparece en «Caduca
 pronto» del Inicio. Si el OCR leyó mal un número, «cambiar» lo arregla.
 
+Y para ver la papelera: con la app abierta, **borra** un documento de prueba
+de tu bóveda (a la Papelera de Windows, como siempre). A los pocos segundos
+desaparece de Recientes y de su carpeta y aparece en «Papelera» con «se olvida
+en 30 días». Luego **restáuralo** desde la Papelera de Windows: tiene que
+volver solo a su carpeta, con su fecha de caducidad y lo que le hubieras
+corregido. Si en vez de eso aparece como documento nuevo, avísame: significa
+que Windows le cambió la identidad (el `FileID`) al restaurarlo.
+
+## Cómo seguir en otra sesión
+
+El trabajo vive en GitHub, en la rama `claude/orchestrators-brain-fase-3-wdiheq`
+(todavía no está en `main`). En tu laptop, desde la carpeta del repositorio:
+
+```powershell
+git fetch origin
+git checkout claude/orchestrators-brain-fase-3-wdiheq   # la primera vez
+git pull                                                # las siguientes
+```
+
+Para empezar una conversación nueva, pega
+[`archivo/prompts/despues-de-la-papelera.md`](archivo/prompts/despues-de-la-papelera.md).
+
 ## Mapa del repositorio
 
 ```
