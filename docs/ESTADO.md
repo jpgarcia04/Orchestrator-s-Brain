@@ -111,6 +111,11 @@ seguridad de la base sin su clave de recuperación no se abre en otro equipo.
   Cada resultado dice si coincidió *por palabras* o *por significado*.
 - **Un clic** en un documento lo enseña en la vista previa; **doble clic** lo
   abre con su programa. Lo sensible sale borroso hasta que pulsas «Mostrar».
+  Cada apartado de la vista previa —el documento, «Lo que sé de este
+  documento», «Relacionado», «Detalles técnicos»— **se pliega pulsando su
+  título**, y se queda como lo dejaste para los demás documentos y al volver a
+  abrir la app. «Descargado de» dice sólo el sitio (`chatgpt.com`); la
+  dirección entera, al pasar el ratón o en «Detalles técnicos».
 - **Mapa:** cada estrella es una carpeta; pulsarla la abre en el explorador.
   Desde un documento, «Ver en el mapa» enseña con qué se relaciona.
 - **`Esc`** deshace un escalón: cierra el buscador, la vista previa o la lente
@@ -142,7 +147,9 @@ seguridad de la base sin su clave de recuperación no se abre en otro equipo.
   cuántos días faltan. La fecha sale del propio documento —también de las
   fotos, con el OCR—: de la palabra («caduca», «validez», «vigencia»…), de
   la **zona MRZ** de un pasaporte o del dorso de una tarjeta (la que más
-  manda: lleva dígito de control), del **año solo** de la INE («VIGENCIA
+  manda: lleva dígito de control; eso sí, el OCR de Windows casi nunca la
+  lee en una foto, así que cuenta sobre todo con los PDF de una app de
+  escaneo, que ya traen su texto), del **año solo** de la INE («VIGENCIA
   2023 - 2033» → 31/12/2033) o, si el OCR se comió la palabra, de **dos
   fechas a N años justos** en un documento de identidad (la expedición y la
   caducidad de tu pasaporte). En la vista previa, «Caduca el» tiene su

@@ -41,6 +41,19 @@ function guardar(clave: string, valor: string): void {
   }
 }
 
+/** Los apartados de la vista previa que cambiaste: `id → abierto`. */
+function leerApartados(): Record<string, boolean> {
+  try {
+    const v: unknown = JSON.parse(leer("obrain.apartados") ?? "{}");
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      return Object.fromEntries(Object.entries(v).filter(([, b]) => typeof b === "boolean"));
+    }
+  } catch {
+    // un valor roto vale lo mismo que ninguno
+  }
+  return {};
+}
+
 class App {
   vista = $state<Vista>("inicio");
   /** La raíz: tu bóveda (o tus bibliotecas, si hay varias). */
@@ -73,6 +86,12 @@ class App {
   pidiendoPin = $state(false);
   /** «Más tarde» en el aviso de la clave de recuperación: vuelve al abrir la app. */
   recuperacionAplazada = $state(false);
+  /**
+   * Los apartados de la vista previa que plegaste o desplegaste. Se recuerdan
+   * en este equipo, para todos los documentos: lo que no quieres ver no vuelve
+   * a salir al abrir otro. Sólo se guarda lo que cambiaste de como nace.
+   */
+  apartados = $state<Record<string, boolean>>(leerApartados());
 
   private temporizador: number | undefined;
   private resolverPin: ((ok: boolean) => void) | null = null;
@@ -285,6 +304,17 @@ class App {
   ponerModo(m: Modo): void {
     this.modo = m;
     guardar("obrain.modo", m);
+  }
+
+  /** ¿Está abierto este apartado de la vista previa? */
+  abierto(id: string, deFabrica: boolean): boolean {
+    return this.apartados[id] ?? deFabrica;
+  }
+
+  /** Abre o pliega un apartado de la vista previa, y lo recuerda. */
+  ponerApartado(id: string, abierto: boolean): void {
+    this.apartados[id] = abierto;
+    guardar("obrain.apartados", JSON.stringify(this.apartados));
   }
 
   avisar(mensaje: string): void {

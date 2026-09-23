@@ -33,6 +33,20 @@ export function hojaDe(ruta: string): string {
 
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic"];
 
+/**
+ * `Pasaporte%20JP` → `Pasaporte JP`: un nombre con los espacios (o los
+ * acentos) escritos como en una dirección web. Si no se puede leer así —un
+ * `%` que es un porcentaje de verdad—, se queda como está.
+ */
+function sinCodigos(nombre: string): string {
+  if (!/%[0-9A-Fa-f]{2}/.test(nombre)) return nombre;
+  try {
+    return decodeURIComponent(nombre);
+  } catch {
+    return nombre;
+  }
+}
+
 /** Un archivo leído como documento: su título y, si lo lleva, su fecha. */
 export interface Titulo {
   titulo: string;
@@ -46,10 +60,11 @@ export interface Titulo {
  *
  * Es la convención que propone `docs/ESTADO.md` para nombrar la bóveda: la
  * fecha delante para que el disco ordene solo, y el resto para leerlo. Los
- * guiones bajos se leen como espacios.
+ * guiones bajos se leen como espacios, y los `%20` de un archivo descargado
+ * («Pasaporte%20JP.pdf», como los deja ChatGPT) también.
  */
 export function tituloDe(nombreArchivo: string): Titulo {
-  let base = nombreArchivo.replace(/\.[A-Za-z0-9]{1,5}$/, "");
+  let base = sinCodigos(nombreArchivo).replace(/\.[A-Za-z0-9]{1,5}$/, "");
   let fecha: string | null = null;
   const m = /^(\d{4})-(\d{2})-(\d{2})[\s_-]+(.+)$/.exec(base);
   if (m) {

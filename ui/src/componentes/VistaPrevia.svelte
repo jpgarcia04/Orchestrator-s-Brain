@@ -7,6 +7,9 @@
   hasta que lo pidas. Debajo, lo que el sistema sabe de él, con lo inferido
   corregible en un clic (I5), lo relacionado, y las salidas: abrir, verlo en
   su carpeta de Windows o en el mapa. Lo técnico existe, plegado.
+
+  Cada apartado se pliega desde su título, y lo plegado se recuerda para
+  todos los documentos (`Apartado`).
 -->
 <script lang="ts" module>
   import { SvelteSet } from "svelte/reactivity";
@@ -16,7 +19,6 @@
 </script>
 
 <script lang="ts">
-  import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Cloud from "@lucide/svelte/icons/cloud";
   import Check from "@lucide/svelte/icons/check";
   import ExternalLink from "@lucide/svelte/icons/external-link";
@@ -28,6 +30,7 @@
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
+  import Apartado from "./Apartado.svelte";
   import Tipo from "./Tipo.svelte";
   import { app } from "../lib/app.svelte";
   import {
@@ -48,7 +51,6 @@
   let ficha = $state<VistaEntidad | null>(null);
   let vista = $state<Vista | null>(null);
   let error = $state("");
-  let tecnico = $state(false);
   let recarga = $state(0);
   let porques = new SvelteSet<string>();
   /** «cambiar» abierto sobre la fecha de caducidad, con la fecha que se edita. */
@@ -174,6 +176,8 @@
       ["extraction_status", "lectura"],
       ["embedded_with", "significado"],
       ["has_hash", "huella"],
+      // Arriba sólo sale el sitio; la dirección entera, aquí.
+      ["downloaded_from", "descargado de"],
     ] as const) {
       const c = buscar(p);
       if (c) filas.push([nombre, c.value]);
@@ -202,8 +206,39 @@
       const d = diasHasta(c.value);
       return d === null ? c.value : `${fechaIso(c.value)} · ${plazo(d)}`;
     }
+    if (c.predicate === "downloaded_from") return sitio(c.value);
     if (c.value_time !== null) return fecha(c.value_time);
     return c.value;
+  }
+
+  /**
+   * De dónde se descargó, dicho por su sitio: `chatgpt.com`, no los 240
+   * caracteres de la dirección de descarga (JP, 2026-09-23). La dirección
+   * entera sale al pasar el ratón y en «Detalles técnicos».
+   */
+  function sitio(url: string): string {
+    try {
+      const u = new URL(url);
+      return u.hostname ? u.hostname.replace(/^www\./, "") : url;
+    } catch {
+      return url;
+    }
+  }
+
+  /**
+   * El «¿por qué?» de un hecho. Si explica un tramo del texto, abre lo que
+   * haga falta para verlo marcado: el documento, y el texto reconocido de una
+   * foto.
+   */
+  function alternarPorque(c: Claim): void {
+    if (porques.has(c.assertion)) {
+      porques.delete(c.assertion);
+      return;
+    }
+    porques.add(c.assertion);
+    if (!c.span) return;
+    if (!app.abierto("documento", true)) app.ponerApartado("documento", true);
+    if (vista?.kind === "image" && !app.abierto("reconocido", false)) app.ponerApartado("reconocido", true);
   }
 
   /** Las palabras de caducidad de ADR-0023, dichas como las leería una persona. */
@@ -397,6 +432,7 @@
     </div>
   {:else}
     <div class="contenido">
+      <Apartado id="documento" titulo="Documento">
       <div class="caja">
         {#if bloqueado}
           <div class="sin-vista protegida">
@@ -427,11 +463,13 @@
 
       {#if vista.kind === "image" && vista.text && !oculto && !bloqueado}
         <!-- Una foto con texto reconocido (OCR): la foto arriba, lo que dice aquí. -->
-        <details class="reconocido" open={!!tramoVence}>
-          <summary>Texto reconocido en la imagen</summary>
-          <pre class="papel">{texto.antes}{#if texto.marca}<mark use:centrar>{texto.marca}</mark>{/if}{texto.despues}</pre>
-        </details>
+        <div class="reconocido">
+          <Apartado id="reconocido" titulo="Texto reconocido en la imagen" deFabrica={false} tenue>
+            <pre class="papel">{texto.antes}{#if texto.marca}<mark use:centrar>{texto.marca}</mark>{/if}{texto.despues}</pre>
+          </Apartado>
+        </div>
       {/if}
+      </Apartado>
 
       <div class="cabeza">
         <h2 class="titular">{titulo.titulo}</h2>
@@ -468,8 +506,7 @@
       {/if}
 
       {#if hechos.length > 0 || leido || ficha.protection || puedeAnadirFecha}
-        <section aria-label="Lo que sé de este documento" class="bloque">
-          <h3 class="rotulo">Lo que sé de este documento</h3>
+        <Apartado id="sabido" titulo="Lo que sé de este documento">
           {#if leido}
             <div class="hecho"><span class="clave">Leído</span><span>{leido}</span></div>
           {/if}
@@ -488,7 +525,7 @@
           {#each hechos as c (c.assertion)}
             <div class="hecho" style:opacity={c.method === "inferred" && !c.by_user ? Math.max(0.55, c.confidence) : 1}>
               <span class="clave">{mayuscula(c.label)}</span>
-              <span class="valor">
+              <span class="valor" title={c.predicate === "downloaded_from" ? c.value : undefined}>
                 {valor(c)}
                 {#if c.by_user}
                   <span class="acciones-hecho">
@@ -499,7 +536,7 @@
                   </span>
                 {:else if c.method === "inferred"}
                   <span class="acciones-hecho">
-                    <button class="enlace" onclick={() => (porques.has(c.assertion) ? porques.delete(c.assertion) : porques.add(c.assertion))}>¿por qué?</button>
+                    <button class="enlace" onclick={() => alternarPorque(c)}>¿por qué?</button>
                     <button class="enlace" onclick={() => confirmar(c)}>es correcto</button>
                     {#if c.predicate === "expires_on" && cambiando === null}
                       <button class="enlace" onclick={() => empezarCambio(c)}>cambiar</button>
@@ -544,12 +581,11 @@
               </span>
             </div>
           {/if}
-        </section>
+        </Apartado>
       {/if}
 
       {#if relaciones.length > 0}
-        <section aria-label="Relacionado" class="bloque">
-          <h3 class="rotulo">Relacionado</h3>
+        <Apartado id="relacionado" titulo="Relacionado" cuenta={relaciones.length}>
           {#each relaciones as r (r.assertion)}
             {@const destino = r.value_entity ?? ""}
             <button class="relacion hov-fondo" onclick={() => app.ver(destino)}>
@@ -560,7 +596,7 @@
               </span>
             </button>
           {/each}
-        </section>
+        </Apartado>
       {/if}
 
       {#if ficha.trashed}
@@ -585,18 +621,14 @@
       {/if}
 
       <div class="tecnico">
-        <button class="desplegar" onclick={() => (tecnico = !tecnico)} aria-expanded={tecnico}>
-          <span class="flecha" class:abierta={tecnico}><ChevronRight size={14} /></span>
-          Detalles técnicos
-        </button>
-        {#if tecnico}
+        <Apartado id="tecnico" titulo="Detalles técnicos" deFabrica={false} tenue>
           <dl>
             {#each tecnicos as [k, v] (k)}
               <dt>{k}</dt>
               <dd>{v}</dd>
             {/each}
           </dl>
-        {/if}
+        </Apartado>
       </div>
     </div>
   {/if}
@@ -676,16 +708,11 @@
     object-fit: contain;
   }
   .reconocido {
-    margin-top: -6px;
-  }
-  .reconocido summary {
-    cursor: pointer;
-    font-size: 12.5px;
-    color: var(--tenue);
+    margin-top: 4px;
   }
   .reconocido .papel {
     width: 100%;
-    margin: 10px 0 0;
+    margin: 2px 0 0;
   }
   .papel {
     position: relative;
@@ -781,11 +808,6 @@
     color: var(--tinta);
   }
 
-  .bloque {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
   .hecho {
     display: grid;
     grid-template-columns: 116px minmax(0, 1fr);
@@ -922,20 +944,6 @@
     gap: 10px;
     padding-top: 14px;
     border-top: 1px solid var(--linea);
-  }
-  .desplegar {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12.5px;
-    color: var(--tenue);
-  }
-  .flecha {
-    display: grid;
-    transition: transform 0.15s ease;
-  }
-  .flecha.abierta {
-    transform: rotate(90deg);
   }
   dl {
     display: grid;

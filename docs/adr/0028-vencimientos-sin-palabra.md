@@ -144,9 +144,10 @@ una fecha que no sabe decir por qué la eligió incumple I9.
 
 - El pasaporte del usuario tiene su fecha, con un «¿por qué?» que se entiende
   y las dos fechas marcadas en el texto.
-- Lo que tenga MRZ —pasaportes, el dorso de la TIE, del DNI o de la INE— sale
-  con la fecha más fiable que hay, y un número mal leído se descarta en vez de
-  convertirse en otra fecha.
+- Lo que traiga la MRZ en su texto —pasaportes, el dorso de la TIE, del DNI o
+  de la INE, escaneados con una app que ya pone el texto— sale con la fecha
+  más fiable que hay, y un número mal leído se descarta en vez de convertirse
+  en otra fecha. (Con fotos leídas por el OCR de Windows, poco: ver abajo.)
 - La INE sale con su vigencia aunque sólo diga años.
 - Todo sigue siendo auditable y sin texto del documento en el log.
 
@@ -157,6 +158,13 @@ una fecha que no sabe decir por qué la eligió incumple I9.
   nacimiento de un niño de 5 años y la fecha de su quinto cumpleaños, por
   ejemplo). Pesa lo mínimo, se ve pálida (0,70), su «¿por qué?» enseña las dos
   fechas y se corrige en un clic.
+- **El OCR de Windows casi nunca lee una MRZ.** Se probó (2026-09-23) con
+  MRZ inventadas dibujadas en Consolas, Courier y Arial: el reconocedor es-MX
+  no devolvió nada, un trozo («0401043M2») o sólo la línea del nombre. Es
+  probable que por eso el pasaporte del usuario tampoco la trajera. La regla
+  sirve cuando el texto ya viene hecho —un PDF de una app de escaneo, con su
+  capa de texto— o si un día el reconocedor mejora; con fotos, lo normal es
+  que la fecha salga por la palabra o por el plazo.
 - **Una MRZ sin segunda línea legible no sirve**: el dígito de control es
   todo o nada. Si el OCR la lee a medias, la fecha sale por las otras vías o
   no sale.
