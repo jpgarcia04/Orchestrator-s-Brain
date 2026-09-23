@@ -326,7 +326,7 @@ git pull                                                # las siguientes
 ```
 
 Para empezar una conversación nueva, pega
-[`archivo/prompts/despues-de-la-carpeta-fija.md`](archivo/prompts/despues-de-la-carpeta-fija.md).
+[`archivo/prompts/despues-de-un-documento-dentro-de-otro.md`](archivo/prompts/despues-de-un-documento-dentro-de-otro.md).
 
 ## Mapa del repositorio
 
