@@ -220,18 +220,34 @@
     const ev = c.evidence ?? "";
     const regla = /regla=(\w+)/.exec(ev)?.[1] ?? "";
     const otras = Number(/otras=(\d+)/.exec(ev)?.[1] ?? 0);
+    const hay = otras === 1 ? "Había otra fecha" : `Había otras ${otras} fechas`;
+    // ADR-0028: la zona MRZ, y el plazo cuando el OCR se comió la palabra.
+    if (regla === "mrz") {
+      let s = "La leí en la zona de lectura mecánica (las líneas con «<<<» del pie), y cuadra con su dígito de control.";
+      if (otras > 0) s += ` ${hay}; ésta manda porque el dígito de control descarta un número mal leído.`;
+      return s + marcaDicha(c, "marcada");
+    }
+    if (regla === "plazo") {
+      const n = Number(/anios=(\d+)/.exec(ev)?.[1] ?? 0);
+      const justos = n === 1 ? "un año justo" : `${n} años justos`;
+      let s = `No leí la palabra «caducidad» —el OCR no la vio—, pero es un documento de identidad y dos de sus fechas están a ${justos}: la de expedición y ésta, como en un pasaporte.`;
+      if (otras > 0) s += ` ${hay}; me quedé con la más lejana.`;
+      return s + marcaDicha(c, "marcadas");
+    }
     let s = `La leí en el texto, junto a ${PALABRAS[regla] ?? "una palabra de caducidad"}.`;
     if (otras > 0) {
-      s += ` Había ${otras === 1 ? "otra fecha" : `otras ${otras} fechas`}; me quedé con la de la palabra más clara y, entre ésas, la más lejana.`;
+      s += ` ${hay}; me quedé con la de la palabra más clara y, entre ésas, la más lejana.`;
     }
     return s + marcaDicha(c, "marcada");
   }
 
   /** «Está marcada arriba», si el tramo de esta afirmación es el que se ve. */
-  function marcaDicha(c: Claim, genero: "marcada" | "marcado"): string {
+  function marcaDicha(c: Claim, genero: "marcada" | "marcado" | "marcadas"): string {
     if (marcado?.claim !== c.assertion) return "";
-    if (oculto) return ` Pulsa «Mostrar» para ${genero === "marcada" ? "verla marcada" : "verlo marcado"}.`;
-    return bloqueado ? "" : ` Está ${genero} arriba.`;
+    const ver = { marcada: "verla marcada", marcado: "verlo marcado", marcadas: "verlas marcadas" }[genero];
+    if (oculto) return ` Pulsa «Mostrar» para ${ver}.`;
+    if (bloqueado) return "";
+    return genero === "marcadas" ? " Las dos están marcadas arriba." : ` Está ${genero} arriba.`;
   }
 
   /** Lo que encontró cada regla de contenido de la puerta, dicho por una persona. */

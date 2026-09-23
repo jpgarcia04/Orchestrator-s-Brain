@@ -114,7 +114,7 @@ Extrae el texto de cada documento (PDFs, documentos de Office, notas, código) y
 
 > Las **fotos y los PDF escaneados** —la foto de tu TIE, el pasaporte escaneado— se leen con el reconocedor de texto (OCR) que **ya trae Windows**, sin conexión: nada sale de tu computadora.
 
-> Y de ese texto saca **cuándo caduca** cada documento —«VALIDEZ 15 11 2026» en la TIE, «vigencia hasta el 31 de agosto de 2027» en la póliza—: el Inicio te avisa en **«Caduca pronto»** de lo que vence en los próximos 90 días. Cada fecha dice por qué la leyó, y si se equivoca la corriges en un clic —o se la pones tú si el documento no la dice—; lo que digas tú gana siempre.
+> Y de ese texto saca **cuándo caduca** cada documento —«VALIDEZ 15 11 2026» en la TIE, «vigencia hasta el 31 de agosto de 2027» en la póliza, las líneas `P<MEX<<…` del pasaporte, o la expedición más diez años aunque el OCR no haya leído la palabra «caducidad»—: el Inicio te avisa en **«Caduca pronto»** de lo que vence en los próximos 90 días. Cada fecha dice por qué la leyó, y si se equivoca la corriges en un clic —o se la pones tú si el documento no la dice—; lo que digas tú gana siempre.
 
 ### 3. 🔗 Relacionar — *Conectar sin adivinar*
 Antes de usar cualquier inteligencia artificial, el sistema ya puede descubrir **miles de relaciones** usando solo señales que existen en tus archivos:

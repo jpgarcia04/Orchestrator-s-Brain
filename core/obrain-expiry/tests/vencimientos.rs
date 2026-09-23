@@ -51,7 +51,7 @@ fn la_tie_fotografiada_caduca_el_15_de_noviembre() {
         .unwrap()
         .unwrap();
     assert_eq!(a.method, Method::Inferred);
-    assert_eq!(a.source, "expiry@v1");
+    assert_eq!(a.source, "expiry@v2");
     assert!((a.confidence - 0.85).abs() < 1e-9);
     // La evidencia es una dirección, y la dirección lleva al sitio exacto.
     let ev = a.evidence.unwrap();
@@ -186,4 +186,106 @@ fn con_varias_fechas_se_queda_con_una_y_cuenta_las_otras() {
         .unwrap()
         .unwrap();
     assert!(a.evidence.unwrap().ends_with("otras=1"));
+}
+
+/// Cómo leyó el OCR de Windows el pasaporte de JP (2026-09-23), con los datos
+/// inventados: se comió «caducidad» y «Date of expiry», y no hay MRZ.
+const PASAPORTE_OCR: &str = "\
+ESTADOS UNIDOS MEXICANOS
+PASAPORTE
+PASSPORT
+Passport No
+G00000000
+Nombres/ Given names
+JUAN PRUEBA
+Fecha de Date ot bith
+04 01 2004
+PRUE040104HJCRRN09
+a de expediciónDaXeXiX
+10 06 2022
+Autoridad Authority SRE-JALISCO
+Fecha de
+date
+10 06 2032
+";
+
+#[test]
+fn el_pasaporte_sin_etiquetas_caduca_diez_anios_despues_de_expedirse() {
+    let s = Store::open_in_memory().unwrap();
+    let pasaporte = documento(&s, PASAPORTE_OCR);
+    let r = pasada(&s, 10);
+    assert_eq!((r.found, r.by_rule.get("plazo")), (1, Some(&1)));
+    assert_eq!(
+        vence(&s, &pasaporte, 10),
+        Some((fecha("2032-06-10"), false))
+    );
+
+    let a = s
+        .resolve(&pasaporte, "expires_on", TimePoint::at(10))
+        .unwrap()
+        .unwrap();
+    assert!((a.confidence - 0.7).abs() < 1e-9);
+    let ev = a.evidence.unwrap();
+    assert!(ev.starts_with("regla=plazo fragmento=0 bytes="), "{ev}");
+    assert!(ev.contains(" anios=10"), "{ev}");
+    // El tramo va de la expedición a la caducidad, y la evidencia no copia
+    // ninguna de las dos.
+    let (x, y) = ev["regla=plazo fragmento=0 bytes=".len()..]
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .split_once("..")
+        .unwrap();
+    let tramo = &PASAPORTE_OCR[x.parse::<usize>().unwrap()..y.parse::<usize>().unwrap()];
+    assert!(tramo.starts_with("10 06 2022") && tramo.ends_with("10 06 2032"));
+    for dato in ["2022", "2032", "G00000000", "PRUEBA"] {
+        assert!(!ev.contains(dato), "la evidencia copió «{dato}»: {ev}");
+    }
+}
+
+#[test]
+fn lo_que_escribio_la_version_anterior_sigue_siendo_suyo() {
+    use obrain_core::{NewAssertion, Value};
+    let s = Store::open_in_memory().unwrap();
+    let tie = documento(&s, TIE);
+    let otra = documento(&s, "Contrato. Vence el 30/09/2026.");
+    let i = TIE.find("VALIDEZ").unwrap();
+    // Lo que la v1 dejó escrito: lo mismo que diría hoy, y algo que ya no.
+    for (e, valor, ev) in [
+        (
+            &tie,
+            "2026-11-15",
+            format!("regla=validez fragmento=0 bytes={i}..{}", TIE.len()),
+        ),
+        (
+            &otra,
+            "2026-10-01",
+            "regla=vencimiento fragmento=0 bytes=0..5".to_string(),
+        ),
+    ] {
+        s.assert(
+            NewAssertion::new(
+                e.clone(),
+                "expires_on",
+                Value::Text(valor.into()),
+                Method::Inferred,
+                5,
+            )
+            .source("expiry@v1")
+            .confidence(0.8)
+            .evidence(&ev),
+        )
+        .unwrap();
+    }
+    let r = pasada(&s, 10);
+    // La TIE no se reescribe; el contrato se corrige, retractando lo de la v1.
+    assert_eq!(
+        (
+            r.assertions_unchanged,
+            r.assertions_written,
+            r.assertions_retracted
+        ),
+        (1, 1, 1)
+    );
+    assert_eq!(vence(&s, &otra, 10), Some((fecha("2026-09-30"), false)));
 }

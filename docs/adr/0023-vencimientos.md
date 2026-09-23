@@ -1,6 +1,6 @@
 # ADR-0023 — Vencimientos: una fecha inferida por documento, y la del usuario gana
 
-- **Estado:** Aceptada
+- **Estado:** Aceptada. La completan [ADR-0026](0026-una-fecha-de-caducidad-a-mano.md) (una fecha a mano) y [ADR-0028](0028-vencimientos-sin-palabra.md) (la zona MRZ, el plazo exacto y el año solo, cuando falta la palabra)
 - **Fecha:** 2026-09-23
 - **Decide:** los «vencimientos (*¿qué me caduca pronto?*)» de la Fase 3 del maestro (§9)
 - **Depende de:** [ADR-0005](0005-donde-vive-el-texto-extraido.md), [ADR-0006](0006-donde-vive-la-sensibilidad.md), [ADR-0021](0021-cifrado-en-reposo-y-pin.md), [ADR-0022](0022-ocr-local-con-el-de-windows.md)
@@ -174,7 +174,9 @@ y un sistema que no sabe decir *por qué* eligió una fecha incumple I9.
   2026» con un 1 leído como 7 da el 15/11/2076. La confianza baja y el «¿por
   qué?» lleva al tramo exacto para comprobarlo, pero la única garantía es
   mirarlo.
-- **Lo que no tiene palabra de caducidad no se detecta**, y todavía no se puede
+- **Lo que no tiene palabra de caducidad no se detecta** (salvo la MRZ, el
+  plazo exacto en un documento de identidad y el año solo: [ADR-0028](0028-vencimientos-sin-palabra.md)),
+  y todavía no se puede
   añadir una fecha a mano a un documento donde el detector no vio ninguna:
   «cambiar» sólo aparece donde hay una fecha. Es lo siguiente si hace falta.
 - **Lo caducado no se va solo.** Es lo que se eligió: una TIE vieja sigue en la

@@ -15,8 +15,15 @@
 //! inmutable (I1) y una palabra del pasaporte copiada ahí se quedaría para
 //! siempre. El porqué de cada decisión, en
 //! [ADR-0023](../../../docs/adr/0023-vencimientos.md).
+//!
+//! Tres lecturas, de la más fiable a la menos ([ADR-0028](../../../docs/adr/0028-vencimientos-sin-palabra.md)):
+//! la **zona MRZ** con su dígito de control ([`mrz`]), **una palabra de
+//! caducidad** y su fecha ([`texto`]) y, cuando el OCR se comió la palabra,
+//! **dos fechas a N años justos** en un documento de identidad ([`plazo`]).
 
 pub mod fecha;
+pub mod mrz;
+pub mod plazo;
 pub mod texto;
 
 use obrain_core::rusqlite::Connection;
@@ -34,7 +41,8 @@ pub const PREDICATE: &str = "expires_on";
 /// Identidad del detector. Va en `source`, y es lo que le permite retractar
 /// **sólo lo suyo**: nunca una corrección del usuario.
 pub const DETECTOR: &str = "expiry";
-pub const DETECTOR_VERSION: i64 = 1;
+/// v2: la MRZ, el plazo y el año solo (ADR-0028).
+pub const DETECTOR_VERSION: i64 = 2;
 
 /// Lo que escribe el usuario cuando dice que un documento **no caduca**.
 pub const NUNCA: &str = "nunca";
@@ -63,10 +71,13 @@ pub struct Eleccion {
     pub fin: usize,
     /// Cuántas otras fechas candidatas había y se descartaron.
     pub otras: usize,
+    /// Con la regla `plazo`, cuántos años justos van de la otra fecha a ésta.
+    pub anios: Option<u8>,
 }
 
 impl Eleccion {
     /// **Dónde** está y por qué se eligió; nunca **qué** dice el documento.
+    /// Los años del plazo no son del documento: son la resta de dos fechas.
     pub fn evidence(&self) -> String {
         let mut e = format!(
             "regla={} fragmento={} bytes={}..{}",
@@ -75,11 +86,23 @@ impl Eleccion {
             self.inicio,
             self.fin
         );
+        if let Some(n) = self.anios {
+            e.push_str(&format!(" anios={n}"));
+        }
         if self.otras > 0 {
             e.push_str(&format!(" otras={}", self.otras));
         }
         e
     }
+}
+
+/// Todas las fechas de caducidad candidatas de un texto, por las tres vías:
+/// la MRZ, las palabras de caducidad y el plazo. Elegir es cosa de [`elegir`].
+pub fn leer(texto: &str) -> Vec<Candidato> {
+    let mut v = mrz::scan(texto);
+    v.extend(texto::scan(texto));
+    v.extend(plazo::scan(texto));
+    v
 }
 
 /// Una candidata situada en el documento: ordinal del fragmento y offsets
@@ -125,6 +148,7 @@ pub fn elegir(candidatas: &[Situada]) -> Option<Eleccion> {
         inicio: ganadora.candidato.inicio,
         fin: ganadora.candidato.fin,
         otras,
+        anios: ganadora.candidato.anios,
     })
 }
 
@@ -159,7 +183,7 @@ fn candidatas(conn: &Connection) -> Result<BTreeMap<EntityId, Vec<Situada>>> {
         let base = row.get::<_, i64>(2)?.max(0) as usize;
         let texto: String = row.get(3)?;
         let lista = out.entry(entity).or_default();
-        for c in texto::scan(&texto) {
+        for c in leer(&texto) {
             lista.push(Situada {
                 fragmento,
                 candidato: Candidato {
@@ -358,6 +382,7 @@ mod tests {
                 regla,
                 inicio,
                 fin: inicio + 10,
+                anios: None,
             },
         }
     }
@@ -400,5 +425,48 @@ mod tests {
     #[test]
     fn sin_candidatas_no_hay_eleccion() {
         assert!(elegir(&[]).is_none());
+    }
+
+    fn situar(texto: &str) -> Vec<Situada> {
+        leer(texto)
+            .into_iter()
+            .map(|candidato| Situada {
+                fragmento: 0,
+                candidato,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn la_mrz_gana_a_una_fecha_mal_leida_y_el_plazo_pierde_con_todas() {
+        // El OCR leyó «2076» en la fecha impresa; la MRZ, con su control, dice
+        // 2026 (y no deja que un 7 por un 2 pase).
+        let tie = "PERMISO DE RESIDENCIA\nVALIDEZ 15 11 2076\n\
+                   IDESPE12345678<1X2345678L<<<<<\n0401043M2611158ESP<<<<<<<<<<<2\n";
+        let e = elegir(&situar(tie)).unwrap();
+        assert_eq!(
+            (e.fecha.iso().as_str(), e.regla),
+            ("2026-11-15", Regla::Mrz)
+        );
+
+        // Con palabra, el plazo no decide: «validez» manda aunque haya dos
+        // fechas a cinco años justos.
+        let tie = "PERMISO DE RESIDENCIA\nExpedida 15 11 2021\nVALIDEZ 01 12 2026\n15 11 2026";
+        let e = elegir(&situar(tie)).unwrap();
+        assert_eq!(
+            (e.fecha.iso().as_str(), e.regla),
+            ("2026-12-01", Regla::Validez)
+        );
+    }
+
+    #[test]
+    fn la_evidencia_del_plazo_dice_cuantos_anios() {
+        let e = elegir(&situar("PASAPORTE\n10 06 2022\nAutoridad SRE\n10 06 2032")).unwrap();
+        assert_eq!(e.regla, Regla::Plazo);
+        assert_eq!(e.anios, Some(10));
+        assert_eq!(
+            e.evidence(),
+            "regla=plazo fragmento=0 bytes=10..45 anios=10"
+        );
     }
 }

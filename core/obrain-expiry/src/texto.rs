@@ -11,6 +11,10 @@
 //! acentos— que recuerda de qué byte del original sale cada byte suyo. Así
 //! «VALIDEZ», «Validez» y «válida hasta» se leen igual, y la evidencia sigue
 //! apuntando al sitio exacto del documento.
+//!
+//! Las dos lecturas que **no** necesitan palabra —dos fechas a N años justos en
+//! un documento de identidad, y la zona MRZ— viven en [`crate::plazo`] y
+//! [`crate::mrz`] ([ADR-0028](../../../docs/adr/0028-vencimientos-sin-palabra.md)).
 
 use crate::fecha::Fecha;
 use regex::Regex;
@@ -29,6 +33,12 @@ pub enum Regla {
     Vigencia,
     /// «hasta» suelto, sólo con contexto de vigencia cerca.
     Hasta,
+    /// Sin palabra: dos fechas a N años justos en un documento de identidad,
+    /// la expedición y la caducidad (ADR-0028).
+    Plazo,
+    /// Sin palabra: la zona de lectura mecánica (MRZ) de un pasaporte o de una
+    /// tarjeta, con su dígito de control (ADR-0028).
+    Mrz,
 }
 
 impl Regla {
@@ -39,6 +49,8 @@ impl Regla {
             Regla::Vencimiento => "vencimiento",
             Regla::Vigencia => "vigencia",
             Regla::Hasta => "hasta",
+            Regla::Plazo => "plazo",
+            Regla::Mrz => "mrz",
         }
     }
 
@@ -49,26 +61,34 @@ impl Regla {
             "vencimiento" => Regla::Vencimiento,
             "vigencia" => Regla::Vigencia,
             "hasta" => Regla::Hasta,
+            "plazo" => Regla::Plazo,
+            "mrz" => Regla::Mrz,
             _ => return None,
         })
     }
 
     /// Cuánto dice la palabra de que la fecha es **el** vencimiento del
     /// documento. Decide entre varias candidatas antes que la fecha.
+    ///
+    /// La MRZ pesa más que cualquier palabra: lleva dígito de control, así que
+    /// un número mal leído por el OCR se descarta en vez de dar otra fecha. El
+    /// plazo pesa lo mínimo: sólo decide si ninguna palabra dijo nada.
     pub fn peso(self) -> u8 {
         match self {
+            Regla::Mrz => 4,
             Regla::Caducidad | Regla::Validez | Regla::Vencimiento => 3,
             Regla::Vigencia => 2,
-            Regla::Hasta => 1,
+            Regla::Hasta | Regla::Plazo => 1,
         }
     }
 
     /// La confianza de la aserción inferida.
     pub fn confianza(self) -> f64 {
         match self {
+            Regla::Mrz => 0.95,
             Regla::Caducidad | Regla::Validez => 0.85,
             Regla::Vencimiento => 0.75,
-            Regla::Vigencia => 0.7,
+            Regla::Vigencia | Regla::Plazo => 0.7,
             Regla::Hasta => 0.55,
         }
     }
@@ -83,20 +103,23 @@ pub struct Candidato {
     /// la fecha. Es lo que se resalta al pedir «¿por qué?».
     pub inicio: usize,
     pub fin: usize,
+    /// Con la regla `plazo`, cuántos años justos hay desde la otra fecha. Es
+    /// la otra mitad de su «¿por qué?».
+    pub anios: Option<u8>,
 }
 
 // ─────────────────────────────────────────────────────────────── plegar
 
 /// El texto en minúsculas y sin acentos, con el mapa de vuelta al original.
-struct Plegado {
-    texto: String,
+pub(crate) struct Plegado {
+    pub(crate) texto: String,
     /// `origen[i]` es el byte del original del que sale el byte `i` de
     /// `texto`. Lleva un elemento más, con la longitud del original, para
     /// poder traducir el final de un tramo.
-    origen: Vec<usize>,
+    pub(crate) origen: Vec<usize>,
 }
 
-fn plegar(original: &str) -> Plegado {
+pub(crate) fn plegar(original: &str) -> Plegado {
     let mut texto = String::with_capacity(original.len());
     let mut origen = Vec::with_capacity(original.len() + 1);
     for (i, c) in original.char_indices() {
@@ -248,8 +271,9 @@ static MES_AA: LazyLock<Regex> = LazyLock::new(|| re(r"^(\d{1,2})/(\d{2})\b"));
 static NOMBRE_ANIO: LazyLock<Regex> =
     LazyLock::new(|| re(&format!(r"^({MESES})(?:\s+del?)?\s+(\d{{4}})\b")));
 
-/// La fecha con la que empieza `s`, si empieza con una, y cuántos bytes ocupa.
-fn fecha_al_inicio(s: &str) -> Option<(Fecha, usize)> {
+/// La fecha **con día** con la que empieza `s` (plegado), si empieza con una,
+/// y cuántos bytes ocupa. Son las únicas que sirven para medir un plazo.
+pub(crate) fn fecha_completa_al_inicio(s: &str) -> Option<(Fecha, usize)> {
     let n = |c: &regex::Captures<'_>, i: usize| c[i].parse::<u32>().ok();
     if let Some(c) = ISO.captures(s) {
         let f = Fecha::new(c[1].parse().ok()?, n(&c, 2)?, n(&c, 3)?)?;
@@ -272,6 +296,26 @@ fn fecha_al_inicio(s: &str) -> Option<(Fecha, usize)> {
         let f = Fecha::new(anio(&c[3])?, n(&c, 2)?, n(&c, 1)?)?;
         return Some((f, c[0].len()));
     }
+    None
+}
+
+/// La fecha con la que empieza `s`, si empieza con una, y cuántos bytes ocupa.
+///
+/// Con `anio_suelto`, también un año solo —«VIGENCIA 2033», o «2023 - 2033»
+/// en la INE—, que vale hasta el 31 de diciembre de ese año.
+fn fecha_al_inicio(s: &str, anio_suelto: bool) -> Option<(Fecha, usize)> {
+    let n = |c: &regex::Captures<'_>, i: usize| c[i].parse::<u32>().ok();
+    if let Some(r) = fecha_completa_al_inicio(s) {
+        return Some(r);
+    }
+    // Tenía forma de fecha con día y no existe («11/31/2027»): no es otra
+    // cosa más corta («11/31» como mes y año).
+    if [&ISO, &LARGA, &ABREVIADA, &NUMERICA, &ESPACIADA]
+        .iter()
+        .any(|r| r.is_match(s))
+    {
+        return None;
+    }
     if let Some(c) = MES_ANIO.captures(s) {
         let f = Fecha::fin_de_mes(anio(&c[2])?, n(&c, 1)?)?;
         return Some((f, c[0].len()));
@@ -289,7 +333,50 @@ fn fecha_al_inicio(s: &str) -> Option<(Fecha, usize)> {
         let f = Fecha::fin_de_mes(anio(&c[2])?, mes(&c[1])?)?;
         return Some((f, c[0].len()));
     }
+    if anio_suelto {
+        if let Some(c) = ANIO.captures(s) {
+            let largo = c[0].len();
+            if !es_un_anio_solo(&s[largo..]) {
+                return None;
+            }
+            let f = Fecha::new(c[1].parse().ok()?, 12, 31)?;
+            return Some((f, largo));
+        }
+    }
     None
+}
+
+/// Un año solo: «VIGENCIA 2033».
+static ANIO: LazyLock<Regex> = LazyLock::new(|| re(r"^(\d{4})\b"));
+
+/// Lo que dice que un número de cuatro cifras es una cantidad y no un año:
+/// «cobertura hasta 2000 euros».
+const UNIDADES: &[&str] = &[
+    "eur", "euro", "euros", "peso", "pesos", "mxn", "usd", "dolares", "dls", "km", "kg", "anos",
+    "meses", "dias", "horas", "puntos", "unidades",
+];
+
+/// ¿Lo que sigue a cuatro cifras deja que sean un año? No si van pegadas a
+/// otro número («2027/05», «2027.5»: eso es otra cosa) —salvo otro año con
+/// guion, «2023-2033»— ni si les sigue una unidad o una moneda («2000 euros»,
+/// «2000 €»).
+fn es_un_anio_solo(resto: &str) -> bool {
+    let mut cs = resto.chars();
+    if let Some(sep @ ('/' | '.' | '-' | ',')) = cs.next() {
+        let cifras = cs.take_while(char::is_ascii_digit).count();
+        if cifras > 0 && !(sep == '-' && cifras == 4) {
+            return false;
+        }
+    }
+    let siguiente = resto.trim_start();
+    if siguiente.starts_with(['€', '$', '%']) {
+        return false;
+    }
+    let palabra = siguiente
+        .split(|c: char| !c.is_alphanumeric())
+        .next()
+        .unwrap_or("");
+    !UNIDADES.contains(&palabra)
 }
 
 /// Lo que une las dos fechas de un intervalo: «del 1/9/2026 **al** 31/8/2027».
@@ -307,7 +394,11 @@ fn separador(c: char) -> bool {
 /// Tras una palabra de caducidad: salta el hueco y lee la fecha. Si lo que
 /// viene es un intervalo, devuelve su final. Devuelve la fecha y dónde acaba,
 /// relativo a `s`.
-fn tras_la_palabra(s: &str) -> Option<(Fecha, usize)> {
+///
+/// `anio_suelto` deja leer un año solo; no tras un «hasta» suelto, que es la
+/// palabra más débil y la que más cantidades lleva detrás («cobertura hasta
+/// 2000…»).
+fn tras_la_palabra(s: &str, anio_suelto: bool) -> Option<(Fecha, usize)> {
     let mut i = 0;
     let mut libres = 0;
     let mut desde = false;
@@ -316,12 +407,12 @@ fn tras_la_palabra(s: &str) -> Option<(Fecha, usize)> {
         if i > HUECO || i >= s.len() {
             return None;
         }
-        if let Some((fecha, largo)) = fecha_al_inicio(&s[i..]) {
+        if let Some((fecha, largo)) = fecha_al_inicio(&s[i..], anio_suelto) {
             let fin = i + largo;
             // ¿Es el principio de un intervalo? Entonces vale el final.
             if let Some(h) = HACIA.find(&s[fin..]) {
                 let otra = fin + h.end();
-                if let Some((hasta, largo2)) = fecha_al_inicio(&s[otra..]) {
+                if let Some((hasta, largo2)) = fecha_al_inicio(&s[otra..], anio_suelto) {
                     if hasta > fecha {
                         return Some((hasta, otra + largo2));
                     }
@@ -384,7 +475,7 @@ pub fn scan(texto: &str) -> Vec<Candidato> {
         if regla == Regla::Hasta && !con_contexto(&p.texto, m.start()) {
             continue;
         }
-        let Some((fecha, fin)) = tras_la_palabra(&p.texto[m.end()..]) else {
+        let Some((fecha, fin)) = tras_la_palabra(&p.texto[m.end()..], regla != Regla::Hasta) else {
             continue;
         };
         out.push(Candidato {
@@ -392,6 +483,7 @@ pub fn scan(texto: &str) -> Vec<Candidato> {
             regla,
             inicio: p.origen[m.start()],
             fin: p.origen[m.end() + fin],
+            anios: None,
         });
     }
     out
@@ -458,6 +550,31 @@ mod tests {
             una("vence el día 30 de septiembre de 2026"),
             f("2026-09-30", "vencimiento")
         );
+    }
+
+    #[test]
+    fn el_anio_solo_de_la_ine_vale_hasta_fin_de_anio() {
+        assert_eq!(
+            una("CREDENCIAL PARA VOTAR\nEMISIÓN 2023 VIGENCIA 2023 - 2033"),
+            f("2033-12-31", "vigencia")
+        );
+        assert_eq!(una("VIGENCIA 2023-2033"), f("2033-12-31", "vigencia"));
+        assert_eq!(una("Vigencia: 2030"), f("2030-12-31", "vigencia"));
+        assert_eq!(una("válida hasta 2031."), f("2031-12-31", "validez"));
+    }
+
+    #[test]
+    fn cuatro_cifras_que_no_son_un_anio() {
+        // Una cantidad.
+        assert!(scan("Validez: 2000 euros de cobertura").is_empty());
+        assert!(scan("vigencia 2000 €").is_empty());
+        // Tras un «hasta» suelto nunca, aunque haya contexto.
+        assert!(scan("Cobertura de la póliza hasta 2000").is_empty());
+        // Pegado a otro número es otra cosa.
+        assert!(scan("caducidad 2027/05").is_empty());
+        assert!(scan("vigencia 2027.5").is_empty());
+        // Fuera de 1990–2100 no es un año de documento.
+        assert!(scan("vigencia 1234").is_empty());
     }
 
     #[test]
