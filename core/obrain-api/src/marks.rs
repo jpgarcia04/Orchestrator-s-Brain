@@ -36,8 +36,9 @@ pub struct MarkedFolder {
     /// Documentos que tiene dentro **ahora**, según su ruta de hoy.
     ///
     /// Cero no es un error, pero se dice: casi siempre es una carpeta que se
-    /// renombró o se movió, y la marca se quedó en la ruta vieja protegiendo
-    /// nada. La marca va por ruta (ADR-0020) y ése es su coste.
+    /// borró o se movió a otro disco, y la marca se quedó en la ruta vieja
+    /// protegiendo nada. Renombrarla o moverla dentro del mismo disco ya no la
+    /// vacía: la carpeta sigue a su `FileID` (ADR-0027).
     pub documents: usize,
     /// Desde cuándo, epoch ms.
     pub since: i64,

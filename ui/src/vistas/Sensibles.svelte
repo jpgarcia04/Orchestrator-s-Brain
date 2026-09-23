@@ -50,7 +50,7 @@
               <span class="nombre">{nombreBonito(m.label)}</span>
               <span class="cuenta" class:aviso={m.documents === 0}>
                 {m.documents === 0
-                  ? "vacía — ¿la renombraste o la moviste?"
+                  ? "vacía — ¿la borraste, o la moviste a otro disco?"
                   : m.documents === 1
                     ? "1 documento"
                     : `${m.documents} documentos`}

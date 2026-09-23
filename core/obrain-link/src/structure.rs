@@ -176,7 +176,7 @@ pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport)
                 Edge {
                     subject: &child,
                     predicate: "contained_by",
-                    object: Value::Entity(up),
+                    object: Value::Entity(up.clone()),
                     method: Method::Deterministic,
                     confidence: 1.0,
                     source: "linker:structure",
@@ -184,6 +184,13 @@ pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport)
                 at,
             )? {
                 report.contained_by += 1;
+            }
+            // Una carpeta que se mudó a otra madre la conserva al mudarse
+            // (ADR-0027), y sin esto salía bajo las dos, como un archivo movido.
+            for a in store.query(Some(&child), Some("contained_by"), TimePoint::at(at))? {
+                if a.source == "linker:structure" && a.object.as_entity() != Some(&up) {
+                    store.retract(&a.id, at)?;
+                }
             }
             cur = parent;
         }
@@ -317,6 +324,46 @@ mod tests {
             .unwrap();
         let arriba = s.resolve(&salud, "contained_by", tp).unwrap().unwrap();
         assert_eq!(arriba.object.as_entity(), Some(&lib));
+    }
+
+    /// Una carpeta que se mudó a otra madre (ADR-0027) cuelga sólo de la nueva.
+    #[test]
+    fn una_carpeta_mudada_suelta_a_su_madre_vieja() {
+        let s = Store::open_in_memory().unwrap();
+        let f = fv(&s, r"C:\docs\a\x\f.pdf");
+        let mut r = LinkReport::default();
+        super::link(&s, std::slice::from_ref(&f), 2000, &mut r).unwrap();
+        let tp = TimePoint::at(2500);
+        let x = s
+            .find_subject_by_value("folder_path", r"C:\docs\a\x", tp)
+            .unwrap()
+            .unwrap();
+
+        // Lo que hace el escáner al ver su `FileID` en otra ruta.
+        let vieja = s.resolve(&x, "folder_path", tp).unwrap().unwrap();
+        s.retract(&vieja.id, 3000).unwrap();
+        s.assert(NewAssertion::new(
+            x.clone(),
+            "folder_path",
+            r"C:\docs\b\x",
+            Method::Deterministic,
+            3000,
+        ))
+        .unwrap();
+        let movido = FileView {
+            path: r"C:\docs\b\x\f.pdf".into(),
+            ..f
+        };
+        super::link(&s, &[movido], 3000, &mut r).unwrap();
+
+        let tp = TimePoint::at(4000);
+        let b = s
+            .find_subject_by_value("folder_path", r"C:\docs\b", tp)
+            .unwrap()
+            .unwrap();
+        let madres = s.query(Some(&x), Some("contained_by"), tp).unwrap();
+        assert_eq!(madres.len(), 1, "una sola madre vigente");
+        assert_eq!(madres[0].object.as_entity(), Some(&b));
     }
 
     #[test]

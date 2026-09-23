@@ -47,6 +47,9 @@ pub struct IndexReport {
     pub trashed: usize,
     /// Documentos de la papelera que han vuelto.
     pub returned: usize,
+    /// Carpetas que se renombraron o se movieron y siguen siendo las mismas,
+    /// con su marca (ADR-0027).
+    pub folders_moved: usize,
     /// Documentos de la papelera que se olvidaron en esta pasada, por llevar
     /// ahí 30 días.
     pub forgotten: usize,
@@ -100,6 +103,9 @@ pub fn index_with(
 ) -> Result<IndexReport> {
     let started = Instant::now();
     let mut r = IndexReport::default();
+    // Las carpetas recorridas de todas las bibliotecas, con su identidad: se
+    // apuntan después de enlazar, cuando el enlazador ya ha creado las nuevas.
+    let mut carpetas: Vec<obrain_scan::FolderCandidate> = Vec::new();
 
     // ── M1 · escanear, una biblioteca cada vez ──
     for root in roots {
@@ -116,14 +122,27 @@ pub fn index_with(
 
         let at = obrain_scan::now_ms();
         let mut ingesta = obrain_scan::IngestReport::default();
-        let ausentes = store.transaction(|s| -> obrain_core::Result<usize> {
-            obrain_scan::ingest(s, &candidatos, at, &mut ingesta)?;
-            obrain_scan::register_library(s, &root, at)?;
-            // Lo que el log cree que hay aquí y el disco dice que ya no existe
-            // pasa a la papelera (ADR-0025). Después de hashear: el hueco de un
-            // guardado atómico ya se ha cerrado.
-            obrain_scan::ausentes::mark_missing(s, &root, &ingesta.seen, obrain_scan::now_ms())
-        })?;
+        let (ausentes, mudadas) =
+            store.transaction(|s| -> obrain_core::Result<(usize, usize)> {
+                obrain_scan::ingest(s, &candidatos, at, &mut ingesta)?;
+                obrain_scan::register_library(s, &root, at)?;
+                // Una carpeta que el recorrido ve con su `FileID` en otra ruta se
+                // renombró o se movió: se muda antes de enlazar, para que el
+                // enlazador la encuentre y no cree otra (ADR-0027).
+                let mudadas = obrain_scan::carpetas::follow(s, &informe.folders, at)?;
+                // Lo que el log cree que hay aquí y el disco dice que ya no existe
+                // pasa a la papelera (ADR-0025). Después de hashear: el hueco de un
+                // guardado atómico ya se ha cerrado.
+                let ausentes = obrain_scan::ausentes::mark_missing(
+                    s,
+                    &root,
+                    &ingesta.seen,
+                    obrain_scan::now_ms(),
+                )?;
+                Ok((ausentes, mudadas))
+            })?;
+        carpetas.append(&mut informe.folders);
+        r.folders_moved += mudadas;
         r.files_new += ingesta.entities_created;
         r.trashed += ausentes;
         r.returned += ingesta.entities_returned;
@@ -133,7 +152,11 @@ pub fn index_with(
     // ── M3 · enlazar ──
     let at = obrain_scan::now_ms();
     let archivos = obrain_link::load_files(store, TimePoint::at(at))?;
-    let enlaces = store.transaction(|s| obrain_link::link_all(s, &archivos, at))?;
+    let enlaces = store.transaction(|s| -> obrain_core::Result<_> {
+        let enlaces = obrain_link::link_all(s, &archivos, at)?;
+        obrain_scan::carpetas::identify(s, &carpetas, at)?;
+        Ok(enlaces)
+    })?;
     r.edges_new = enlaces.edges_total();
 
     // ── M2 · extraer ──

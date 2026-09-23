@@ -26,16 +26,17 @@ computadora.
 | Carpetas y documentos con nombres legibles, fechas y tamaños claros | |
 | **La interfaz nueva** (Svelte 5): escritorio con barra lateral, Inicio, carpetas en cuadrícula o lista, vista previa, Sensibles, buscador `Ctrl K`, el Mapa enlazado, noche y día | |
 | «Añadir carpeta» desde la app, o `obrain indexar <carpeta>` desde la terminal | |
-| **Sensibilidad por carpeta**: marcas `01 Identidad` y todo lo de dentro es sensible, también lo que llegue después (la foto de la TIE incluida) | |
-| **Base cifrada** (SQLCipher) con la llave en Windows y una clave de recuperación; **PIN** opcional para ver lo sensible | Probarlo en tu Windows: DPAPI sólo se ha comprobado que compila |
+| **Sensibilidad por carpeta**: marcas `01 Identidad` y todo lo de dentro es sensible, también lo que llegue después (la foto de la TIE incluida). Si la renombras o la mueves dentro del mismo disco, la marca va con ella | Probarlo en tu Windows: renombrar una carpeta marcada y ver que sigue en «Sensibles» con sus documentos |
+| **Base cifrada** (SQLCipher) con la llave en Windows y una clave de recuperación; **PIN** opcional para ver lo sensible | Verlo en la app, en «Seguridad». La llave de Windows (DPAPI) ya funciona en tu laptop: se probó con la orden `obrain` el 2026-09-23 |
 | **Leer fotos y PDF escaneados (OCR)** con el reconocedor que ya trae Windows, sin conexión: la foto de la TIE se encuentra buscando «extranjero» y sale sensible por su NIE | Probarlo en tu Windows: el OCR sólo se ha comprobado que compila |
 | **Vencimientos**: lee cuándo caduca cada documento («VALIDEZ 15 11 2026» en la foto de la TIE, «vence el 30 de septiembre» en el contrato) y el Inicio te enseña **«Caduca pronto»**: lo que vence en 90 días y lo que ya venció. Cada fecha dice por qué la leyó y se corrige en un clic | Probarlo en tu Windows, con el OCR de verdad |
 | La app se pone al día sola al abrirse, y tiene botón «actualizar» | |
-| **Vigila tus carpetas en vivo** mientras está abierta: guardas un documento y aparece solo, a los 3 segundos de dejar de tocar la carpeta, sin avisos (sólo el indicador de abajo a la izquierda) | Probarlo en tu Windows: aquí se ha probado con el vigía de Linux |
+| **Vigila tus carpetas en vivo** mientras está abierta: guardas un documento y aparece solo, a los 3 segundos de dejar de tocar la carpeta, sin avisos (sólo el indicador de abajo a la izquierda) | Probarlo en la app. Sus tests ya pasan en tu Windows (2026-09-23), tras arreglar dos cosas que sólo pasaban ahí |
 | **Papelera**: lo que borras sale de Recientes, «Caduca pronto», el explorador, el mapa y la búsqueda, y se queda 30 días en la vista «Papelera»; después se olvida lo que se leyó de él (o antes, con «Olvidar ya» o «Vaciar papelera»). Mover y renombrar ya no dejan documentos ni carpetas repetidos | Probarlo en tu Windows: sacar algo de la Papelera de Windows y ver que vuelve solo |
 
-Núcleo en Rust con 383 tests (uno de ellos sólo corre en Windows), interfaz en
-Tauri + Svelte 5, con el mapa en PixiJS.
+Núcleo en Rust con 400 tests, **todos en verde en tu Windows** (2026-09-23;
+hasta entonces sólo se habían corrido en Linux), interfaz en Tauri + Svelte 5,
+con el mapa en PixiJS.
 
 ## Cómo usarlo hoy (Windows)
 
@@ -45,6 +46,15 @@ programa, y eso pide Perl una vez—. En PowerShell:
 
 ```powershell
 winget install StrawberryPerl.StrawberryPerl   # una vez; luego cierra y abre la terminal
+```
+
+(Ya instalado en tu laptop el 2026-09-23.) **Y un detalle por el apóstrofo** de
+`Orchestrator's-Brain`: OpenSSL escribe la ruta de compilación dentro de un
+script de Perl y el `'` lo rompe (`Unknown regexp modifier` en
+`configdata.pm`). Mientras la carpeta se llame así, compila fuera de ella:
+
+```powershell
+$env:CARGO_TARGET_DIR = "$env:USERPROFILE\obrain-target"   # en cada terminal nueva
 ```
 
 Desde la carpeta del repositorio:
@@ -115,8 +125,13 @@ seguridad de la base sin su clave de recuperación no se abre en otro equipo.
   que llegue después. Para quitar la marca, dos clics. La vista «Sensibles»
   enseña qué carpetas marcaste. Desde la terminal:
   `obrain sensible "C:\...\01 Identidad"` (y `--quitar` para deshacerlo).
-  Ojo: si renombras o mueves una carpeta marcada, la marca se queda en la ruta
-  vieja; «Sensibles» te lo avisa en rojo y basta con volver a marcarla.
+  Si renombras o mueves una carpeta marcada **dentro del mismo disco**, la
+  marca va con ella: obrain reconoce la carpeta por su identidad en NTFS (su
+  `FileID`), no por su nombre. La marca es de la carpeta, no del nombre: si
+  creas otra con el nombre viejo, ésa nace sin marca. Si la mueves **a otro
+  disco** (un USB), la marca se queda en la ruta vieja; «Sensibles» te lo
+  avisa en rojo y basta con volver a marcarla. Lo mismo con una carpeta que
+  renombraste antes de esta versión.
 - **Seguridad:** el escudo de abajo a la izquierda. Ahí ves que la base está
   cifrada, vuelves a ver tu clave de recuperación y pones un **PIN**: con PIN,
   lo sensible no se enseña —ni en la vista previa, ni en la búsqueda, ni al
@@ -177,7 +192,7 @@ Y nombres que se lean solos, con la fecha delante:
 | 0 | Limpieza: documentación a la medida, README honesto | ✅ Hecha |
 | 1 | El núcleo para tu carpeta: bibliotecas, nombres, `obrain indexar`, «actualizar» | ✅ Hecha |
 | 2 | La interfaz nueva en Svelte 5: el explorador como escritorio estilo sistema operativo, la galaxia como vista «Mapa» enlazada, `Ctrl+K`, vista previa rápida | ✅ Hecha |
-| **3** | **Documentos personales**: ✅ sensibilidad por carpeta · ✅ cifrado y PIN · ✅ OCR · ✅ vencimientos · ✅ vigilar la carpeta en vivo · ✅ papelera | ✅ Hecha (falta probarla en tu Windows) |
+| **3** | **Documentos personales**: ✅ sensibilidad por carpeta (y la marca sigue a la carpeta si la renombras) · ✅ cifrado y PIN · ✅ OCR · ✅ vencimientos · ✅ vigilar la carpeta en vivo · ✅ papelera | ✅ Hecha (falta probarla en tu Windows) |
 | 4 | La visión original: trámites reconstruidos, la pregunta de la visa | Congelada |
 
 **Congelado** (no se borra, no se sigue): sesiones de trabajo y puentes,
@@ -195,8 +210,8 @@ navegador del banco de pruebas (el 2026-09-22 aún no la habías corrido).
 **Antes de meter tu pasaporte de verdad**, tres cosas:
 
 1. **Corre la app una vez en tu Windows** y mira en «Seguridad» que diga *«Tu
-   base está cifrada»* (con la llave de Windows). El código de DPAPI sólo se ha
-   podido comprobar que compila; que funcione, se ve ahí.
+   base está cifrada»* (con la llave de Windows). La llave de Windows ya se
+   probó en tu laptop con la orden `obrain`; falta verla desde la app.
 2. **Guarda la clave de recuperación** que te enseña la app.
 3. **Activa el Cifrado de dispositivo** de Windows si tu laptop lo tiene
    (Configuración › Privacidad y seguridad): cifrar la base de obrain **no
@@ -221,6 +236,12 @@ en 30 días». Luego **restáuralo** desde la Papelera de Windows: tiene que
 volver solo a su carpeta, con su fecha de caducidad y lo que le hubieras
 corregido. Si en vez de eso aparece como documento nuevo, avísame: significa
 que Windows le cambió la identidad (el `FileID`) al restaurarlo.
+
+Y para ver que la marca sigue a la carpeta: marca una carpeta de prueba como
+sensible, dale a «actualizar» una vez (así obrain apunta su identidad) y
+**renómbrala** en el Explorador de Windows. A los pocos segundos tiene que
+salir con su nombre nuevo, con el candado, y en «Sensibles» con sus documentos
+(no en rojo). Muévela a otra carpeta de la bóveda y lo mismo.
 
 ## Cómo seguir en otra sesión
 

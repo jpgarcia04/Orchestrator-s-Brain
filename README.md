@@ -134,7 +134,7 @@ Con un modelo de inteligencia artificial **que corre en tu máquina** —se desc
 >
 > Y lo que marcaste como privado **no entra** en el índice de significado. Eso no es una opción de configuración: es una comprobación que el sistema aplica y que tiene tests.
 >
-> Puedes marcar **una carpeta entera** —por ejemplo, la de tus documentos de identidad— y todo lo que tenga dentro será sensible, también lo que metas después: la foto de tu TIE no necesita tener texto ni un nombre que la delate.
+> Puedes marcar **una carpeta entera** —por ejemplo, la de tus documentos de identidad— y todo lo que tenga dentro será sensible, también lo que metas después: la foto de tu TIE no necesita tener texto ni un nombre que la delate. Si luego la renombras o la mueves a otro sitio del mismo disco, la marca va con ella.
 
 ### 5. 🌌 Visualizar — *El mapa*
 Todo ese conocimiento cobra vida en una visualización interactiva — tu galaxia personal de conocimiento, donde puedes explorar, navegar y descubrir conexiones que habías olvidado.

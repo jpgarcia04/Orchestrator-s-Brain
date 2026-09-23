@@ -195,6 +195,15 @@ pub const SEED_PREDICATES: &[(&str, &str, &str, &str, Option<&str>)] = &[
         "deterministic",
         None,
     ),
+    // El `FileID` de un directorio: con él, una carpeta renombrada sigue
+    // siendo la misma. Ver `docs/adr/0027-la-carpeta-sigue-a-su-fileid.md`.
+    (
+        "folder_id",
+        "identidad de carpeta",
+        "one",
+        "deterministic",
+        None,
+    ),
     (
         "session_span",
         "intervalo de la sesión",

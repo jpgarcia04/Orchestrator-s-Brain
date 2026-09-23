@@ -422,6 +422,9 @@ fn informe(r: &IndexReport, db: &std::path::Path) {
     if r.returned > 0 {
         println!("  de vuelta              {}", r.returned);
     }
+    if r.folders_moved > 0 {
+        println!("  carpetas renombradas   {}", r.folders_moved);
+    }
     if r.forgotten > 0 {
         println!("  olvidados (30 días)    {}", r.forgotten);
     }

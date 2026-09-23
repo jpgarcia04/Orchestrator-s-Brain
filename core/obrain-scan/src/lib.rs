@@ -21,6 +21,7 @@
 //! directorio, sin pedir un solo handle.
 
 pub mod ausentes;
+pub mod carpetas;
 pub mod exclude;
 pub mod identity;
 pub mod ingest;
@@ -30,5 +31,5 @@ pub mod triage;
 pub use exclude::{ExclusionSet, SkipReason};
 pub use identity::FileIdentity;
 pub use ingest::{IngestReport, ingest, library_path, register_library};
-pub use scan::{Candidate, ScanReport, Scanner, now_ms};
+pub use scan::{Candidate, FolderCandidate, ScanReport, Scanner, now_ms};
 pub use triage::Availability;

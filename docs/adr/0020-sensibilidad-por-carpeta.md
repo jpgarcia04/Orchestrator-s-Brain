@@ -1,6 +1,6 @@
 # ADR-0020 — Sensibilidad por carpeta: una marca del usuario que hereda lo de dentro
 
-- **Estado:** Aceptada
+- **Estado:** Aceptada. Su primer «En contra» (renombrar la carpeta le quita la marca) lo resuelve [ADR-0027](0027-la-carpeta-sigue-a-su-fileid.md)
 - **Fecha:** 2026-09-22
 - **Acota:** [ADR-0006](0006-donde-vive-la-sensibilidad.md) (su alternativa D)
 - **Depende de:** [ADR-0018](0018-bibliotecas.md)
@@ -136,7 +136,9 @@ quedan en el log una a una.
   «Sensibles» enseña cada carpeta marcada con los documentos que protege, y una
   vacía sale en rojo —*«vacía — ¿la renombraste o la moviste?»*—. La solución de
   verdad es que una carpeta conserve su identidad al renombrarse (el `FileID` de
-  un directorio en NTFS), y queda pendiente.
+  un directorio en NTFS), y queda pendiente. **Resuelto en [ADR-0027]
+  (2026-09-23):** la carpeta sigue a su `FileID`, y la marca con ella; sólo
+  moverla a otro disco la deja atrás.
 - **Mover un archivo fuera le quita la herencia.** Es deliberado —la marca es
   una regla sobre un sitio, como un cajón con llave—, y lo que el clasificador
   diga de él por su nombre o su texto sigue valiendo. Para que un archivo sea
@@ -150,3 +152,4 @@ quedan en el log una a una.
 
 [ADR-0006]: 0006-donde-vive-la-sensibilidad.md
 [ADR-0018]: 0018-bibliotecas.md
+[ADR-0027]: 0027-la-carpeta-sigue-a-su-fileid.md
