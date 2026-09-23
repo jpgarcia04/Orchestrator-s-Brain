@@ -25,6 +25,7 @@ Hola, soy JP. Seguimos con **Orchestrator's Brain** (`jpgarcia04/Orchestrator-s-
 
 ## Lo que sigue, en este orden
 
+0. **Fallo abierto: el cifrado de la base de agosto quedó a medias en mi Windows (2026-09-23).** Al abrir la app por primera vez, `%LOCALAPPDATA%\obrain` terminó con **dos archivos distintos llamados `brain.obrain`**: el de agosto en claro (FileID `…080000000ebbd5`, fechas de agosto), que era el que se veía por la ruta y el que abría la orden `obrain` («la base no se abre con esta llave»), y el cifrado de hoy (8,9 MB, FileID `…06000000134bf1`), que usaba la app y sólo apareció al mover el otro. El WAL era del cifrado. Con copias de las bases viejas, `obrain` cifra bien: lo distinto es la app (`tauri dev`). Sospecha: `reanudar` en `obrain-api/src/seguridad.rs` (el `rename` de Rust en Windows sobre un archivo que alguien tenía abierto). Todo está guardado en `%LOCALAPPDATA%\obrainespaldo-cifrado-a-medias-20260923\` (`cifrada-de-hoy\` con su llave y su WAL, `en-claro-de-agosto\`). Reprodúcelo antes de tocar el código.
 1. **Probar la app en mi Windows** con mi bóveda de verdad (la lista está en `docs/ESTADO.md`). Lo que falle, primero.
 2. **Un documento dentro de otro**: enséñame el diseño con su coste antes de programar, luego el ADR (0028), el código y los tests.
 3. **Colecciones** (regiones del usuario): lo mismo.
