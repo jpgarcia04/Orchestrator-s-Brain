@@ -783,6 +783,9 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
+    /* Una URL de «Descargado de» no tiene espacios: sin esto se salía del
+       panel y le ponía barra horizontal. */
+    overflow-wrap: anywhere;
   }
   .acciones-hecho {
     display: flex;
