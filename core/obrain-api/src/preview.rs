@@ -110,11 +110,14 @@ pub struct Preview {
 
 /// Qué se puede enseñar de esta entidad.
 ///
-/// `query` sólo cambia **dónde se abre** el texto, nunca cuánto se puede leer.
+/// `query` y `tramo` sólo cambian **dónde se abre** el texto, nunca cuánto se
+/// puede leer. El tramo, si lo hay, manda: es un sitio exacto del documento
+/// —dónde está algo que lleva dentro (ADR-0030)— y no una búsqueda.
 pub fn of(
     store: &Store,
     id: &EntityId,
     query: Option<&str>,
+    tramo: Option<(usize, usize)>,
     at: TimePoint,
     locked: bool,
 ) -> Result<Preview> {
@@ -158,7 +161,10 @@ pub fn of(
 
     // ── 1. El texto. No abre ningún archivo: sale de la proyección de M2.
     if let Some(doc) = obrain_extract::index::document_text(store.conn(), id)? {
-        let (inicio, fin, marca) = window(&doc, query);
+        let (inicio, fin, marca) = match tramo {
+            Some(t) => window_at(&doc, t),
+            None => window(&doc, query),
+        };
         p.kind = "text";
         p.chars = doc.chars().count();
         p.truncated = fin - inicio < doc.len();
@@ -274,6 +280,25 @@ fn window(doc: &str, query: Option<&str>) -> (usize, usize, Option<(usize, usize
         (ev.byte_start >= inicio && ev.byte_end <= fin)
             .then_some((ev.byte_start - inicio, ev.byte_end - inicio))
     });
+    (inicio, fin, marca)
+}
+
+/// Qué tramo se abre para enseñar **este** sitio del documento, marcado.
+///
+/// Si cabe desde el principio, se abre por el principio, como [`window`]. Si
+/// no, un poco antes de donde empieza. Lo que no quepa del sitio en la
+/// ventana se marca hasta el borde: un estado de cuenta de 60 KB dentro de un
+/// paquete no se ve entero, pero se ve dónde empieza.
+fn window_at(doc: &str, (desde, hasta): (usize, usize)) -> (usize, usize, Option<(usize, usize)>) {
+    let desde = floor(doc, desde);
+    let hasta = ceil(doc, hasta.max(desde));
+    let inicio = if hasta <= TEXT_BUDGET {
+        0
+    } else {
+        floor(doc, desde.saturating_sub(TEXT_BUDGET / 8))
+    };
+    let fin = ceil(doc, (inicio + TEXT_BUDGET).min(doc.len()));
+    let marca = (desde < fin && hasta > desde).then(|| (desde - inicio, hasta.min(fin) - inicio));
     (inicio, fin, marca)
 }
 
@@ -439,6 +464,34 @@ mod tests {
             assert!(doc.is_char_boundary(i) && doc.is_char_boundary(f));
             let _ = &doc[i..f]; // rebanar no puede entrar en pánico
         }
+        for t in [(1, 7), (90_001, 150_003), (0, 999_999)] {
+            let (i, f, marca) = window_at(&doc, t);
+            assert!(doc.is_char_boundary(i) && doc.is_char_boundary(f));
+            let (s, e) = marca.unwrap();
+            let _ = &doc[i..f][s..e];
+        }
+    }
+
+    /// Un estado de cuenta en la mitad de un paquete de 80 KB: la ventana va
+    /// a donde empieza y lo marca (ADR-0030).
+    #[test]
+    fn un_tramo_abre_la_ventana_donde_empieza_y_lo_marca() {
+        let antes = "portada. ".repeat(6_000); // 54 KB
+        let marzo = "estado de cuenta de marzo. ".repeat(400);
+        let doc = format!("{antes}{marzo}{}", "abril. ".repeat(3_000));
+        let t = (antes.len(), antes.len() + marzo.len());
+        let (i, f, marca) = window_at(&doc, t);
+        assert!(i > 0 && i < t.0 && f > t.1);
+        let (s, e) = marca.unwrap();
+        assert_eq!(&doc[i..f][s..e], marzo);
+
+        // Si cabe desde el principio, se abre por el principio.
+        let (i, _, marca) = window_at(&doc, (10, 50));
+        assert_eq!((i, marca), (0, Some((10, 50))));
+
+        // Más largo que la ventana: se marca hasta el borde.
+        let (i, f, marca) = window_at(&doc, (100, doc.len()));
+        assert_eq!(marca, Some((100 - i, f - i)));
     }
 
     /// La nube manda sobre el estado de extracción. Decirle a alguien que «de

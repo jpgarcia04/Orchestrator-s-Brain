@@ -68,6 +68,11 @@ pub struct IndexReport {
     pub vault: usize,
     /// De ésos, los que lo son por estar dentro de una carpeta que marcaste.
     pub inherited: usize,
+    /// Y los que lo son por lo que llevan dentro (ADR-0030).
+    pub from_parts: usize,
+    /// Documentos que están dentro de otro: los estados de cuenta dentro del
+    /// PDF de la visa (ADR-0030).
+    pub inside: usize,
     /// Documentos con fecha de caducidad leída de su texto (ADR-0023).
     pub expiring: usize,
     /// Vectores nuevos. `0` con `semantic = false` si no había modelo.
@@ -169,6 +174,14 @@ pub fn index_with(
     r.ocr = extraccion.ocr;
     r.chunks_new = extraccion.chunks;
 
+    // ── un documento dentro de otro ──
+    // Con el texto ya leído, y antes de la puerta: un paquete hereda la
+    // sensibilidad de lo que lleva dentro (ADR-0030).
+    let at = obrain_scan::now_ms();
+    let mut dentro = obrain_link::dentro::DentroReport::default();
+    store.transaction(|s| obrain_link::dentro::link(s, at, &mut dentro))?;
+    r.inside = dentro.encontrados;
+
     // ── la puerta · clasificar ──
     // Se vuelven a leer las filas: la extracción acaba de escribir el texto
     // con el que clasifica la regla de contenido.
@@ -179,6 +192,7 @@ pub fn index_with(
     r.sensitive = puerta.effective[1];
     r.vault = puerta.effective[2];
     r.inherited = puerta.inherited;
+    r.from_parts = puerta.from_parts;
 
     // ── vencimientos ──
     let at = obrain_scan::now_ms();

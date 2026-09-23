@@ -92,7 +92,7 @@
 
       {#if app.seleccion}
         {#key app.seleccion}
-          <VistaPrevia id={app.seleccion} consulta={app.consulta} />
+          <VistaPrevia id={app.seleccion} consulta={app.consulta} tramo={app.tramo} />
         {/key}
       {/if}
     </div>

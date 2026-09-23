@@ -145,17 +145,23 @@
         </button>
       {:else if resultados.length > 0}
         {#each resultados as h, i (h.entity)}
+          <!-- ADR-0030: lo que está dentro de un paquete de la lista va justo debajo de él, metido. -->
           <button
             class="opcion"
             class:marcada={i === marcado}
+            class:dentro={h.inside !== null}
             onclick={() => elegir(i)}
             onmouseenter={() => (marcado = i)}
           >
             <Tipo tipo={tipoDe(h.label)} />
             <span class="texto">
               <span class="nombre">{tituloDe(h.label).titulo}</span>
-              <!-- Lo sensible sale en la lista, pero no su texto: la vista previa lo tapa, y aquí también. -->
-              <span class="sub">{carpetaDe(h.path)}{h.sensitivity !== "normal" ? " · contenido sensible" : h.snippet ? ` · ${h.snippet}` : ""}</span>
+              {#if h.inside !== null}
+                <span class="sub en">está dentro del de arriba</span>
+              {:else}
+                <!-- Lo sensible sale en la lista, pero no su texto: la vista previa lo tapa, y aquí también. -->
+                <span class="sub">{carpetaDe(h.path)}{h.sensitivity !== "normal" ? " · contenido sensible" : h.snippet ? ` · ${h.snippet}` : ""}</span>
+              {/if}
             </span>
             <span class="como" class:significado={como(h) === "por significado"}>{como(h)}</span>
           </button>
@@ -251,6 +257,15 @@
   }
   .opcion.marcada {
     background: var(--sel);
+  }
+  .opcion.dentro {
+    width: calc(100% - 28px);
+    margin-left: 28px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  .sub.en {
+    color: var(--acento);
   }
   .texto {
     flex-grow: 1;

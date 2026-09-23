@@ -24,8 +24,20 @@
 //!    normal *después* de marcar su carpeta, es una excepción consciente y se
 //!    respeta. Si lo marcaste *antes*, la carpeta es lo último que dijiste.
 //!
+//! ## Lo que lleva dentro
+//!
+//! [ADR-0030] añade la tercera fuente: **un documento es, como poco, tan
+//! sensible como lo más sensible que lleva dentro** (`part_of`). El PDF de la
+//! visa que junta la carátula del pasaporte no puede salir sin tapar porque el
+//! pasaporte esté en `01 Identidad` y el PDF en `04 Trámites`. También un
+//! suelo; cuenta el nivel **propio** de lo de dentro (su clasificador, su
+//! carpeta, lo que dijo el usuario), sin seguir cadenas: si C está en B y B en
+//! A, el texto de C está en A y hay arista directa. Y lo que el usuario diga
+//! del paquete gana, como con las carpetas.
+//!
 //! [ADR-0006]: ../../../docs/adr/0006-donde-vive-la-sensibilidad.md
 //! [ADR-0020]: ../../../docs/adr/0020-sensibilidad-por-carpeta.md
+//! [ADR-0030]: ../../../docs/adr/0030-un-documento-dentro-de-otro.md
 
 use crate::error::Result;
 use crate::model::{Assertion, AssertionId, EntityId, Method, Sensitivity, TimePoint};
@@ -34,6 +46,11 @@ use crate::store::Store;
 /// El predicado de la marca. Cardinalidad `one`: una carpeta tiene una marca o
 /// ninguna.
 pub const CONTENTS_SENSITIVITY: &str = "contents_sensitivity";
+
+/// Un documento dentro de otro: el de dentro `part_of` el de fuera
+/// (ADR-0030). Vive aquí porque de él sale la tercera fuente de sensibilidad;
+/// el enlazador que lo escribe usa esta misma constante.
+pub const PART_OF: &str = "part_of";
 
 /// Una carpeta que el usuario marcó, con la ruta que cubre.
 #[derive(Debug, Clone)]
@@ -91,6 +108,14 @@ pub enum Origin {
     User,
     /// Una carpeta marcada por el usuario que la contiene.
     Folder(FolderMark),
+    /// Un documento que lleva dentro, más sensible que ella (ADR-0030).
+    /// `because` es de dónde le viene a **él**: su carpeta, el usuario, su
+    /// texto. Es lo que deja decir *«contiene pasaporte.pdf, que es sensible
+    /// por tu carpeta 01 Identidad»*.
+    Part {
+        part: EntityId,
+        because: Box<Origin>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -190,15 +215,60 @@ impl Store {
     ///    carpeta que la contiene se marcara **después** con un nivel mayor. Una
     ///    marca de carpeta nunca baja a nadie.
     /// 2. **Si el usuario no dijo nada de la entidad**, gana lo más restrictivo
-    ///    entre el clasificador y las carpetas marcadas que la contienen.
+    ///    entre el clasificador, las carpetas marcadas que la contienen y los
+    ///    documentos que lleva dentro ([ADR-0030]). A igual nivel se explica
+    ///    por lo propio: lo de dentro sólo es el porqué cuando sube el nivel.
     ///
     /// [ADR-0006]: ../../../docs/adr/0006-donde-vive-la-sensibilidad.md
+    /// [ADR-0030]: ../../../docs/adr/0030-un-documento-dentro-de-otro.md
     pub fn resolve_sensitivity(
         &self,
         id: &EntityId,
         at: TimePoint,
         marks: &FolderMarks,
     ) -> Result<Resolution> {
+        let (propia, lo_dijo_el_usuario) = self.resolve_own(id, at, marks)?;
+        // Lo que digas del paquete gana: si lo miraste y dijiste «normal», es
+        // una excepción consciente, como con las carpetas.
+        if lo_dijo_el_usuario {
+            return Ok(propia);
+        }
+        // Lo de dentro, con su nivel **propio**: seguir la cadena no hace
+        // falta (el texto de lo de dentro de lo de dentro también está aquí).
+        // Entre dos igual de sensibles, el primero por identificador: el
+        // porqué no cambia de una vez a otra.
+        let mut dentro: Option<(Resolution, EntityId)> = None;
+        for a in self.pointing_at(id, Some(PART_OF), at)? {
+            let r = self.resolve_own(&a.subject, at, marks)?.0;
+            let sube = r.level > propia.level
+                && dentro.as_ref().is_none_or(|(m, e)| {
+                    r.level > m.level || (r.level == m.level && a.subject.as_str() < e.as_str())
+                });
+            if sube {
+                dentro = Some((r, a.subject));
+            }
+        }
+        Ok(match dentro {
+            Some((r, part)) => Resolution {
+                level: r.level,
+                origin: Origin::Part {
+                    part,
+                    because: Box::new(r.origin),
+                },
+            },
+            None => propia,
+        })
+    }
+
+    /// El nivel de una entidad **por sí misma**: lo que se dijo de ella y las
+    /// carpetas que la cubren, sin mirar lo que lleva dentro. Y si el usuario
+    /// dijo algo de ella.
+    fn resolve_own(
+        &self,
+        id: &EntityId,
+        at: TimePoint,
+        marks: &FolderMarks,
+    ) -> Result<(Resolution, bool)> {
         let claims = self.query(Some(id), Some("sensitivity_level"), at)?;
 
         // Las carpetas que la cubren, sólo si hay alguna marca: sin marcas no
@@ -225,7 +295,7 @@ impl Store {
                 .iter()
                 .copied()
                 .filter(|m| m.level > dicho && m.asserted_at > u.asserted_at);
-            return Ok(match strongest(&mut posteriores) {
+            let r = match strongest(&mut posteriores) {
                 Some(m) => Resolution {
                     level: m.level,
                     origin: Origin::Folder(m),
@@ -234,12 +304,13 @@ impl Store {
                     level: dicho,
                     origin: Origin::User,
                 },
-            });
+            };
+            return Ok((r, true));
         }
 
         let clasificador = claims.iter().filter_map(parse).max();
         let carpeta = strongest(&mut covering.iter().copied());
-        Ok(match (clasificador, carpeta) {
+        let r = match (clasificador, carpeta) {
             // A igual nivel se cuenta la carpeta: «lo marcaste tú» explica más
             // que una regla del clasificador, y es igual de cierto.
             (c, Some(m)) if c.is_none_or(|c| c <= m.level) => Resolution {
@@ -254,11 +325,16 @@ impl Store {
                 level: Sensitivity::Normal,
                 origin: Origin::Default,
             },
-        })
+        };
+        Ok((r, false))
     }
 
     /// [`Store::reproject_sensitivity`] con las marcas ya leídas. Es la que
     /// usa quien reproyecta muchas entidades seguidas.
+    ///
+    /// Reproyecta también **los paquetes que la llevan dentro** (ADR-0030):
+    /// marcar la carpeta del pasaporte tapa en el acto el PDF de la visa que
+    /// lo contiene, no en la pasada siguiente.
     pub fn reproject_sensitivity_under(
         &self,
         id: &EntityId,
@@ -267,6 +343,14 @@ impl Store {
     ) -> Result<Sensitivity> {
         let r = self.resolve_sensitivity(id, at, marks)?;
         self.set_sensitivity(id, r.level)?;
+        for a in self.query(Some(id), Some(PART_OF), at)? {
+            if let Some(paquete) = a.object.as_entity() {
+                let nivel = self.resolve_sensitivity(paquete, at, marks)?.level;
+                if self.sensitivity(paquete)? != nivel {
+                    self.set_sensitivity(paquete, nivel)?;
+                }
+            }
+        }
         Ok(r.level)
     }
 }
@@ -557,5 +641,109 @@ mod tests {
                 .of(&c)
                 .is_some()
         );
+    }
+
+    // ── lo que lleva dentro (ADR-0030) ────────────────────────────────────
+
+    fn dentro_de(s: &Store, parte: &EntityId, paquete: &EntityId) {
+        s.assert(NewAssertion::new(
+            parte.clone(),
+            PART_OF,
+            crate::model::Value::Entity(paquete.clone()),
+            Method::Deterministic,
+            T,
+        ))
+        .unwrap();
+    }
+
+    /// El caso que lo pidió: el pasaporte está en una carpeta marcada y el PDF
+    /// de la visa, fuera, lo lleva dentro. Sin esto saldría sin tapar.
+    #[test]
+    fn un_paquete_es_tan_sensible_como_lo_que_lleva_dentro() {
+        let s = Store::open_in_memory().unwrap();
+        let identidad = carpeta(&s, r"C:\Bóveda\01 Identidad");
+        let pasaporte = archivo(&s, r"C:\Bóveda\01 Identidad\pasaporte.pdf");
+        let visa = archivo(&s, r"C:\Bóveda\04 Trámites\visa.pdf");
+        dentro_de(&s, &pasaporte, &visa);
+        marcar(&s, &identidad, "sensitive", T + 1);
+
+        let r = resolver(&s, &visa, T + 2);
+        assert_eq!(r.level, Sensitivity::Sensitive);
+        match r.origin {
+            Origin::Part { part, because } => {
+                assert_eq!(part, pasaporte);
+                assert!(matches!(*because, Origin::Folder(ref m) if m.folder == identidad));
+            }
+            otro => panic!("esperaba lo de dentro, salió {otro:?}"),
+        }
+        // Y al revés no: lo de dentro no se contagia de su paquete.
+        let otro = archivo(&s, r"C:\Bóveda\04 Trámites\carta.pdf");
+        dice(&s, &visa, "vault", Method::Inferred, T + 3);
+        dentro_de(&s, &otro, &visa);
+        assert_eq!(resolver(&s, &otro, T + 4).level, Sensitivity::Normal);
+    }
+
+    /// Si miraste el paquete y dijiste «normal», es tu excepción.
+    #[test]
+    fn lo_que_digas_del_paquete_gana_a_lo_de_dentro() {
+        let s = Store::open_in_memory().unwrap();
+        let pasaporte = archivo(&s, r"C:\Bóveda\pasaporte.pdf");
+        let visa = archivo(&s, r"C:\Bóveda\visa.pdf");
+        dentro_de(&s, &pasaporte, &visa);
+        dice(&s, &pasaporte, "sensitive", Method::User, T + 1);
+        dice(&s, &visa, "normal", Method::User, T + 2);
+        let r = resolver(&s, &visa, T + 3);
+        assert_eq!(r.level, Sensitivity::Normal);
+        assert!(matches!(r.origin, Origin::User));
+    }
+
+    /// A igual nivel se explica por lo propio; lo de dentro sólo cuando sube.
+    #[test]
+    fn lo_de_dentro_solo_es_el_porque_cuando_sube_el_nivel() {
+        let s = Store::open_in_memory().unwrap();
+        let pasaporte = archivo(&s, r"C:\Bóveda\pasaporte.pdf");
+        let env = archivo(&s, r"C:\Bóveda\.env");
+        let visa = archivo(&s, r"C:\Bóveda\visa.pdf");
+        dentro_de(&s, &pasaporte, &visa);
+        dice(&s, &pasaporte, "sensitive", Method::Inferred, T);
+        dice(&s, &visa, "sensitive", Method::Inferred, T);
+        assert!(matches!(
+            resolver(&s, &visa, T + 1).origin,
+            Origin::Classifier
+        ));
+
+        // Algo de bóveda dentro sí sube.
+        dice(&s, &env, "vault", Method::Inferred, T + 2);
+        dentro_de(&s, &env, &visa);
+        let r = resolver(&s, &visa, T + 3);
+        assert_eq!(r.level, Sensitivity::Vault);
+        assert!(matches!(r.origin, Origin::Part { ref part, .. } if *part == env));
+    }
+
+    /// Marcar la carpeta de lo de dentro tapa el paquete en el acto, y
+    /// quitarle la marca lo destapa.
+    #[test]
+    fn reproyectar_lo_de_dentro_reproyecta_su_paquete() {
+        let s = Store::open_in_memory().unwrap();
+        let identidad = carpeta(&s, r"C:\Bóveda\01 Identidad");
+        let pasaporte = archivo(&s, r"C:\Bóveda\01 Identidad\pasaporte.pdf");
+        let visa = archivo(&s, r"C:\Bóveda\04 Trámites\visa.pdf");
+        dentro_de(&s, &pasaporte, &visa);
+        assert_eq!(nivel(&s, &visa, T), Sensitivity::Normal);
+
+        marcar(&s, &identidad, "sensitive", T + 1);
+        nivel(&s, &pasaporte, T + 2);
+        assert_eq!(s.sensitivity(&visa).unwrap(), Sensitivity::Sensitive);
+
+        let marca = s
+            .folder_marks(TimePoint::at(T + 2))
+            .unwrap()
+            .of(&identidad)
+            .unwrap()
+            .assertion
+            .clone();
+        s.retract(&marca, T + 3).unwrap();
+        nivel(&s, &pasaporte, T + 4);
+        assert_eq!(s.sensitivity(&visa).unwrap(), Sensitivity::Normal);
     }
 }

@@ -53,22 +53,92 @@ fn protection(store: &Store, m: &FolderMark, own: bool, at: TimePoint) -> Protec
     }
 }
 
-/// Qué carpeta marcada **decide** el nivel de esta entidad, si alguna lo hace.
+/// Un documento que lleva dentro y que lo hace más sensible ([ADR-0030]).
+///
+/// [ADR-0030]: ../../../docs/adr/0030-un-documento-dentro-de-otro.md
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ByPart {
+    /// El documento de dentro.
+    pub part: String,
+    pub label: String,
+    /// `sensitive` | `vault`.
+    pub level: &'static str,
+    /// Por qué lo es **él**: `folder` (una carpeta que marcaste, y entonces
+    /// [`ByPart::folder`] dice cuál), `user` (lo marcaste tú), `content` (su
+    /// texto), `name` (su nombre), `folder_name` (el nombre de su carpeta) o
+    /// `classifier` si no se sabe más.
+    pub because: &'static str,
+    pub folder: Option<Protection>,
+}
+
+/// Qué **decide** el nivel de esta entidad cuando no es ella misma: una
+/// carpeta marcada que la contiene, o un documento que lleva dentro.
 ///
 /// No basta con que una carpeta marcada la contenga: si el clasificador ya
 /// dice bóveda, o si el usuario hizo una excepción después, la carpeta no es
 /// el porqué. Por eso se resuelve con la misma regla que escribe la columna.
-pub fn deciding(store: &Store, id: &EntityId, at: TimePoint) -> Result<Option<Protection>> {
+pub fn deciding(
+    store: &Store,
+    id: &EntityId,
+    at: TimePoint,
+) -> Result<(Option<Protection>, Option<ByPart>)> {
     let marks = store.folder_marks(at)?;
-    if marks.is_empty() {
-        return Ok(None);
-    }
-    Ok(match store.resolve_sensitivity(id, at, &marks)?.origin {
+    let r = store.resolve_sensitivity(id, at, &marks)?;
+    Ok(match r.origin {
         Origin::Folder(m) => {
             let own = m.folder == *id;
-            Some(protection(store, &m, own, at))
+            (Some(protection(store, &m, own, at)), None)
         }
-        _ => None,
+        Origin::Part { part, because } => {
+            let (because, folder) = match *because {
+                Origin::Folder(m) => ("folder", Some(protection(store, &m, false, at))),
+                Origin::User => ("user", None),
+                _ => (regla_de(store, &part, at)?, None),
+            };
+            (
+                None,
+                Some(ByPart {
+                    label: obrain_link::label(store, &part, at),
+                    part: part.0,
+                    level: r.level.as_str(),
+                    because,
+                    folder,
+                }),
+            )
+        }
+        _ => (None, None),
+    })
+}
+
+/// De qué regla del clasificador le viene la sensibilidad a un documento:
+/// su texto, su nombre o el de su carpeta. La evidencia lo dice
+/// (`regla=contenido:iban …`).
+fn regla_de(store: &Store, e: &EntityId, at: TimePoint) -> Result<&'static str> {
+    let nivel = |a: &obrain_core::Assertion| {
+        a.object
+            .as_text()
+            .and_then(obrain_core::Sensitivity::parse)
+            .unwrap_or(obrain_core::Sensitivity::Normal)
+    };
+    let mejor = store
+        .query(Some(e), Some("sensitivity_level"), at)?
+        .into_iter()
+        .filter(|a| a.method != obrain_core::Method::User)
+        .max_by_key(nivel);
+    let regla = mejor
+        .and_then(|a| a.evidence)
+        .and_then(|ev| {
+            ev.split_whitespace()
+                .find_map(|p| p.strip_prefix("regla="))
+                .and_then(|r| r.split(':').next())
+                .map(str::to_string)
+        })
+        .unwrap_or_default();
+    Ok(match regla.as_str() {
+        "contenido" => "content",
+        "nombre" | "extension" => "name",
+        "carpeta" => "folder_name",
+        _ => "classifier",
     })
 }
 

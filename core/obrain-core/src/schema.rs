@@ -143,6 +143,23 @@ pub const SEED_PREDICATES: &[(&str, &str, &str, &str, Option<&str>)] = &[
         "deterministic",
         Some("contains"),
     ),
+    // Un documento dentro de otro: los estados de cuenta dentro del PDF que se
+    // armó para la visa (ADR-0030). No es `contained_by`, que es el árbol de
+    // carpetas. Sólo se almacena `part_of`; `has_part` es su nombre al revés.
+    (
+        "part_of",
+        "está dentro de",
+        "many",
+        "deterministic",
+        Some("has_part"),
+    ),
+    (
+        "has_part",
+        "contiene",
+        "many",
+        "deterministic",
+        Some("part_of"),
+    ),
     ("derived_from", "derivado de", "one", "deterministic", None),
     ("version_of", "versión de", "one", "deterministic", None),
     (

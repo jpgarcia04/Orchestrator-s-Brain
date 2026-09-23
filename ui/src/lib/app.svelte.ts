@@ -64,6 +64,11 @@ class App {
   seleccion = $state<string | null>(null);
   /** Lo que se buscó para llegar a la selección: la previa abre por ahí. */
   consulta = $state("");
+  /**
+   * Un sitio exacto del texto por donde abrir la previa, marcado: dónde está
+   * un documento dentro de su paquete (ADR-0030). Manda sobre la consulta.
+   */
+  tramo = $state<[number, number] | null>(null);
   modo = $state<Modo>(leer("obrain.modo") === "lista" ? "lista" : "cuadricula");
   tema = $state<Tema>(leer("obrain.tema") === "dia" ? "dia" : "noche");
   buscando = $state(false);
@@ -193,6 +198,7 @@ class App {
     this.vista = "carpeta";
     this.seleccion = seleccionar;
     this.consulta = consulta;
+    this.tramo = null;
   }
 
   /**
@@ -275,10 +281,14 @@ class App {
     this.version++;
   }
 
-  /** Enseña algo en la vista previa sin moverse de donde estás. */
-  ver(id: string, consulta = ""): void {
+  /**
+   * Enseña algo en la vista previa sin moverse de donde estás. Con `tramo`,
+   * abierto por ese sitio de su texto y marcado.
+   */
+  ver(id: string, consulta = "", tramo: [number, number] | null = null): void {
     this.seleccion = id;
     this.consulta = consulta;
+    this.tramo = tramo;
   }
 
   cerrarPanel(): void {

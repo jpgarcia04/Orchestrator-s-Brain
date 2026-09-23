@@ -27,6 +27,11 @@ export interface Hit {
   score: number;
   ranks: Rama[];
   sensitivity: Sensibilidad;
+  /**
+   * El paquete de la lista bajo el que va: está dentro de él (ADR-0030). La
+   * lista ya viene en ese orden; la fila no se esconde.
+   */
+  inside: string | null;
 }
 
 /** Un grupo de resultados: los que comparten carpeta. */
@@ -106,6 +111,41 @@ export interface Claim {
    * fecha de caducidad y la sensibilidad que salió del contenido.
    */
   span: [number, number] | null;
+  /**
+   * El tramo en el texto **del otro** documento: dónde está éste dentro de su
+   * paquete (`part_of`, ADR-0030). Es a donde lleva «Está dentro de».
+   */
+  target_span: [number, number] | null;
+}
+
+/** Un documento dentro de otro (ADR-0030). */
+export interface Parte {
+  id: string;
+  label: string;
+  /** Dónde está en el texto del paquete, en bytes. */
+  span: [number, number] | null;
+  /** Párrafos suyos que están en el paquete de un tirón, de `of`. */
+  paragraphs: number;
+  of: number;
+  sensitivity: Sensibilidad;
+  /** Está en la papelera: se sigue diciendo que estaba dentro. */
+  trashed: boolean;
+}
+
+/**
+ * El documento de dentro que hace sensible a éste (ADR-0030): el PDF de la
+ * visa es sensible porque contiene la carátula del pasaporte.
+ */
+export interface PorDentro {
+  part: string;
+  label: string;
+  level: "sensitive" | "vault";
+  /**
+   * Por qué lo es él: una carpeta que marcaste, lo dijiste tú, su texto, su
+   * nombre, el nombre de su carpeta, o no se sabe más.
+   */
+  because: "folder" | "user" | "content" | "name" | "folder_name" | "classifier";
+  folder: Proteccion | null;
 }
 
 /**
@@ -151,6 +191,10 @@ export interface VistaEntidad {
   sensitivity: Sensibilidad;
   /** La carpeta marcada que decide su nivel, si es una carpeta quien lo decide. */
   protection: Proteccion | null;
+  /** El documento que lleva dentro y que decide su nivel, si es él (ADR-0030). */
+  by_part: PorDentro | null;
+  /** Lo que lleva dentro, en el orden de su texto (ADR-0030). */
+  parts: Parte[];
   observed: Claim[];
   inferred: Claim[];
   /** Está en la papelera: ya no está en tu bóveda (ADR-0025). */
@@ -465,8 +509,12 @@ export const entidad = (id: string) => invoke<VistaEntidad>("entidad", { id });
  * que se buscó, igual que la prueba de cada fila de resultados— y nunca cuánto
  * se puede leer.
  */
-export const previsualizar = (id: string, consulta?: string) =>
-  invoke<Vista>("previsualizar", { id, consulta: consulta ?? null });
+/**
+ * Lo que se ve de un documento. `consulta` y `tramo` sólo deciden por dónde se
+ * abre; el tramo —dónde está algo que lleva dentro (ADR-0030)— manda.
+ */
+export const previsualizar = (id: string, consulta?: string, tramo?: [number, number] | null) =>
+  invoke<Vista>("previsualizar", { id, consulta: consulta ?? null, tramo: tramo ?? null });
 
 /**
  * Abre el archivo con el programa del sistema.

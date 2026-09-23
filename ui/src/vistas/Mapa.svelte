@@ -110,7 +110,7 @@
           <ArrowLeft size={15} /> El mapa completo
         </button>
         <h1 class="titular">Alrededor de «{foco}»</h1>
-        <p>Lo que se relaciona con esto: su carpeta, los duplicados, lo que se tocó a la vez. Pulsa un documento para verlo.</p>
+        <p>Lo que se relaciona con esto: su carpeta, los duplicados, lo que lleva dentro o dónde está, lo que se tocó a la vez. Pulsa un documento para verlo.</p>
       {:else}
         <h1 class="titular">Tu bóveda, vista desde arriba</h1>
         <p>Cada estrella es una carpeta: su tamaño es cuántos documentos tiene y su color, cuándo tocaste algo ahí. Pulsa una para abrirla.</p>

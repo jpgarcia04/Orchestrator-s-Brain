@@ -102,7 +102,13 @@ fn pack(text: &str) -> Vec<(usize, usize)> {
 }
 
 /// Rangos de los párrafos, sin las líneas en blanco que los separan.
-fn paragraphs(text: &str) -> Vec<(usize, usize)> {
+///
+/// Público porque es también la unidad con la que se compara un documento
+/// dentro de otro ([ADR-0030]): el fragmento mezcla en sus orillas el texto
+/// del vecino y el párrafo no. Una sola definición de «párrafo» para los dos.
+///
+/// [ADR-0030]: ../../../docs/adr/0030-un-documento-dentro-de-otro.md
+pub fn paragraphs(text: &str) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     let mut start = None;
     let mut cursor = 0usize;

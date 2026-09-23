@@ -236,14 +236,23 @@ fn entidad(id: String, cerebro: State<'_, Cerebro>) -> Result<EntityView, String
 /// `consulta` sólo decide **dónde se abre** el texto —el tramo que explica lo
 /// que se buscó— y nunca cuánto se puede leer. Lo que se puede leer lo decide
 /// la guarda de M1 dentro del núcleo, y no la toca ningún argumento de aquí.
-/// Con PIN, lo sensible llega vacío hasta desbloquear (ADR-0021).
+/// Con PIN, lo sensible llega vacío hasta desbloquear (ADR-0021). `tramo`
+/// abre por un sitio exacto: dónde está un documento dentro de su paquete
+/// (ADR-0030).
 #[tauri::command]
 fn previsualizar(
     id: String,
     consulta: Option<String>,
+    tramo: Option<[usize; 2]>,
     cerebro: State<'_, Cerebro>,
 ) -> Result<Preview, String> {
-    con(&cerebro, |b| b.preview(&EntityId(id), consulta.as_deref()))
+    con(&cerebro, |b| {
+        b.preview_at(
+            &EntityId(id),
+            consulta.as_deref(),
+            tramo.map(|[x, y]| (x, y)),
+        )
+    })
 }
 
 /// La ruta de una entidad, según el log. **La pone el núcleo, no la ventana**,

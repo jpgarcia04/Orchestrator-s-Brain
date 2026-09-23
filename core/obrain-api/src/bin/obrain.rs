@@ -28,6 +28,7 @@ USO:
   obrain sensible <carpeta> --quitar         le quita la marca
   obrain sensibles                           lista las carpetas marcadas
   obrain vencimientos                        lo que caduca en 90 días o ya caducó
+  obrain paquetes                            los documentos que llevan otros dentro, y cuáles
   obrain papelera                            lo que ya no está en tus carpetas (30 días)
   obrain papelera --vaciar                   olvida ya lo que obrain leyó de ello (tus
                                              archivos no se tocan)
@@ -236,6 +237,41 @@ fn main() -> ExitCode {
                 }
             }
         }
+        "paquetes" => {
+            let b = Brain::from_store(store);
+            match b.packages() {
+                Ok(v) if v.is_empty() => {
+                    println!("ningún documento lleva otro dentro.");
+                    ExitCode::SUCCESS
+                }
+                Ok(v) => {
+                    for p in v {
+                        let tapado = if p.sensitivity == "normal" {
+                            ""
+                        } else {
+                            "  (sensible)"
+                        };
+                        println!("▸ {}{tapado}", p.path.as_deref().unwrap_or(&p.label));
+                        for parte in p.parts {
+                            let fuera = if parte.trashed {
+                                "  (en la papelera)"
+                            } else {
+                                ""
+                            };
+                            println!(
+                                "    contiene {}  ({} de {} párrafos){fuera}",
+                                parte.label, parte.paragraphs, parte.of
+                            );
+                        }
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         "papelera" => {
             let mut b = Brain::from_store(store);
             if vaciar {
@@ -412,6 +448,12 @@ fn informe(r: &IndexReport, db: &std::path::Path) {
     println!("  sensibles · bóveda     {} · {}", r.sensitive, r.vault);
     if r.inherited > 0 {
         println!("    por su carpeta       {}", r.inherited);
+    }
+    if r.from_parts > 0 {
+        println!("    por lo que llevan    {}", r.from_parts);
+    }
+    if r.inside > 0 {
+        println!("  dentro de otro         {}", r.inside);
     }
     if r.expiring > 0 {
         println!("  con fecha de caducidad {}", r.expiring);

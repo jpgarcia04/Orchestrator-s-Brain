@@ -8,6 +8,8 @@ rust-version.workspace = true
 
 [dependencies]
 obrain-core = { path = "../obrain-core" }
-
-[dev-dependencies]
+# El texto ya leído, para ver un documento dentro de otro (ADR-0030).
+obrain-extract = { path = "../obrain-extract" }
+# Lo que está en la papelera no se compara (ADR-0025).
+obrain-scan = { path = "../obrain-scan" }
 blake3 = "1"

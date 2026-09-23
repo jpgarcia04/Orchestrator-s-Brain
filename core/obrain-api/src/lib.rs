@@ -36,6 +36,7 @@
 //!
 //! [ADR-0010]: ../../../docs/adr/0010-recorrido-lineal-frente-a-indice-ann.md
 
+pub mod dentro;
 pub mod entity;
 pub mod indexar;
 pub mod lens;
@@ -52,10 +53,11 @@ pub use obrain_embed::embedder::Embedder;
 use std::path::Path;
 use std::time::Instant;
 
+pub use dentro::{Paquete, Parte};
 pub use entity::{Claim, EntityView};
 pub use indexar::IndexReport;
 pub use lens::{Edge, Lens, Node};
-pub use marks::{MarkedFolder, Protection};
+pub use marks::{ByPart, MarkedFolder, Protection};
 pub use papelera::EnPapelera;
 pub use preview::Preview;
 pub use sky::{Bridge, Cluster, Crumb, Expiring, Listing, Region, Row, Sky};
@@ -115,6 +117,9 @@ pub struct Hit {
     /// se puede decir *por qué* este resultado está aquí, y no sólo que lo está.
     pub ranks: Vec<(String, usize)>,
     pub sensitivity: &'static str,
+    /// El paquete de la lista bajo el que va este resultado: está dentro de
+    /// él (ADR-0030). La lista ya viene ordenada así; la fila no se esconde.
+    pub inside: Option<String>,
 }
 
 /// La respuesta a una consulta, con lo que se ha usado para producirla.
@@ -313,6 +318,7 @@ impl Brain {
             snippet: String::new(),
             score: 0.0,
             ranks: Vec::new(),
+            inside: None,
         }
     }
 
@@ -363,6 +369,39 @@ impl Brain {
             for h in hits.iter_mut().filter(|h| h.sensitivity != "normal") {
                 h.snippet.clear();
             }
+        }
+
+        // Lo de dentro, justo debajo de su paquete si el paquete también
+        // salió: cinco filas que son tres documentos se leen como tres
+        // (ADR-0030 §3). Ninguna se esconde.
+        let mut paquetes: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for h in &hits {
+            let de = self.store.query(
+                Some(&EntityId(h.entity.clone())),
+                Some(obrain_core::PART_OF),
+                at,
+            )?;
+            let lista: Vec<String> = de
+                .into_iter()
+                .filter_map(|a| a.object.as_entity().map(|e| e.0.clone()))
+                .collect();
+            if !lista.is_empty() {
+                paquetes.insert(h.entity.clone(), lista);
+            }
+        }
+        if !paquetes.is_empty() {
+            let ids: Vec<String> = hits.iter().map(|h| h.entity.clone()).collect();
+            let mut viejos: Vec<Option<Hit>> = hits.into_iter().map(Some).collect();
+            hits = dentro::agrupar(&ids, &paquetes)
+                .into_iter()
+                .filter_map(|(i, paquete)| {
+                    viejos[i].take().map(|h| Hit {
+                        inside: paquete,
+                        ..h
+                    })
+                })
+                .collect();
         }
 
         Ok(Answer {
@@ -511,6 +550,13 @@ impl Brain {
         })
     }
 
+    /// Los documentos que llevan otros dentro, con lo que llevan (ADR-0030).
+    /// Es `obrain paquetes`.
+    pub fn packages(&self) -> Result<Vec<Paquete>> {
+        let (_, at) = Self::now();
+        Ok(dentro::packages(&self.store, at)?)
+    }
+
     /// Abre la lente sobre una entidad. Ver [`lens`].
     pub fn lens(&self, focus: &[EntityId], radius: u8, budget: usize) -> Result<Lens> {
         let (_, at) = Self::now();
@@ -590,12 +636,24 @@ impl Brain {
     /// se puede leer. Lo que se puede leer lo decide la guarda de M1, y no la
     /// toca ningún argumento de esta función.
     pub fn preview(&self, id: &EntityId, query: Option<&str>) -> Result<Preview> {
+        self.preview_at(id, query, None)
+    }
+
+    /// [`Brain::preview`] abierto **por un tramo** del texto, en bytes: dónde
+    /// está un documento dentro de su paquete (ADR-0030). Manda sobre la
+    /// consulta, y como ella sólo decide dónde se abre.
+    pub fn preview_at(
+        &self,
+        id: &EntityId,
+        query: Option<&str>,
+        tramo: Option<(usize, usize)>,
+    ) -> Result<Preview> {
         let (_, at) = Self::now();
         self.store
             .sensitivity(id)
             .map_err(|_| Error::UnknownEntity(id.0.clone()))?;
         let visible = self.contenido_visible()?;
-        let p = preview::of(&self.store, id, query, at, !visible)?;
+        let p = preview::of(&self.store, id, query, tramo, at, !visible)?;
         if visible && p.sensitivity != "normal" && self.tiene_pin()? {
             self.tocar();
         }

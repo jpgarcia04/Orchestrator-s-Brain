@@ -122,6 +122,7 @@ Antes de usar cualquier inteligencia artificial, el sistema ya puede descubrir *
 | Lo que encuentra | Cómo lo sabe |
 |------------------|--------------|
 | Archivos duplicados | Mismo contenido, aunque tengan diferente nombre |
+| Un documento dentro de otro | Sus párrafos aparecen seguidos dentro de otro: el PDF que armaste para un trámite juntando tus estados de cuenta |
 | Versiones de un documento | Nombres similares con marcadores como "v2", "final", "rev" |
 | Sesiones de trabajo | Archivos modificados en la misma ventana de tiempo |
 | Origen web | La URL de donde descargaste un archivo (sí, Windows guarda eso) |
@@ -165,7 +166,8 @@ El proyecto está en desarrollo activo. Cada hito se valida contra la pregunta d
 | **Fase 1** — Tu bóveda | Bibliotecas: el explorador empieza en tu carpeta, nombres limpios, `obrain indexar`, la app se pone al día sola | ✅ Completo |
 | **M5c** — Enterarse | Lo nuevo aparece sin lanzar nada | ✅ Completo: al abrir la app, con «actualizar» y vigilando tus carpetas en vivo |
 | **Fase 2** — La interfaz nueva | Svelte 5: escritorio tipo sistema operativo con vista previa (cada apartado se pliega desde su título y se queda como lo dejaste), buscador `Ctrl K`, la galaxia como vista «Mapa» enlazada, aspecto de noche y de día | ✅ Completo |
-| **Fase 3** — Documentos personales | Sensibilidad por carpeta ✅ · cifrado en reposo y PIN ✅ · OCR ✅ · vencimientos ✅ · vigilar la carpeta en vivo ✅ · papelera ✅ | ✅ Completo (falta probarlo en Windows) |
+| **Fase 3** — Documentos personales | Sensibilidad por carpeta ✅ · cifrado en reposo y PIN ✅ · OCR ✅ · vencimientos ✅ · vigilar la carpeta en vivo ✅ · papelera ✅ | ✅ Completo y probado en Windows (2026-09-23) |
+| **Después de la 3** — Tu bóveda, relacionada | Un documento dentro de otro ✅: el paquete dice qué lleva, cada documento suelto en qué paquete está, el paquete hereda la sensibilidad de lo que lleva y la búsqueda los agrupa · tus colecciones ⏳ | 🔨 En curso |
 | **M6** — Construir conocimiento | Inferencia de procesos y enriquecimiento | ⏳ Planificado |
 | **M7** — La pregunta | Responder la pregunta de la visa | 🎯 Meta final |
 

@@ -375,17 +375,32 @@ impl Store {
     /// predicado bitemporal de I6 es una sola cadena de SQL en este archivo.
     /// Reescribirlo fuera sería tener dos definiciones de "vigente".
     pub fn query_by_object(&self, object: &EntityId, at: TimePoint) -> Result<Vec<Assertion>> {
+        self.pointing_at(object, None, at)
+    }
+
+    /// [`Store::query_by_object`] de un solo predicado: *qué documentos están
+    /// dentro de éste* sin traerse, de paso, los cientos de `contained_by` de
+    /// una carpeta.
+    pub fn pointing_at(
+        &self,
+        object: &EntityId,
+        predicate: Option<&str>,
+        at: TimePoint,
+    ) -> Result<Vec<Assertion>> {
         let sql = format!(
             "SELECT {COLS} FROM assertions
-             WHERE object_entity = :object AND {BITEMPORAL}
+             WHERE object_entity = :object
+               AND (:predicate IS NULL OR predicate = :predicate)
+               AND {BITEMPORAL}
              {PRECEDENCE}"
         );
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(
             named_params! {
-                ":object": object.as_str(),
-                ":valid":  at.valid,
-                ":known":  at.known,
+                ":object":    object.as_str(),
+                ":predicate": predicate,
+                ":valid":     at.valid,
+                ":known":     at.known,
             },
             row_to_assertion,
         )?;

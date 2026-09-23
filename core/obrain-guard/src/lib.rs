@@ -116,6 +116,11 @@ pub struct GuardReport {
     ///
     /// [ADR-0020]: ../../../docs/adr/0020-sensibilidad-por-carpeta.md
     pub inherited: usize,
+    /// Paquetes que suben de nivel por lo que llevan dentro ([ADR-0030]): el
+    /// PDF de la visa que junta la carátula del pasaporte.
+    ///
+    /// [ADR-0030]: ../../../docs/adr/0030-un-documento-dentro-de-otro.md
+    pub from_parts: usize,
     /// El nivel **efectivo** de los archivos mirados, después de aplicar al
     /// usuario y a las carpetas: `[normal, sensitive, vault]`. Los tres campos
     /// de arriba cuentan lo que dijo el clasificador; éste, lo que lee la
@@ -254,6 +259,7 @@ fn project(
         // mandó otra cosa (I5).
         Origin::User if clasificador.is_some() && r.level != dijo => report.user_overrides += 1,
         Origin::Folder(_) if r.level > dijo => report.inherited += 1,
+        Origin::Part { .. } if r.level > dijo => report.from_parts += 1,
         _ => {}
     }
     report.effective[r.level as usize] += 1;

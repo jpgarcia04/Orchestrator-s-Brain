@@ -62,5 +62,5 @@ pub use model::{
     Assertion, AssertionId, Cardinality, EntityId, Facet, Method, NewAssertion, PredicateDef,
     Sensitivity, TimePoint, Value,
 };
-pub use sensitivity::{CONTENTS_SENSITIVITY, FolderMark, FolderMarks, Origin, Resolution};
+pub use sensitivity::{CONTENTS_SENSITIVITY, FolderMark, FolderMarks, Origin, PART_OF, Resolution};
 pub use store::{Contradiction, Store};

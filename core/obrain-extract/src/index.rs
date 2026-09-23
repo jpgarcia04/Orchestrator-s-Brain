@@ -269,32 +269,81 @@ pub fn document_text(conn: &Connection, entity: &EntityId) -> Result<Option<Stri
         Ok((r.get::<_, i64>(0)?.max(0) as usize, r.get::<_, String>(1)?))
     })?;
 
-    let mut out = String::new();
-    let mut cursor = 0usize;
-    let mut hubo = false;
+    let mut costura = Costura::default();
     for row in rows {
         let (start, text) = row?;
-        hubo = true;
-        let end = start + text.len();
-        if end <= cursor && !out.is_empty() {
-            continue; // enteramente dentro de lo que ya está puesto
+        costura.poner(start, &text);
+    }
+    Ok(costura.hubo.then_some(costura.out))
+}
+
+/// Los textos de **todas** las entidades, de una pasada, uno cada vez.
+///
+/// Es [`document_text`] para quien tiene que leerlo todo —comparar cada
+/// documento con los demás ([ADR-0030])—: una consulta en vez de una por
+/// documento, y un texto en memoria cada vez en vez de todos a la vez. Se
+/// empalma con la misma costura, así que los bytes son los mismos que enseña
+/// la vista previa y un tramo apunta al mismo sitio en los dos.
+///
+/// [ADR-0030]: ../../../docs/adr/0030-un-documento-dentro-de-otro.md
+pub fn each_document_text(
+    conn: &Connection,
+    mut f: impl FnMut(EntityId, &str) -> Result<()>,
+) -> Result<()> {
+    let mut stmt =
+        conn.prepare("SELECT entity, byte_start, text FROM chunks ORDER BY entity, ordinal")?;
+    let mut rows = stmt.query([])?;
+    let mut actual: Option<(String, Costura)> = None;
+    while let Some(r) = rows.next()? {
+        let entity: String = r.get(0)?;
+        let start = r.get::<_, i64>(1)?.max(0) as usize;
+        let text: String = r.get(2)?;
+        if actual.as_ref().is_none_or(|(e, _)| *e != entity) {
+            if let Some((e, c)) = actual.take() {
+                f(EntityId(e), &c.out)?;
+            }
+            actual = Some((entity, Costura::default()));
         }
-        let desde = cursor.saturating_sub(start);
+        if let Some((_, c)) = actual.as_mut() {
+            c.poner(start, &text);
+        }
+    }
+    if let Some((e, c)) = actual {
+        f(EntityId(e), &c.out)?;
+    }
+    Ok(())
+}
+
+/// Empalma los fragmentos de un documento, en orden, por su offset.
+#[derive(Default)]
+struct Costura {
+    out: String,
+    cursor: usize,
+    hubo: bool,
+}
+
+impl Costura {
+    fn poner(&mut self, start: usize, text: &str) {
+        self.hubo = true;
+        let end = start + text.len();
+        if end <= self.cursor && !self.out.is_empty() {
+            return; // enteramente dentro de lo que ya está puesto
+        }
+        let desde = self.cursor.saturating_sub(start);
         if desde == 0 {
             // Un hueco entre fragmentos no debería existir. Si lo hubiera, se
             // marca con un salto en vez de pegar dos párrafos que no iban
             // juntos: un texto mal cosido se lee como un archivo corrupto.
-            if start > cursor && !out.is_empty() {
-                out.push('\n');
+            if start > self.cursor && !self.out.is_empty() {
+                self.out.push('\n');
             }
-            out.push_str(&text);
+            self.out.push_str(text);
         } else if desde < text.len() && text.is_char_boundary(desde) {
-            out.push_str(&text[desde..]);
+            self.out.push_str(&text[desde..]);
         } else if desde < text.len() {
-            out.push('\n');
-            out.push_str(&text);
+            self.out.push('\n');
+            self.out.push_str(text);
         }
-        cursor = cursor.max(end);
+        self.cursor = self.cursor.max(end);
     }
-    Ok(hubo.then_some(out))
 }

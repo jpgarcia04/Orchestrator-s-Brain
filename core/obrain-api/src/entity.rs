@@ -42,6 +42,9 @@ pub struct Claim {
     /// contenido, que se **recalcula** aquí sobre el fragmento que dice su
     /// evidencia: el log sólo guarda la dirección, nunca lo encontrado.
     pub span: Option<[usize; 2]>,
+    /// El tramo en el texto **del objeto**: dónde está este documento dentro
+    /// del paquete de `part_of` (ADR-0030). Es a donde lleva «Está dentro de».
+    pub target_span: Option<[usize; 2]>,
 }
 
 /// Todo lo que el sistema sabe de una entidad, ordenado como se enseña.
@@ -59,6 +62,14 @@ pub struct EntityView {
     ///
     /// [ADR-0020]: ../../../docs/adr/0020-sensibilidad-por-carpeta.md
     pub protection: Option<crate::Protection>,
+    /// El documento que lleva dentro y que decide ese nivel, si es él quien
+    /// lo decide ([ADR-0030]): el PDF de la visa es sensible porque contiene
+    /// la carátula del pasaporte.
+    ///
+    /// [ADR-0030]: ../../../docs/adr/0030-un-documento-dentro-de-otro.md
+    pub by_part: Option<crate::marks::ByPart>,
+    /// Lo que lleva dentro, en el orden de su texto (ADR-0030).
+    pub parts: Vec<crate::dentro::Parte>,
     /// Hechos. Deterministas o afirmados por el usuario. **Bloque sólido.**
     pub observed: Vec<Claim>,
     /// Sospechas. Heurísticas, clasificadores, importaciones sin verificar.
@@ -149,6 +160,9 @@ pub fn view(store: &Store, id: &EntityId, at: TimePoint) -> Result<EntityView> {
             evidence: a.evidence.clone(),
             by_user: a.method == Method::User,
             span: span(store, id, a),
+            target_span: (a.predicate == obrain_core::PART_OF)
+                .then(|| crate::dentro::tramo(a))
+                .flatten(),
         };
         match a.method {
             Method::Deterministic | Method::User => observed.push(claim),
@@ -156,6 +170,7 @@ pub fn view(store: &Store, id: &EntityId, at: TimePoint) -> Result<EntityView> {
         }
     }
 
+    let (protection, by_part) = crate::marks::deciding(store, id, at)?;
     Ok(EntityView {
         label: obrain_link::label(store, id, at),
         path: store
@@ -163,7 +178,9 @@ pub fn view(store: &Store, id: &EntityId, at: TimePoint) -> Result<EntityView> {
             .and_then(|a| a.object.as_text().map(str::to_string)),
         facets: store.facets(id, at)?,
         sensitivity: store.sensitivity(id).map(|s| s.as_str()).unwrap_or("vault"),
-        protection: crate::marks::deciding(store, id, at)?,
+        protection,
+        by_part,
+        parts: crate::dentro::parts(store, id, at)?,
         observed,
         inferred,
         trashed: crate::papelera::of(store, id, at)?,

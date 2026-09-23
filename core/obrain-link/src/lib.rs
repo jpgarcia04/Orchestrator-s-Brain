@@ -21,6 +21,7 @@
 use obrain_core::{EntityId, Method, NewAssertion, Result, Store, TimePoint, Value};
 use std::collections::HashMap;
 
+pub mod dentro;
 pub mod duplicates;
 pub mod provenance;
 pub mod sessions;

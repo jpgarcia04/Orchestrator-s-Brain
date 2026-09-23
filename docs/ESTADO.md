@@ -31,12 +31,13 @@ computadora.
 | **Leer fotos y PDF escaneados (OCR)** con el reconocedor que ya trae Windows, sin conexión: la foto de la TIE se encuentra buscando «extranjero» y sale sensible por su NIE | ✅ Probado en tu Windows (2026-09-23) |
 | **Vencimientos**: lee cuándo caduca cada documento («VALIDEZ 15 11 2026» en la foto de la TIE, «vence el 30 de septiembre» en el contrato) y el Inicio te enseña **«Caduca pronto»**: lo que vence en 90 días y lo que ya venció. Cada fecha dice por qué la leyó y se corrige en un clic. **Aunque el OCR se coma la palabra** (tu pasaporte): la saca de la zona MRZ (`P<MEX<<…`) con su dígito de control, de la expedición más N años justos en un documento de identidad, o del año solo de la INE (ADR-0028) | Tu pasaporte no daba fecha (2026-09-23): el OCR no leyó «caducidad». Arreglado y comprobado con su texto; falta verlo en tu app |
 | **Una carpeta fija para todo**: la base, su llave y el modelo viven en `C:\Users\pacox\.obrain`, abras obrain desde donde lo abras (una PowerShell, la terminal de Claude o la de Codex). La primera vez, obrain muda sola la base de `%LOCALAPPDATA%\obrain` (ADR-0029) | Tu modelo ya está ahí (2026-09-23). Falta abrir la app para que mude tu base |
+| **Un documento dentro de otro**: el PDF que armaste para un trámite juntando otros (tus estados de cuenta, una constancia) dice **«Contiene»** y qué lleva, con su «¿por qué?» marcado en el texto; cada documento suelto dice **«Está dentro de»** y te lleva al paquete por donde está. El paquete **es tan sensible como lo que lleva** (el pasaporte de `01 Identidad` dentro del PDF de la visa lo tapa), y en la búsqueda lo de dentro sale justo debajo de su paquete (ADR-0030) | Probado con tu base de agosto: 14 paquetes, ninguno falso. Falta verlo en tu app |
 | La app se pone al día sola al abrirse, y tiene botón «actualizar» | |
 | **Vigila tus carpetas en vivo** mientras está abierta: guardas un documento y aparece solo, a los 3 segundos de dejar de tocar la carpeta, sin avisos (sólo el indicador de abajo a la izquierda) | ✅ Probado en tu Windows (2026-09-23) |
 | **Papelera**: lo que borras sale de Recientes, «Caduca pronto», el explorador, el mapa y la búsqueda, y se queda 30 días en la vista «Papelera»; después se olvida lo que se leyó de él (o antes, con «Olvidar ya» o «Vaciar papelera»). Mover y renombrar ya no dejan documentos ni carpetas repetidos | ✅ Probado en tu Windows (2026-09-23) |
 
-Núcleo en Rust con 400 tests, **todos en verde en tu Windows** (2026-09-23;
-hasta entonces sólo se habían corrido en Linux), interfaz en Tauri + Svelte 5,
+Núcleo en Rust con 452 tests, **todos en verde en tu Windows** (2026-09-23;
+hasta ese día sólo se habían corrido en Linux), interfaz en Tauri + Svelte 5,
 con el mapa en PixiJS.
 
 ## Cómo usarlo hoy (Windows)
@@ -103,6 +104,7 @@ ellas veía otra base; eso fue el «cifrado a medias». Otras órdenes útiles:
 cargo run --release --bin obrain -- bibliotecas   # qué carpetas tienes registradas
 cargo run --release --bin obrain -- indexar       # volver a leer todas
 cargo run --release --bin obrain -- vencimientos  # lo que caduca en 90 días o ya caducó
+cargo run --release --bin obrain -- paquetes      # los documentos que llevan otros dentro
 cargo run --release --bin obrain -- papelera      # lo que ya no está en tus carpetas (30 días)
 cargo run --release --bin obrain -- clave         # tu clave de recuperación
 cargo run --release --bin obrain -- recuperar XXXXX-XXXXX-XXXXX-XXXXX-XXXXX   # en otro equipo
@@ -122,6 +124,18 @@ seguridad de la base sin su clave de recuperación no se abre en otro equipo.
   título**, y se queda como lo dejaste para los demás documentos y al volver a
   abrir la app. «Descargado de» dice sólo el sitio (`chatgpt.com`); la
   dirección entera, al pasar el ratón o en «Detalles técnicos».
+- **Un documento dentro de otro:** en la vista previa de un PDF que junta
+  otros —el que armaste para la visa con tus estados de cuenta— sale el
+  apartado **«Contiene»** con cada uno; su **«¿por qué?»** dice *«Todo el
+  texto de «Movimientos marzo» está en este documento: sus 9 párrafos,
+  seguidos y en el mismo orden»* y lo marca arriba. En el documento suelto,
+  «Relacionado» dice **«Está dentro de»** y un clic abre el paquete por donde
+  está. Si lo de dentro es sensible (tu pasaporte en `01 Identidad`), el
+  paquete también, y en «Lo que sé» dice por qué: *«porque contiene
+  «Pasaporte», que está en tu carpeta «01 Identidad»»*. En la búsqueda, lo de
+  dentro sale justo debajo de su paquete, un poco metido. Sólo ve lo que se
+  leyó igual: un PDF que junta PDF con texto sí; una foto dentro de un
+  escaneo, no (el OCR nunca lee dos veces igual).
 - **Mapa:** cada estrella es una carpeta; pulsarla la abre en el explorador.
   Desde un documento, «Ver en el mapa» enseña con qué se relaciona.
 - **`Esc`** deshace un escalón: cierra el buscador, la vista previa o la lente
@@ -211,14 +225,20 @@ Y nombres que se lean solos, con la fecha delante:
 | 1 | El núcleo para tu carpeta: bibliotecas, nombres, `obrain indexar`, «actualizar» | ✅ Hecha |
 | 2 | La interfaz nueva en Svelte 5: el explorador como escritorio estilo sistema operativo, la galaxia como vista «Mapa» enlazada, `Ctrl+K`, vista previa rápida | ✅ Hecha |
 | **3** | **Documentos personales**: ✅ sensibilidad por carpeta (y la marca sigue a la carpeta si la renombras) · ✅ cifrado y PIN · ✅ OCR · ✅ vencimientos · ✅ vigilar la carpeta en vivo · ✅ papelera | ✅ Hecha y probada en tu Windows (2026-09-23); los vencimientos, afinados con tu pasaporte (ADR-0028), falta verlos en tu app |
+| 3+ | **Tu bóveda, relacionada**: ✅ un documento dentro de otro (ADR-0030) · tus colecciones (ADR-0031) | En curso: lo de dentro, hecho (2026-09-23); falta verlo en tu app. Las colecciones, lo siguiente |
 | 4 | La visión original: trámites reconstruidos, la pregunta de la visa | Congelada (JP, 2026-09-23: primero usar la app en Windows) |
 
 **Decidido el 2026-09-23, por construir** (el orden, después de probar la app
-en tu Windows): **un documento dentro de otro** —obrain dirá que el PDF de la
-visa *contiene* los estados de cuenta que también tienes sueltos, detectado
-comparando fragmentos, sin IA— y **tus colecciones** —agrupar a mano, un
-documento en varias, vistas como una lente sobre el mapa—. Y **no** se indexa
-la Papelera de Windows.
+en tu Windows): ~~**un documento dentro de otro**~~ **hecho el mismo día
+(ADR-0030)**: obrain dice que el PDF de la visa *contiene* los estados de
+cuenta que también tienes sueltos, sin IA. Antes de programar se midió con
+tu base de agosto y se cambió una cosa, que elegiste tú: **por párrafos, no
+por fragmentos** (por fragmentos salía 1 de los 14 paquetes; por párrafos,
+los 14). También elegiste que **el paquete herede la sensibilidad** de lo que
+lleva y que en la búsqueda **lo de dentro vaya debajo** de su paquete.
+Sigue **tus colecciones** —agrupar a mano, un documento en varias, vistas
+como una lente sobre el mapa— (ADR-0031). Y **no** se indexa la Papelera de
+Windows.
 
 **Congelado** (no se borra, no se sigue): sesiones de trabajo y puentes,
 detección de versiones, el USN Change Journal, sincronización entre
@@ -268,6 +288,17 @@ cualquier documento que diga cuándo caduca —«VALIDEZ», «válida hasta»,
 «vence el», «caduca», la INE con su «VIGENCIA»—: si es dentro de 90 días o
 ya pasó, aparece en «Caduca pronto» del Inicio. Si el OCR leyó mal un
 número, «cambiar» lo arregla.
+
+Y para ver un documento dentro de otro (ADR-0030): si en tu bóveda hay algún
+PDF que armaste juntando otros —el de la visa con tus estados de cuenta, un
+expediente—, ábrelo en la vista previa. Tiene que salir el apartado
+**«Contiene»** con los que lleva; su «¿por qué?» los marca en el texto.
+Desde uno suelto, «Está dentro de» te lleva al paquete por donde está. Desde
+la terminal, `obrain paquetes` los lista todos. Si no sale nada que debería
+salir, dime cuál (su nombre basta): puede que el paquete retoque lo que junta
+o que sean escaneos, y eso lo miramos enmascarado como el pasaporte. Y si
+alguno de lo de dentro está en una carpeta marcada, el paquete tiene que salir
+tapado, con *«porque contiene …»* en «Lo que sé».
 
 Y para ver la papelera: con la app abierta, **borra** un documento de prueba
 de tu bóveda (a la Papelera de Windows, como siempre). A los pocos segundos

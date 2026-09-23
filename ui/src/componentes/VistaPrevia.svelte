@@ -43,10 +43,14 @@
     previsualizar,
     revelar,
   } from "../lib/nucleo";
-  import type { Claim, Vista, VistaEntidad } from "../lib/nucleo";
+  import type { Claim, Parte, PorDentro, Vista, VistaEntidad } from "../lib/nucleo";
   import { diasHasta, fecha, fechaIso, nombreBonito, plazo, tipoDe, tipoLargo, tituloDe } from "../lib/nombres";
 
-  let { id, consulta }: { id: string; consulta: string } = $props();
+  let {
+    id,
+    consulta,
+    tramo = null,
+  }: { id: string; consulta: string; tramo?: [number, number] | null } = $props();
 
   let ficha = $state<VistaEntidad | null>(null);
   let vista = $state<Vista | null>(null);
@@ -56,15 +60,31 @@
   /** «cambiar» abierto sobre la fecha de caducidad, con la fecha que se edita. */
   let cambiando = $state<string | null>(null);
   let guardando = $state(false);
+  /**
+   * El documento de dentro cuyo «¿por qué?» está abierto (ADR-0030): la
+   * previa se abre por su tramo y lo marca. Manda sobre el tramo con el que
+   * se llegó.
+   */
+  let parteAbierta = $state<string | null>(null);
+  /**
+   * El tramo por el que se abre, como texto: cada carga trae una ficha nueva
+   * con arrays nuevos, y comparar por valor es lo que evita recargar en bucle.
+   */
+  const tramoActual = $derived.by((): string | null => {
+    const t = ficha?.parts.find((x) => x.id === parteAbierta)?.span ?? tramo;
+    return t ? `${t[0]}..${t[1]}` : null;
+  });
 
   $effect(() => {
     const miId = id;
     const q = consulta;
+    const clave = tramoActual;
+    const t = clave ? (clave.split("..").map(Number) as [number, number]) : null;
     void app.version;
     void recarga;
     let vigente = true;
     error = "";
-    Promise.all([entidad(miId), previsualizar(miId, q || undefined)])
+    Promise.all([entidad(miId), previsualizar(miId, q || undefined, t)])
       .then(([f, v]) => {
         if (!vigente) return;
         ficha = f;
@@ -107,6 +127,46 @@
   const oculto = $derived(
     !!ficha && ficha.sensitivity !== "normal" && !app.seguridad?.pin && !revelados.has(id),
   );
+
+  /**
+   * El «¿por qué?» de un documento de dentro: abre la previa por su tramo y
+   * lo marca; otra vez, lo cierra.
+   */
+  function alternarParte(p: Parte): void {
+    if (parteAbierta === p.id) {
+      parteAbierta = null;
+      return;
+    }
+    parteAbierta = p.id;
+    if (!app.abierto("documento", true)) app.ponerApartado("documento", true);
+  }
+
+  /** Cuánto de él está aquí, en palabras. */
+  function cuantoDe(p: Parte): string {
+    return p.paragraphs >= p.of ? `sus ${p.of} párrafos, seguidos` : `${p.paragraphs} de sus ${p.of} párrafos, seguidos`;
+  }
+
+  /** El «¿por qué?» de un documento de dentro (ADR-0030). */
+  function porqueParte(p: Parte): string {
+    const nombre = tituloDe(p.label).titulo;
+    const s =
+      p.paragraphs >= p.of
+        ? `Todo el texto de «${nombre}» está en este documento: sus ${p.of} párrafos, seguidos y en el mismo orden.`
+        : `Casi todo el texto de «${nombre}» está en este documento: ${p.paragraphs} de sus ${p.of} párrafos, seguidos y en el mismo orden. Los que faltan están en la orilla, pegados al texto de al lado.`;
+    if (bloqueado) return s;
+    if (oculto) return `${s} Pulsa «Mostrar» para verlo marcado.`;
+    return vista?.highlight ? `${s} Está marcado arriba.` : s;
+  }
+
+  /** Por qué es sensible el documento de dentro que hace sensible a éste. */
+  function porQueLoEs(d: PorDentro): string {
+    if (d.because === "folder" && d.folder) return `que está en tu carpeta «${nombreBonito(d.folder.label)}»`;
+    if (d.because === "user") return "que marcaste tú";
+    if (d.because === "content") return "que lo es por lo que dice";
+    if (d.because === "name") return "que lo es por su nombre";
+    if (d.because === "folder_name") return "que lo es por el nombre de su carpeta";
+    return "que también lo es";
+  }
 
   /** Relaciones con otra cosa que no es su carpeta: duplicados, versiones… */
   const relaciones = $derived(
@@ -407,10 +467,19 @@
     if (await app.pedirPin()) recarga++;
   }
 
-  /** Centra el párrafo marcado dentro del texto, sin mover el panel entero. */
-  function centrar(nodo: HTMLElement): void {
-    const caja = nodo.closest("pre");
-    if (caja) caja.scrollTop = Math.max(0, nodo.offsetTop - caja.clientHeight / 3);
+  /**
+   * Centra el párrafo marcado dentro del texto, sin mover el panel entero. Y
+   * otra vez cuando la marca cambia de sitio sin desaparecer —de un documento
+   * de dentro a otro (ADR-0030)—: la marca es la misma, el sitio no.
+   */
+  function centrar(nodo: HTMLElement, _donde: number): { update: () => void } {
+    const poner = () => {
+      const caja = nodo.closest("pre");
+      if (caja) caja.scrollTop = Math.max(0, nodo.offsetTop - caja.clientHeight / 3);
+    };
+    poner();
+    // Al cambiar de sitio, después de que el texto de antes ya sea el nuevo.
+    return { update: () => requestAnimationFrame(poner) };
   }
 </script>
 
@@ -443,7 +512,7 @@
         {:else if vista.kind === "image" && vista.image}
           <img src={vista.image} alt={titulo.titulo} class:velado={oculto} />
         {:else if vista.kind === "text" && vista.text}
-          <pre class="papel" class:velado={oculto}>{texto.antes}{#if texto.marca}<mark use:centrar>{texto.marca}</mark>{/if}{texto.despues}</pre>
+          <pre class="papel" class:velado={oculto}>{texto.antes}{#if texto.marca}<mark use:centrar={texto.antes.length}>{texto.marca}</mark>{/if}{texto.despues}</pre>
         {:else}
           <div class="sin-vista">
             <Tipo {tipo} />
@@ -465,7 +534,7 @@
         <!-- Una foto con texto reconocido (OCR): la foto arriba, lo que dice aquí. -->
         <div class="reconocido">
           <Apartado id="reconocido" titulo="Texto reconocido en la imagen" deFabrica={false} tenue>
-            <pre class="papel">{texto.antes}{#if texto.marca}<mark use:centrar>{texto.marca}</mark>{/if}{texto.despues}</pre>
+            <pre class="papel">{texto.antes}{#if texto.marca}<mark use:centrar={texto.antes.length}>{texto.marca}</mark>{/if}{texto.despues}</pre>
           </Apartado>
         </div>
       {/if}
@@ -505,7 +574,7 @@
         </section>
       {/if}
 
-      {#if hechos.length > 0 || leido || ficha.protection || puedeAnadirFecha}
+      {#if hechos.length > 0 || leido || ficha.protection || ficha.by_part || puedeAnadirFecha}
         <Apartado id="sabido" titulo="Lo que sé de este documento">
           {#if leido}
             <div class="hecho"><span class="clave">Leído</span><span>{leido}</span></div>
@@ -518,6 +587,19 @@
                 {p.level === "vault" ? "Bóveda" : "Sensible"}
                 <button class="por-carpeta hov-fondo" onclick={() => app.abrirCarpeta(p.folder, id)} title="Abrir la carpeta que lo protege">
                   <ShieldCheck size={13} /> por la carpeta «{nombreBonito(p.label)}», que marcaste tú
+                </button>
+              </span>
+            </div>
+          {/if}
+          {#if ficha.by_part}
+            <!-- ADR-0030: un paquete es tan sensible como lo que lleva dentro. -->
+            {@const d = ficha.by_part}
+            <div class="hecho">
+              <span class="clave">Sensibilidad</span>
+              <span class="valor">
+                {d.level === "vault" ? "Bóveda" : "Sensible"}
+                <button class="por-carpeta hov-fondo" onclick={() => app.ver(d.part)} title="Ver el documento que lleva dentro">
+                  <ShieldCheck size={13} /> porque contiene «{tituloDe(d.label).titulo}», {porQueLoEs(d)}
                 </button>
               </span>
             </div>
@@ -584,11 +666,39 @@
         </Apartado>
       {/if}
 
+      {#if ficha.parts.length > 0}
+        <!-- ADR-0030: lo que este documento lleva dentro, en el orden de su texto. -->
+        <Apartado id="contiene" titulo="Contiene" cuenta={ficha.parts.length}>
+          {#each ficha.parts as p (p.id)}
+            <div class="parte">
+              <button class="relacion hov-fondo" onclick={() => app.ver(p.id)} title="Ver este documento suelto">
+                <Tipo tipo={tipoDe(p.label)} />
+                <span class="texto-rel">
+                  <span class="nombre-rel">{tituloDe(p.label).titulo}</span>
+                  <span class="por">{cuantoDe(p)}{p.trashed ? " · en la papelera" : ""}</span>
+                </span>
+              </button>
+              {#if p.span}
+                <button class="enlace" onclick={() => alternarParte(p)}>¿por qué?</button>
+              {/if}
+            </div>
+            {#if parteAbierta === p.id}
+              <span class="porque">{porqueParte(p)}</span>
+            {/if}
+          {/each}
+        </Apartado>
+      {/if}
+
       {#if relaciones.length > 0}
         <Apartado id="relacionado" titulo="Relacionado" cuenta={relaciones.length}>
           {#each relaciones as r (r.assertion)}
             {@const destino = r.value_entity ?? ""}
-            <button class="relacion hov-fondo" onclick={() => app.ver(destino)}>
+            <!-- «Está dentro de» abre el paquete por donde está éste, marcado (ADR-0030). -->
+            <button
+              class="relacion hov-fondo"
+              onclick={() => app.ver(destino, "", r.target_span)}
+              title={r.target_span ? "Abrirlo por donde está éste" : undefined}
+            >
               <Tipo tipo={tipoDe(r.value)} />
               <span class="texto-rel">
                 <span class="nombre-rel">{tituloDe(r.value).titulo}</span>
@@ -894,6 +1004,22 @@
     margin: 0 -8px;
     padding: 8px;
     border-radius: 10px;
+  }
+  .parte {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .parte .relacion {
+    flex-grow: 1;
+    min-width: 0;
+    margin-right: 0;
+  }
+  .parte .enlace {
+    flex-shrink: 0;
+  }
+  .parte + .porque {
+    margin: -4px 0 4px;
   }
   .texto-rel {
     display: flex;

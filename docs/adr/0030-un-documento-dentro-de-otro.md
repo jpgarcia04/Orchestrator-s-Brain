@@ -96,7 +96,11 @@ sensibilidad ya la vea (§4).
    «contiene: B, B, B, B», y una copia llega a él por su «Duplicado de».
 5. **La evidencia** dice dónde está: `parrafos=89/89 bytes=1234..15678`. Los
    bytes son **del texto de A**, que es donde el «¿por qué?» lo marca. Como
-   siempre, ni una palabra del documento va al log.
+   siempre, ni una palabra del documento va al log. El tramo incluye los
+   párrafos cortos de las orillas de B —el título «MOVIMIENTOS DE MARZO», una
+   línea de cierre— si están igual y seguidos en A: no cuentan para decidir,
+   pero sin ellos lo marcado empezaba en la segunda línea (visto en el banco
+   de pruebas).
 6. **Sigue al texto.** Cada pasada recalcula todo, igual que los vencimientos.
    Una arista que el texto de hoy ya no sostiene se retracta, y una que cambia
    de tramo se retracta y se vuelve a afirmar. Lo que está en la papelera no
