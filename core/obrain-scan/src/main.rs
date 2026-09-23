@@ -2,7 +2,7 @@
 //! todo, para **verificar** el criterio: cero hidratación de OneDrive.
 
 use obrain_core::Store;
-use obrain_scan::{ingest, now_ms, register_library, Availability, IngestReport, Scanner};
+use obrain_scan::{Availability, IngestReport, Scanner, ingest, now_ms, register_library};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -24,8 +24,8 @@ fn main() -> ExitCode {
 
     // Absoluta siempre: la ruta de cada archivo **es** su carpeta para M3, y
     // `.\docs` y `C:\...\docs` serían dos árboles distintos para el mismo disco.
-    let root = std::path::absolute(PathBuf::from(&args[0]))
-        .unwrap_or_else(|_| PathBuf::from(&args[0]));
+    let root =
+        std::path::absolute(PathBuf::from(&args[0])).unwrap_or_else(|_| PathBuf::from(&args[0]));
     let flag = |n: &str| args.iter().any(|a| a == n);
     let value = |n: &str| {
         args.iter()

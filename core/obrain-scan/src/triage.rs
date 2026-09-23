@@ -163,6 +163,8 @@ mod tests {
     #[test]
     fn una_junction_no_es_un_placeholder() {
         assert!(is_plain_reparse(attr::REPARSE_POINT | attr::DIRECTORY));
-        assert!(!is_plain_reparse(attr::REPARSE_POINT | attr::RECALL_ON_DATA_ACCESS));
+        assert!(!is_plain_reparse(
+            attr::REPARSE_POINT | attr::RECALL_ON_DATA_ACCESS
+        ));
     }
 }

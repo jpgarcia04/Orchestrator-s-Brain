@@ -8,7 +8,7 @@
 //! vocabulario y se deriva al consultar: guardar ambas sería duplicar cada
 //! arista del grafo (§3.4).
 
-use crate::{write_edge, Edge, FileView, LinkReport};
+use crate::{Edge, FileView, LinkReport, write_edge};
 use obrain_core::{EntityId, Facet, Method, NewAssertion, Result, Store, TimePoint, Value};
 use std::collections::{HashMap, HashSet};
 
@@ -151,7 +151,9 @@ pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport)
             if bibliotecas.contains(&cur) {
                 break;
             }
-            let Some(i) = cur.rfind(['\\', '/']) else { break };
+            let Some(i) = cur.rfind(['\\', '/']) else {
+                break;
+            };
             let parent = cur[..i].to_string();
             // Cortar en la raíz del volumen: `C:` no es una carpeta útil.
             if parent.is_empty() || parent.ends_with(':') {
@@ -212,8 +214,14 @@ mod tests {
         assert_eq!(r.contained_by, 5);
 
         let tp = TimePoint::at(3000);
-        let a = s.resolve(&files[0].entity, "contained_by", tp).unwrap().unwrap();
-        let b = s.resolve(&files[1].entity, "contained_by", tp).unwrap().unwrap();
+        let a = s
+            .resolve(&files[0].entity, "contained_by", tp)
+            .unwrap()
+            .unwrap();
+        let b = s
+            .resolve(&files[1].entity, "contained_by", tp)
+            .unwrap()
+            .unwrap();
         assert_eq!(a.object, b.object, "los dos de visa comparten carpeta");
         let visa = a.object.as_entity().unwrap();
         assert!(
@@ -244,7 +252,10 @@ mod tests {
         let y2019 = sube(&viaje).expect("viaje cuelga de 2019");
         let fotos = sube(&y2019).expect("2019 cuelga de fotos");
         let repo = sube(&fotos).expect("fotos cuelga de repo");
-        assert!(sube(&repo).is_none(), "y repo ya es la raiz: no se sube a C:");
+        assert!(
+            sube(&repo).is_none(),
+            "y repo ya es la raiz: no se sube a C:"
+        );
     }
 
     /// La biblioteca es el techo: lo que hay por encima de ella es el camino
@@ -253,12 +264,22 @@ mod tests {
     fn no_se_encadena_por_encima_de_una_biblioteca() {
         let s = Store::open_in_memory().unwrap();
         let lib = s.create_entity(1000).unwrap();
-        s.assert(
-            NewAssertion::new(lib.clone(), "folder_path", r"C:\Users\jp\Bóveda", Method::Deterministic, 1000),
-        )
+        s.assert(NewAssertion::new(
+            lib.clone(),
+            "folder_path",
+            r"C:\Users\jp\Bóveda",
+            Method::Deterministic,
+            1000,
+        ))
         .unwrap();
-        s.assert(NewAssertion::new(lib.clone(), "has_facet", "library", Method::User, 1000))
-            .unwrap();
+        s.assert(NewAssertion::new(
+            lib.clone(),
+            "has_facet",
+            "library",
+            Method::User,
+            1000,
+        ))
+        .unwrap();
         let files = vec![
             fv(&s, r"C:\Users\jp\Bóveda\Salud\poliza.pdf"),
             fv(&s, r"C:\Users\jp\Bóveda\pasaporte.pdf"),
@@ -268,12 +289,23 @@ mod tests {
 
         let tp = TimePoint::at(3000);
         // La biblioteca se reutiliza, no se duplica.
-        assert_eq!(s.find_subject_by_value("folder_path", r"C:\Users\jp\Bóveda", tp).unwrap(), Some(lib.clone()));
+        assert_eq!(
+            s.find_subject_by_value("folder_path", r"C:\Users\jp\Bóveda", tp)
+                .unwrap(),
+            Some(lib.clone())
+        );
         // Y nada cuelga por encima de ella.
-        assert!(s.find_subject_by_value("folder_path", r"C:\Users\jp", tp).unwrap().is_none());
+        assert!(
+            s.find_subject_by_value("folder_path", r"C:\Users\jp", tp)
+                .unwrap()
+                .is_none()
+        );
         assert!(s.resolve(&lib, "contained_by", tp).unwrap().is_none());
         // `Salud` sí cuelga de la biblioteca.
-        let salud = s.find_subject_by_value("folder_path", r"C:\Users\jp\Bóveda\Salud", tp).unwrap().unwrap();
+        let salud = s
+            .find_subject_by_value("folder_path", r"C:\Users\jp\Bóveda\Salud", tp)
+            .unwrap()
+            .unwrap();
         let arriba = s.resolve(&salud, "contained_by", tp).unwrap().unwrap();
         assert_eq!(arriba.object.as_entity(), Some(&lib));
     }

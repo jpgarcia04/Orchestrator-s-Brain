@@ -20,7 +20,13 @@ fn cerebro(paths: &[&str]) -> (Brain, Vec<EntityId>) {
         .map(|p| {
             let e = store.create_entity(T).unwrap();
             store
-                .assert(NewAssertion::new(e.clone(), "path_observed_at", *p, Method::Deterministic, T))
+                .assert(NewAssertion::new(
+                    e.clone(),
+                    "path_observed_at",
+                    *p,
+                    Method::Deterministic,
+                    T,
+                ))
                 .unwrap();
             FileView {
                 entity: e,
@@ -59,12 +65,16 @@ fn marcar_desde_la_cabecera_protege_lo_de_dentro() {
 
     assert!(b.children(Some(&identidad)).unwrap().protection.is_none());
 
-    let r = b.mark_folder(&identidad, Some(Sensitivity::Sensitive)).unwrap();
+    let r = b
+        .mark_folder(&identidad, Some(Sensitivity::Sensitive))
+        .unwrap();
     assert_eq!(r.level, Some("sensitive"));
     assert_eq!(r.under, 4, "la carpeta, su subcarpeta y sus dos archivos");
 
     let l = b.children(Some(&identidad)).unwrap();
-    let p = l.protection.expect("la cabecera tiene que saber que está marcada");
+    let p = l
+        .protection
+        .expect("la cabecera tiene que saber que está marcada");
     assert!(p.own);
     assert_eq!(p.label, "01 Identidad");
     assert_eq!(p.level, "sensitive");
@@ -77,8 +87,14 @@ fn marcar_desde_la_cabecera_protege_lo_de_dentro() {
     assert!(!heredada.own);
     assert_eq!(heredada.folder, identidad.0);
 
-    assert_eq!(b.store().sensitivity(&ids[0]).unwrap(), Sensitivity::Sensitive);
-    assert_eq!(b.store().sensitivity(&ids[1]).unwrap(), Sensitivity::Sensitive);
+    assert_eq!(
+        b.store().sensitivity(&ids[0]).unwrap(),
+        Sensitivity::Sensitive
+    );
+    assert_eq!(
+        b.store().sensitivity(&ids[1]).unwrap(),
+        Sensitivity::Sensitive
+    );
     assert_eq!(b.store().sensitivity(&ids[2]).unwrap(), Sensitivity::Normal);
 }
 
@@ -89,7 +105,8 @@ fn la_vista_previa_dice_que_carpeta_lo_protege() {
     let identidad = carpeta(&b, r"C:\Bóveda\01 Identidad");
     assert!(b.entity(&ids[0]).unwrap().protection.is_none());
 
-    b.mark_folder(&identidad, Some(Sensitivity::Sensitive)).unwrap();
+    b.mark_folder(&identidad, Some(Sensitivity::Sensitive))
+        .unwrap();
     let v = b.entity(&ids[0]).unwrap();
     assert_eq!(v.sensitivity, "sensitive");
     let p = v.protection.expect("tiene que decir por qué");
@@ -105,7 +122,8 @@ fn sensibles_lista_las_carpetas_marcadas() {
     let (mut b, _) = cerebro(BOVEDA);
     assert!(b.marked_folders().unwrap().is_empty());
     let identidad = carpeta(&b, r"C:\Bóveda\01 Identidad");
-    b.mark_folder(&identidad, Some(Sensitivity::Sensitive)).unwrap();
+    b.mark_folder(&identidad, Some(Sensitivity::Sensitive))
+        .unwrap();
 
     let m = b.marked_folders().unwrap();
     assert_eq!(m.len(), 1);
@@ -124,7 +142,10 @@ fn sensibles_lista_las_carpetas_marcadas() {
 #[test]
 fn un_archivo_no_se_marca_como_carpeta() {
     let (mut b, ids) = cerebro(BOVEDA);
-    assert!(b.mark_folder(&ids[0], Some(Sensitivity::Sensitive)).is_err());
+    assert!(
+        b.mark_folder(&ids[0], Some(Sensitivity::Sensitive))
+            .is_err()
+    );
 }
 
 /// En la raíz no hay cabecera de carpeta que enseñar… salvo que la raíz sea tu
@@ -133,8 +154,15 @@ fn un_archivo_no_se_marca_como_carpeta() {
 fn la_raiz_tambien_se_puede_marcar() {
     let (mut b, ids) = cerebro(BOVEDA);
     let raiz = b.children(None).unwrap();
-    let foco = EntityId(raiz.focus.clone().expect("con una sola raíz se entra en ella"));
+    let foco = EntityId(
+        raiz.focus
+            .clone()
+            .expect("con una sola raíz se entra en ella"),
+    );
     b.mark_folder(&foco, Some(Sensitivity::Sensitive)).unwrap();
     assert!(b.children(None).unwrap().protection.is_some_and(|p| p.own));
-    assert!(ids.iter().all(|e| b.store().sensitivity(e).unwrap() == Sensitivity::Sensitive));
+    assert!(
+        ids.iter()
+            .all(|e| b.store().sensitivity(e).unwrap() == Sensitivity::Sensitive)
+    );
 }

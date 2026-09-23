@@ -24,7 +24,10 @@ pub(crate) const TIPO: &str = "dpapi";
 pub(crate) const TIPO: &str = "sin-proteger";
 
 pub(crate) fn wrap(key: &DataKey) -> Result<Caja> {
-    Ok(Caja { tipo: TIPO.to_string(), datos: B64.encode(proteger(key.bytes())?) })
+    Ok(Caja {
+        tipo: TIPO.to_string(),
+        datos: B64.encode(proteger(key.bytes())?),
+    })
 }
 
 pub(crate) fn unwrap(caja: &Caja) -> Result<DataKey> {
@@ -34,7 +37,9 @@ pub(crate) fn unwrap(caja: &Caja) -> Result<DataKey> {
             caja.tipo
         )));
     }
-    let datos = B64.decode(&caja.datos).map_err(|e| Error::Formato(e.to_string()))?;
+    let datos = B64
+        .decode(&caja.datos)
+        .map_err(|e| Error::Formato(e.to_string()))?;
     let llave = desproteger(&datos)?;
     DataKey::from_slice(&llave)
 }
@@ -65,11 +70,17 @@ mod dpapi {
     const ENTROPIA: &[u8] = b"obrain-llave-v1";
 
     fn blob(b: &[u8]) -> CRYPT_INTEGER_BLOB {
-        CRYPT_INTEGER_BLOB { cbData: b.len() as u32, pbData: b.as_ptr() as *mut u8 }
+        CRYPT_INTEGER_BLOB {
+            cbData: b.len() as u32,
+            pbData: b.as_ptr() as *mut u8,
+        }
     }
 
     fn vacio() -> CRYPT_INTEGER_BLOB {
-        CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() }
+        CRYPT_INTEGER_BLOB {
+            cbData: 0,
+            pbData: std::ptr::null_mut(),
+        }
     }
 
     fn fallo(que: &str) -> Error {
@@ -97,7 +108,8 @@ mod dpapi {
             return Err(fallo("DPAPI no pudo proteger la llave"));
         }
         // SAFETY: DPAPI devolvió `cbData` bytes válidos en `pbData`.
-        let v = unsafe { std::slice::from_raw_parts(salida.pbData, salida.cbData as usize) }.to_vec();
+        let v =
+            unsafe { std::slice::from_raw_parts(salida.pbData, salida.cbData as usize) }.to_vec();
         // SAFETY: `pbData` lo reservó DPAPI con LocalAlloc.
         unsafe { LocalFree(salida.pbData.cast()) };
         Ok(v)

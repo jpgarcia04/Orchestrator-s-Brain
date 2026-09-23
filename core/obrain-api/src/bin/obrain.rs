@@ -10,7 +10,7 @@
 //! ([`obrain_api::default_db_path`]). Las herramientas de cada etapa
 //! (`obrain-scan`, `obrain-extract`…) siguen ahí para auditarlas.
 
-use obrain_api::{default_db_path, indexar, load_model, seguridad, Brain, Embedder, IndexReport};
+use obrain_api::{Brain, Embedder, IndexReport, default_db_path, indexar, load_model, seguridad};
 use obrain_core::{Sensitivity, Store};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -85,7 +85,10 @@ fn main() -> ExitCode {
         };
         return match seguridad::recuperar(&db, codigo) {
             Ok(()) => {
-                println!("▸ la base vuelve a abrirse en este equipo: {}", db.display());
+                println!(
+                    "▸ la base vuelve a abrirse en este equipo: {}",
+                    db.display()
+                );
                 ExitCode::SUCCESS
             }
             Err(e) => {
@@ -100,7 +103,9 @@ fn main() -> ExitCode {
         Err(e) => {
             eprintln!("no se pudo abrir la base {}: {e}", db.display());
             if obrain_api::Error::from(e).is_key_unavailable() {
-                eprintln!("\nSi tienes la clave de recuperación:\n  obrain recuperar XXXXX-XXXXX-XXXXX-XXXXX-XXXXX");
+                eprintln!(
+                    "\nSi tienes la clave de recuperación:\n  obrain recuperar XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
+                );
             }
             return ExitCode::FAILURE;
         }
@@ -140,7 +145,10 @@ fn main() -> ExitCode {
             }
             match b.recovery_code() {
                 Ok(Some(c)) => {
-                    println!("  clave de recuperación de {}:\n\n      {c}\n", db.display());
+                    println!(
+                        "  clave de recuperación de {}:\n\n      {c}\n",
+                        db.display()
+                    );
                     ExitCode::SUCCESS
                 }
                 Ok(None) => {
@@ -173,12 +181,18 @@ fn main() -> ExitCode {
             let b = Brain::from_store(store);
             match b.marked_folders() {
                 Ok(v) if v.is_empty() => {
-                    println!("no has marcado ninguna carpeta. Márcala con:\n  obrain sensible <carpeta>");
+                    println!(
+                        "no has marcado ninguna carpeta. Márcala con:\n  obrain sensible <carpeta>"
+                    );
                     ExitCode::SUCCESS
                 }
                 Ok(v) => {
                     for m in v {
-                        let nivel = if m.level == "vault" { "bóveda" } else { "sensible" };
+                        let nivel = if m.level == "vault" {
+                            "bóveda"
+                        } else {
+                            "sensible"
+                        };
                         println!("  {nivel:<9} {}  ({} documentos)", m.path, m.documents);
                     }
                     ExitCode::SUCCESS
@@ -222,7 +236,9 @@ fn main() -> ExitCode {
                 Ok(r) => {
                     informe(&r, &db);
                     if r.libraries.is_empty() && r.missing.is_empty() {
-                        println!("\ntodavía no hay bibliotecas. Añade una con:\n  obrain indexar <carpeta>");
+                        println!(
+                            "\ntodavía no hay bibliotecas. Añade una con:\n  obrain indexar <carpeta>"
+                        );
                     }
                     ExitCode::SUCCESS
                 }
@@ -245,7 +261,9 @@ fn avisar_recuperacion(store: &Store, ya_la_pide: bool) {
     if ya_la_pide {
         return;
     }
-    let Ok(estado) = seguridad::estado(store.conn(), 0) else { return };
+    let Ok(estado) = seguridad::estado(store.conn(), 0) else {
+        return;
+    };
     if !estado.recuperacion_pendiente || estado.pin {
         return;
     }
@@ -323,5 +341,9 @@ fn informe(r: &IndexReport, db: &std::path::Path) {
     if r.semantic {
         println!("  vectores nuevos        {}", r.vectors_new);
     }
-    println!("  en {:.2} s → {}", r.elapsed_ms as f64 / 1000.0, db.display());
+    println!(
+        "  en {:.2} s → {}",
+        r.elapsed_ms as f64 / 1000.0,
+        db.display()
+    );
 }

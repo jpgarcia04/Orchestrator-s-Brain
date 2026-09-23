@@ -268,7 +268,11 @@ impl Brain {
         let _ = obrain_extract::index::migrate(store.conn());
         let _ = obrain_embed::index::migrate(store.conn());
         let _ = seguridad::migrate(store.conn());
-        Brain { store, embedder: None, desbloqueo: std::cell::Cell::new(None) }
+        Brain {
+            store,
+            embedder: None,
+            desbloqueo: std::cell::Cell::new(None),
+        }
     }
 
     /// Para los tests y para cualquier otro `Embedder` de §5.1.
@@ -462,8 +466,11 @@ impl Brain {
     /// cliente es cuadrático y esto se redibuja en cada pulsación.
     pub fn glance(&self, query: &str, limit: usize) -> Result<Glance> {
         let answer = self.search(query, limit)?;
-        let focus: Vec<EntityId> =
-            answer.hits.iter().map(|h| EntityId(h.entity.clone())).collect();
+        let focus: Vec<EntityId> = answer
+            .hits
+            .iter()
+            .map(|h| EntityId(h.entity.clone()))
+            .collect();
         let lens = self.lens(&focus, 1, lens::SUBSTRATE_BUDGET)?;
         Ok(Glance { answer, lens })
     }
@@ -617,12 +624,7 @@ impl Brain {
     /// y conservar la otra es lo que permite responder más tarde *qué creía el
     /// sistema y en qué se equivocó*. Borrar el error borraría la prueba de que
     /// la corrección sirvió de algo.
-    pub fn correct(
-        &self,
-        subject: &EntityId,
-        predicate: &str,
-        object: Value,
-    ) -> Result<String> {
+    pub fn correct(&self, subject: &EntityId, predicate: &str, object: Value) -> Result<String> {
         let (now, _) = Self::now();
         let id = self.store.assert(
             NewAssertion::new(subject.clone(), predicate, object, Method::User, now)

@@ -17,8 +17,8 @@
 //! más en la llamada a [`crate::fuse::rrf`].
 
 use crate::embedder::{Embedder, Role};
-use crate::fuse::{rrf, Fused, Ranking};
-use crate::{index, Result};
+use crate::fuse::{Fused, Ranking, rrf};
+use crate::{Result, index};
 use obrain_core::{EntityId, Store, TimePoint};
 
 /// Un resultado de la búsqueda híbrida, con de dónde vino.
@@ -56,7 +56,9 @@ pub const CANDIDATES: usize = 50;
 fn snippet_of(store: &Store, chunk: i64, query: &str) -> String {
     let text: String = store
         .conn()
-        .query_row("SELECT text FROM chunks WHERE id = ?1", [chunk], |r| r.get(0))
+        .query_row("SELECT text FROM chunks WHERE id = ?1", [chunk], |r| {
+            r.get(0)
+        })
         .unwrap_or_default();
     match obrain_extract::evidence::pick(&text, query, obrain_extract::evidence::BUDGET) {
         // El tramo se guarda como rebanada exacta (I9) y se aplana sólo aquí,
@@ -133,8 +135,14 @@ pub fn hybrid(
 
     let fused: Vec<Fused<EntityId>> = rrf(
         &[
-            Ranking { name: "bm25", items: lexical.iter().map(|h| h.entity.clone()).collect() },
-            Ranking { name: "knn", items: vectorial.iter().map(|h| h.entity.clone()).collect() },
+            Ranking {
+                name: "bm25",
+                items: lexical.iter().map(|h| h.entity.clone()).collect(),
+            },
+            Ranking {
+                name: "knn",
+                items: vectorial.iter().map(|h| h.entity.clone()).collect(),
+            },
         ],
         limit,
     );

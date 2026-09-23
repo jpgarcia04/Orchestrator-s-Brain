@@ -66,10 +66,18 @@ fn vault_signal(text: &str) -> Option<Signal> {
         return Some(sig("contenido:jwt", Sensitivity::Vault, 0.85));
     }
     if has_env_secret(text) {
-        return Some(sig("contenido:variable-con-secreto", Sensitivity::Vault, 0.90));
+        return Some(sig(
+            "contenido:variable-con-secreto",
+            Sensitivity::Vault,
+            0.90,
+        ));
     }
     if has_url_password(text) {
-        return Some(sig("contenido:url-con-contrasena", Sensitivity::Vault, 0.85));
+        return Some(sig(
+            "contenido:url-con-contrasena",
+            Sensitivity::Vault,
+            0.85,
+        ));
     }
     None
 }
@@ -84,13 +92,21 @@ fn sensitive_signal(text: &str) -> Option<Signal> {
         return Some(sig("contenido:dni-o-nie", Sensitivity::Sensitive, 0.85));
     }
     if has_card(text) {
-        return Some(sig("contenido:tarjeta-de-pago", Sensitivity::Sensitive, 0.80));
+        return Some(sig(
+            "contenido:tarjeta-de-pago",
+            Sensitivity::Sensitive,
+            0.80,
+        ));
     }
     None
 }
 
 const fn sig(rule: &'static str, level: Sensitivity, confidence: f64) -> Signal {
-    Signal { rule, level, confidence }
+    Signal {
+        rule,
+        level,
+        confidence,
+    }
 }
 
 // ──────────────────────────────────────────────────────────── primitivas
@@ -147,9 +163,18 @@ fn is_placeholder(v: &str) -> bool {
     if v.bytes().all(|c| c == v.as_bytes()[0]) {
         return true;
     }
-    ["your", "changeme", "change_me", "example", "placeholder", "todo", "dummy", "sample"]
-        .iter()
-        .any(|m| low.contains(m))
+    [
+        "your",
+        "changeme",
+        "change_me",
+        "example",
+        "placeholder",
+        "todo",
+        "dummy",
+        "sample",
+    ]
+    .iter()
+    .any(|m| low.contains(m))
 }
 
 /// `NOMBRE_EN_MAYUSCULAS=valor` donde el nombre habla de un secreto.
@@ -160,8 +185,16 @@ fn is_placeholder(v: &str) -> bool {
 /// escondido detrás de una heurística de entropía que nadie podría auditar.
 fn has_env_secret(text: &str) -> bool {
     const PALABRAS: &[&str] = &[
-        "PASSWORD", "PASSWD", "SECRET", "TOKEN", "APIKEY", "API_KEY", "PRIVATE_KEY",
-        "ACCESS_KEY", "CLAVE", "CREDENTIAL",
+        "PASSWORD",
+        "PASSWD",
+        "SECRET",
+        "TOKEN",
+        "APIKEY",
+        "API_KEY",
+        "PRIVATE_KEY",
+        "ACCESS_KEY",
+        "CLAVE",
+        "CREDENTIAL",
     ];
     text.lines().any(|line| {
         let line = line.trim();
@@ -173,7 +206,9 @@ fn has_env_secret(text: &str) -> bool {
         };
         let key = key.trim().trim_start_matches("export ").trim();
         let bien_formado = !key.is_empty()
-            && key.bytes().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == b'_')
+            && key
+                .bytes()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == b'_')
             && key.bytes().any(|c| c.is_ascii_uppercase());
         bien_formado && PALABRAS.iter().any(|p| key.contains(p)) && !is_placeholder(value)
     })
@@ -206,9 +241,9 @@ fn has_url_password(text: &str) -> bool {
 /// Países con IBAN. Exigir un código real es la primera criba; el módulo 97 es
 /// la segunda.
 const IBAN_PAISES: &[&str] = &[
-    "AD", "AE", "AT", "BE", "BG", "CH", "CY", "CZ", "DE", "DK", "EE", "ES", "FI", "FR", "GB",
-    "GI", "GR", "HR", "HU", "IE", "IS", "IT", "LI", "LT", "LU", "LV", "MC", "MT", "NL", "NO",
-    "PL", "PT", "RO", "RS", "SE", "SI", "SK", "SM", "TR", "UA",
+    "AD", "AE", "AT", "BE", "BG", "CH", "CY", "CZ", "DE", "DK", "EE", "ES", "FI", "FR", "GB", "GI",
+    "GR", "HR", "HU", "IE", "IS", "IT", "LI", "LT", "LU", "LV", "MC", "MT", "NL", "NO", "PL", "PT",
+    "RO", "RS", "SE", "SI", "SK", "SM", "TR", "UA",
 ];
 
 fn has_iban(text: &str) -> bool {
@@ -292,7 +327,9 @@ fn has_dni(text: &str) -> bool {
             continue;
         }
         // Y nada alfanumérico detrás: `12345678Z9` no es un DNI.
-        if b.get(inicio + esperados + 1).is_some_and(u8::is_ascii_alphanumeric) {
+        if b.get(inicio + esperados + 1)
+            .is_some_and(u8::is_ascii_alphanumeric)
+        {
             continue;
         }
         let mut n: u32 = if prefijo == u32::MAX { 0 } else { prefijo };
@@ -331,9 +368,7 @@ fn has_card(text: &str) -> bool {
                 digitos.push(b[j] as char);
                 grupo += 1;
                 j += 1;
-            } else if (b[j] == b' ' || b[j] == b'-')
-                && j + 1 < b.len()
-                && b[j + 1].is_ascii_digit()
+            } else if (b[j] == b' ' || b[j] == b'-') && j + 1 < b.len() && b[j + 1].is_ascii_digit()
             {
                 if grupo < 4 {
                     valido = false;
@@ -402,7 +437,10 @@ mod tests {
 
     #[test]
     fn los_tokens_de_proveedor_son_boveda() {
-        assert_eq!(nivel("AWS_ID = AKIAIOSFODNN7EXAMPLE"), Some(Sensitivity::Vault));
+        assert_eq!(
+            nivel("AWS_ID = AKIAIOSFODNN7EXAMPLE"),
+            Some(Sensitivity::Vault)
+        );
         assert_eq!(
             nivel("token: ghp_16C7e42F292c6912E7710c838347Ae178B4a"),
             Some(Sensitivity::Vault)
@@ -441,14 +479,24 @@ mod tests {
             Some(Sensitivity::Vault)
         );
         assert_eq!(nivel("https://ejemplo.com/pagina"), None);
-        assert_eq!(nivel("http://localhost:5432/salud"), None, "un puerto no es una clave");
+        assert_eq!(
+            nivel("http://localhost:5432/salud"),
+            None,
+            "un puerto no es una clave"
+        );
     }
 
     #[test]
     fn un_iban_valido_es_sensible() {
         // IBAN de prueba con módulo 97 correcto.
-        assert_eq!(nivel("Cuenta: ES9121000418450200051332"), Some(Sensitivity::Sensitive));
-        assert_eq!(nivel("Cuenta: ES91 2100 0418 4502 0005 1332"), Some(Sensitivity::Sensitive));
+        assert_eq!(
+            nivel("Cuenta: ES9121000418450200051332"),
+            Some(Sensitivity::Sensitive)
+        );
+        assert_eq!(
+            nivel("Cuenta: ES91 2100 0418 4502 0005 1332"),
+            Some(Sensitivity::Sensitive)
+        );
     }
 
     #[test]
@@ -459,7 +507,10 @@ mod tests {
 
     #[test]
     fn un_dni_valido_es_sensible() {
-        assert_eq!(nivel("DNI 12345678Z del solicitante"), Some(Sensitivity::Sensitive));
+        assert_eq!(
+            nivel("DNI 12345678Z del solicitante"),
+            Some(Sensitivity::Sensitive)
+        );
         assert_eq!(nivel("NIE X1234567L"), Some(Sensitivity::Sensitive));
     }
 
@@ -482,14 +533,21 @@ mod tests {
 
     #[test]
     fn una_tarjeta_valida_es_sensible() {
-        assert_eq!(nivel("VISA 4111 1111 1111 1111"), Some(Sensitivity::Sensitive));
+        assert_eq!(
+            nivel("VISA 4111 1111 1111 1111"),
+            Some(Sensitivity::Sensitive)
+        );
         assert_eq!(nivel("4111111111111111"), Some(Sensitivity::Sensitive));
     }
 
     #[test]
     fn una_lista_de_numeros_no_es_una_tarjeta() {
         assert_eq!(nivel("1 2 3 4 5 6 7 8 9 0 1 2 3 4"), None);
-        assert_eq!(nivel("1234567890123456"), None, "no pasa Luhn ni tiene emisor");
+        assert_eq!(
+            nivel("1234567890123456"),
+            None,
+            "no pasa Luhn ni tiene emisor"
+        );
         assert_eq!(nivel("timestamp 1735689600000 evento"), None);
     }
 

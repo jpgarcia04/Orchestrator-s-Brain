@@ -8,7 +8,7 @@
 //! derivación lenta para que no se pueda adivinar, y aun así se deriva con
 //! Argon2id.
 
-use crate::{azar, Error, Result};
+use crate::{Error, Result, azar};
 use zeroize::Zeroizing;
 
 const ALFABETO: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -23,7 +23,10 @@ impl RecoveryCode {
         let mut bytes = Zeroizing::new([0u8; LARGO]);
         azar(bytes.as_mut())?;
         // 256 es múltiplo de 32: quedarse con 5 bits de cada byte no sesga.
-        let s: String = bytes.iter().map(|b| ALFABETO[(b & 31) as usize] as char).collect();
+        let s: String = bytes
+            .iter()
+            .map(|b| ALFABETO[(b & 31) as usize] as char)
+            .collect();
         Ok(RecoveryCode(Zeroizing::new(s)))
     }
 
@@ -86,7 +89,10 @@ mod tests {
         assert_eq!(s.len(), 29, "25 símbolos y 4 guiones: {s}");
         assert_eq!(s.split('-').count(), 5);
         assert!(c.normalized().bytes().all(|b| ALFABETO.contains(&b)));
-        assert_ne!(c.normalized(), RecoveryCode::generate().unwrap().normalized());
+        assert_ne!(
+            c.normalized(),
+            RecoveryCode::generate().unwrap().normalized()
+        );
     }
 
     /// Lo que una persona hace al teclearla no la invalida.
@@ -94,22 +100,34 @@ mod tests {
     fn se_perdona_lo_que_hace_una_persona_al_teclearla() {
         let c = RecoveryCode::generate().unwrap();
         let tecleada = c.to_string().to_lowercase().replace('-', " - ");
-        assert_eq!(RecoveryCode::parse(&tecleada).unwrap().normalized(), c.normalized());
+        assert_eq!(
+            RecoveryCode::parse(&tecleada).unwrap().normalized(),
+            c.normalized()
+        );
 
         let con_letras = "O0000-I1111-L2222-33333-44444";
-        assert_eq!(RecoveryCode::parse(con_letras).unwrap().normalized(), "0000011111122223333344444");
+        assert_eq!(
+            RecoveryCode::parse(con_letras).unwrap().normalized(),
+            "0000011111122223333344444"
+        );
     }
 
     #[test]
     fn lo_que_no_es_una_clave_se_rechaza() {
         assert!(RecoveryCode::parse("").is_err());
         assert!(RecoveryCode::parse("ABCDE-ABCDE").is_err(), "corta");
-        assert!(RecoveryCode::parse("UUUUU-AAAAA-BBBBB-CCCCC-DDDDD").is_err(), "la U no está");
+        assert!(
+            RecoveryCode::parse("UUUUU-AAAAA-BBBBB-CCCCC-DDDDD").is_err(),
+            "la U no está"
+        );
         assert!(RecoveryCode::parse("ÁÁÁÁÁ-AAAAA-BBBBB-CCCCC-DDDDD").is_err());
     }
 
     #[test]
     fn el_debug_no_la_enseña() {
-        assert_eq!(format!("{:?}", RecoveryCode::generate().unwrap()), "RecoveryCode(…)");
+        assert_eq!(
+            format!("{:?}", RecoveryCode::generate().unwrap()),
+            "RecoveryCode(…)"
+        );
     }
 }

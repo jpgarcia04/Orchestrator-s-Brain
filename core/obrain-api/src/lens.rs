@@ -359,7 +359,11 @@ pub fn edge_census(store: &Store, at: TimePoint) -> obrain_core::Result<Vec<(Str
 
 /// Las entidades con más aristas vivas. Es `--sample` para el mapa: enseña qué
 /// va a salir grande **antes** de dibujarlo.
-pub fn hubs(store: &Store, limit: usize, at: TimePoint) -> obrain_core::Result<Vec<(String, usize)>> {
+pub fn hubs(
+    store: &Store,
+    limit: usize,
+    at: TimePoint,
+) -> obrain_core::Result<Vec<(String, usize)>> {
     let mut degree: HashMap<EntityId, usize> = HashMap::new();
     for a in store.query(None, None, at)? {
         if let Value::Entity(o) = &a.object {
@@ -429,7 +433,10 @@ mod tests {
     fn la_posicion_cae_dentro_del_disco_unidad() {
         for i in 0..500 {
             let [x, y] = seed_position(&format!("entidad-{i}"));
-            assert!((x * x + y * y).sqrt() <= 1.0 + 1e-6, "fuera del disco: {x},{y}");
+            assert!(
+                (x * x + y * y).sqrt() <= 1.0 + 1e-6,
+                "fuera del disco: {x},{y}"
+            );
         }
     }
 }

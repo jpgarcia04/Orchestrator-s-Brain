@@ -163,7 +163,10 @@ pub fn reindex(store: &mut Store, embedder: Option<&dyn Embedder>) -> Result<Ind
 /// Las rutas de las bibliotecas registradas.
 pub fn libraries(store: &Store) -> Result<Vec<String>> {
     let at = TimePoint::at(obrain_scan::now_ms());
-    Ok(obrain_link::libraries(store, at)?.into_iter().map(|(_, ruta)| ruta).collect())
+    Ok(obrain_link::libraries(store, at)?
+        .into_iter()
+        .map(|(_, ruta)| ruta)
+        .collect())
 }
 
 /// Absoluta y sin resolver enlaces: `.\docs` y `C:\…\docs` tienen que ser la

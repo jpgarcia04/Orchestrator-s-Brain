@@ -83,7 +83,14 @@ pub fn ingest(
                 None => {
                     let e = store.create_entity(at)?;
                     report.entities_created += 1;
-                    write(store, report, &e, "has_facet", Facet::Addressable.as_str(), at)?;
+                    write(
+                        store,
+                        report,
+                        &e,
+                        "has_facet",
+                        Facet::Addressable.as_str(),
+                        at,
+                    )?;
                     if let Some(h) = &id_hex {
                         write(store, report, &e, "file_id", h.as_str(), at)?;
                     }
@@ -94,21 +101,63 @@ pub fn ingest(
 
         // ── 2 · observaciones ──
         let path = c.path.to_string_lossy().to_string();
-        write_if_changed(store, report, &entity, "path_observed_at", Value::Text(path), tp, at)?;
-        write_if_changed(store, report, &entity, "file_size", Value::Number(c.size as f64), tp, at)?;
         write_if_changed(
-            store, report, &entity, "modified_at",
-            Value::Timestamp(c.modified_ms), tp, at,
+            store,
+            report,
+            &entity,
+            "path_observed_at",
+            Value::Text(path),
+            tp,
+            at,
         )?;
         write_if_changed(
-            store, report, &entity, "availability",
-            Value::Text(c.availability.as_str().to_string()), tp, at,
+            store,
+            report,
+            &entity,
+            "file_size",
+            Value::Number(c.size as f64),
+            tp,
+            at,
+        )?;
+        write_if_changed(
+            store,
+            report,
+            &entity,
+            "modified_at",
+            Value::Timestamp(c.modified_ms),
+            tp,
+            at,
+        )?;
+        write_if_changed(
+            store,
+            report,
+            &entity,
+            "availability",
+            Value::Text(c.availability.as_str().to_string()),
+            tp,
+            at,
         )?;
         if let Some(h) = &c.hash {
-            write_if_changed(store, report, &entity, "has_hash", Value::Text(h.clone()), tp, at)?;
+            write_if_changed(
+                store,
+                report,
+                &entity,
+                "has_hash",
+                Value::Text(h.clone()),
+                tp,
+                at,
+            )?;
         }
         if let Some(m) = mime_guess(&c.path) {
-            write_if_changed(store, report, &entity, "mime_guess", Value::Text(m.to_string()), tp, at)?;
+            write_if_changed(
+                store,
+                report,
+                &entity,
+                "mime_guess",
+                Value::Text(m.to_string()),
+                tp,
+                at,
+            )?;
         }
     }
     Ok(())
@@ -254,7 +303,11 @@ fn mime_guess(path: &std::path::Path) -> Option<&'static str> {
 pub fn library_path(root: &std::path::Path) -> String {
     let s = root.to_string_lossy();
     let t = s.trim_end_matches(['\\', '/']);
-    if t.is_empty() { s.into_owned() } else { t.to_string() }
+    if t.is_empty() {
+        s.into_owned()
+    } else {
+        t.to_string()
+    }
 }
 
 /// Marca `root` como **biblioteca**: una carpeta que el usuario eligió indexar.
@@ -279,8 +332,14 @@ pub fn register_library(
         None => {
             let e = store.create_entity(at)?;
             store.assert(
-                NewAssertion::new(e.clone(), "folder_path", path.as_str(), Method::Deterministic, at)
-                    .source("scan:biblioteca"),
+                NewAssertion::new(
+                    e.clone(),
+                    "folder_path",
+                    path.as_str(),
+                    Method::Deterministic,
+                    at,
+                )
+                .source("scan:biblioteca"),
             )?;
             e
         }
@@ -318,12 +377,8 @@ mod tests {
 
     /// Los dos `FileID` reales que dejó el caso que destapó el problema:
     /// editar `search.rs` para redactar un NIE y volver a escanear.
-    const ID_ANTES: [u8; 16] = [
-        0xb6, 0x70, 0, 0, 0, 0, 0, 0x55, 0x01, 0, 0, 0, 0, 0, 0, 0,
-    ];
-    const ID_DESPUES: [u8; 16] = [
-        0xe3, 0x32, 0x02, 0, 0, 0, 0, 0x22, 0, 0, 0, 0, 0, 0, 0, 0,
-    ];
+    const ID_ANTES: [u8; 16] = [0xb6, 0x70, 0, 0, 0, 0, 0, 0x55, 0x01, 0, 0, 0, 0, 0, 0, 0];
+    const ID_DESPUES: [u8; 16] = [0xe3, 0x32, 0x02, 0, 0, 0, 0, 0x22, 0, 0, 0, 0, 0, 0, 0, 0];
     const RUTA: &str = r"C:\Users\pacox\OneDrive\Documentos\GitHub\proyecto\src\search.rs";
 
     fn candidato(path: &str, file_id: [u8; 16], hash: &str) -> Candidate {
@@ -332,7 +387,10 @@ mod tests {
             availability: Availability::Local,
             size: 4096,
             modified_ms: 1_700_000_000_000,
-            identity: Some(FileIdentity { volume: 0x7838_c906_38c8_c3fa, file_id }),
+            identity: Some(FileIdentity {
+                volume: 0x7838_c906_38c8_c3fa,
+                file_id,
+            }),
             hash: Some(hash.to_string()),
         }
     }
@@ -360,16 +418,31 @@ mod tests {
         let store = Store::open_in_memory().unwrap();
         let mut r = IngestReport::default();
 
-        ingest(&store, &[candidato(RUTA, ID_ANTES, "hash-con-nie")], 1_000, &mut r).unwrap();
+        ingest(
+            &store,
+            &[candidato(RUTA, ID_ANTES, "hash-con-nie")],
+            1_000,
+            &mut r,
+        )
+        .unwrap();
         assert_eq!(r.entities_created, 1);
 
         // Se edita el archivo y se vuelve a escanear.
         let mut r2 = IngestReport::default();
-        ingest(&store, &[candidato(RUTA, ID_DESPUES, "hash-redactado")], 2_000, &mut r2).unwrap();
+        ingest(
+            &store,
+            &[candidato(RUTA, ID_DESPUES, "hash-redactado")],
+            2_000,
+            &mut r2,
+        )
+        .unwrap();
 
         assert_eq!(r2.entities_created, 0, "no es un archivo nuevo");
         assert_eq!(r2.entities_reconciled, 1);
-        assert_eq!(r2.assertions_retracted, 1, "el file_id viejo deja de estar vigente");
+        assert_eq!(
+            r2.assertions_retracted, 1,
+            "el file_id viejo deja de estar vigente"
+        );
 
         let n: i64 = store
             .conn()
@@ -393,7 +466,10 @@ mod tests {
         assert_eq!(r3.entities_recognised, 1);
         assert_eq!(r3.entities_reconciled, 0);
         assert_eq!(r3.entities_created, 0);
-        assert_eq!(r3.assertions_written, 0, "nada que decir, nada que escribir");
+        assert_eq!(
+            r3.assertions_written, 0,
+            "nada que decir, nada que escribir"
+        );
     }
 
     /// El error caro que la tercera condición evita: mover un archivo y poner
@@ -403,7 +479,13 @@ mod tests {
     fn mover_un_archivo_y_ocupar_su_hueco_no_fusiona_dos_documentos() {
         let store = Store::open_in_memory().unwrap();
         let mut r = IngestReport::default();
-        ingest(&store, &[candidato(RUTA, ID_ANTES, "el-de-siempre")], 1_000, &mut r).unwrap();
+        ingest(
+            &store,
+            &[candidato(RUTA, ID_ANTES, "el-de-siempre")],
+            1_000,
+            &mut r,
+        )
+        .unwrap();
 
         // El original se movió a otra carpeta y en su sitio hay otro archivo.
         let movido = candidato(r"C:\otra\carpeta\search.rs", ID_ANTES, "el-de-siempre");
@@ -412,9 +494,15 @@ mod tests {
         let mut r2 = IngestReport::default();
         ingest(&store, &[movido, intruso], 2_000, &mut r2).unwrap();
 
-        assert_eq!(r2.entities_reconciled, 0, "el archivo viejo sigue existiendo");
+        assert_eq!(
+            r2.entities_reconciled, 0,
+            "el archivo viejo sigue existiendo"
+        );
         assert_eq!(r2.entities_created, 1, "el intruso es un documento nuevo");
-        assert_eq!(r2.entities_recognised, 1, "el movido se reconoce por su FileID");
+        assert_eq!(
+            r2.entities_recognised, 1,
+            "el movido se reconoce por su FileID"
+        );
     }
 
     /// Sin cambios en el disco no se escribe nada. Es la propiedad que M1 midió
@@ -439,11 +527,17 @@ mod tests {
     #[test]
     fn registrar_una_biblioteca_es_idempotente() {
         let store = Store::open_in_memory().unwrap();
-        let a = register_library(&store, std::path::Path::new(r"C:\Users\jp\Bóveda\"), 1000).unwrap();
+        let a =
+            register_library(&store, std::path::Path::new(r"C:\Users\jp\Bóveda\"), 1000).unwrap();
         let antes = store.log_len().unwrap();
-        let b = register_library(&store, std::path::Path::new(r"C:\Users\jp\Bóveda"), 2000).unwrap();
+        let b =
+            register_library(&store, std::path::Path::new(r"C:\Users\jp\Bóveda"), 2000).unwrap();
         assert_eq!(a, b);
-        assert_eq!(store.log_len().unwrap(), antes, "la segunda vez no escribe nada");
+        assert_eq!(
+            store.log_len().unwrap(),
+            antes,
+            "la segunda vez no escribe nada"
+        );
 
         let tp = TimePoint::at(3000);
         let ruta = store.resolve(&a, "folder_path", tp).unwrap().unwrap();

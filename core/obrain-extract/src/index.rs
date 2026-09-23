@@ -11,7 +11,7 @@
 //! con qué chunker, cuánto texto salió y qué hash tenía. Eso es procedencia
 //! (I9) y sobrevive a que se borre el índice.
 
-use obrain_core::rusqlite::{params, Connection, OptionalExtension};
+use obrain_core::rusqlite::{Connection, OptionalExtension, params};
 use obrain_core::{EntityId, Result};
 
 /// Versión del **esquema** de la proyección, independiente del log.
@@ -209,9 +209,11 @@ pub fn chunk_count(conn: &Connection) -> Result<i64> {
 /// estrategia de fragmentación, que es un número que conviene mirar antes de
 /// que el corpus tenga 200.000 archivos.
 pub fn stored_chars(conn: &Connection) -> Result<i64> {
-    Ok(conn.query_row("SELECT COALESCE(SUM(LENGTH(text)), 0) FROM chunks", [], |r| {
-        r.get(0)
-    })?)
+    Ok(conn.query_row(
+        "SELECT COALESCE(SUM(LENGTH(text)), 0) FROM chunks",
+        [],
+        |r| r.get(0),
+    )?)
 }
 
 /// Los archivos que más ocupan el índice, de mayor a menor.
@@ -232,18 +234,16 @@ pub fn heaviest(conn: &Connection, limit: usize) -> Result<Vec<(EntityId, i64, i
 
 /// Entidades cuya extracción acabó en un estado concreto.
 pub fn with_status(conn: &Connection, status: &str, limit: usize) -> Result<Vec<EntityId>> {
-    let mut stmt = conn.prepare(
-        "SELECT entity FROM extractions WHERE status = ?1 ORDER BY entity LIMIT ?2",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT entity FROM extractions WHERE status = ?1 ORDER BY entity LIMIT ?2")?;
     let rows = stmt.query_map(params![status, limit as i64], |r| Ok(EntityId(r.get(0)?)))?;
     Ok(rows.collect::<obrain_core::rusqlite::Result<Vec<_>>>()?)
 }
 
 /// Fragmentos de una entidad, en orden.
 pub fn chunks_of(conn: &Connection, entity: &EntityId) -> Result<Vec<(i64, String)>> {
-    let mut stmt = conn.prepare(
-        "SELECT ordinal, text FROM chunks WHERE entity = ?1 ORDER BY ordinal",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT ordinal, text FROM chunks WHERE entity = ?1 ORDER BY ordinal")?;
     let rows = stmt.query_map([entity.as_str()], |r| Ok((r.get(0)?, r.get(1)?)))?;
     Ok(rows.collect::<obrain_core::rusqlite::Result<Vec<_>>>()?)
 }
@@ -263,9 +263,8 @@ pub fn chunks_of(conn: &Connection, entity: &EntityId) -> Result<Vec<(i64, Strin
 ///
 /// [ADR-0005]: ../../../docs/adr/0005-donde-vive-el-texto-extraido.md
 pub fn document_text(conn: &Connection, entity: &EntityId) -> Result<Option<String>> {
-    let mut stmt = conn.prepare(
-        "SELECT byte_start, text FROM chunks WHERE entity = ?1 ORDER BY ordinal",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT byte_start, text FROM chunks WHERE entity = ?1 ORDER BY ordinal")?;
     let rows = stmt.query_map([entity.as_str()], |r| {
         Ok((r.get::<_, i64>(0)?.max(0) as usize, r.get::<_, String>(1)?))
     })?;

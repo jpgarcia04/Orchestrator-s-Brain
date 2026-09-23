@@ -10,10 +10,8 @@
 //! 37, con la regla que disparó cada uno, sí.
 
 use obrain_core::{Sensitivity, Store, TimePoint};
-use obrain_extract::{load_files, FileRow};
-use obrain_guard::{
-    classify_all, gate, mark_by_user, Capability, GuardReport, Runs, Verdict,
-};
+use obrain_extract::{FileRow, load_files};
+use obrain_guard::{Capability, GuardReport, Runs, Verdict, classify_all, gate, mark_by_user};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
@@ -57,7 +55,9 @@ fn main() -> ExitCode {
     if let Some(i) = args.iter().position(|a| a == "--marcar") {
         let (Some(patron), Some(nivel)) = (
             args.get(i + 1),
-            args.get(i + 2).map(String::as_str).and_then(Sensitivity::parse),
+            args.get(i + 2)
+                .map(String::as_str)
+                .and_then(Sensitivity::parse),
         ) else {
             eprintln!("uso: --marcar <texto-de-la-ruta> <normal|sensitive|vault>");
             return ExitCode::from(2);
@@ -171,11 +171,16 @@ fn sample(store: &Store, verdicts: &[Verdict]) {
     };
 
     for (titulo, nivel) in [
-        ("BOVEDA — fuera del indice vectorial y del egreso", Sensitivity::Vault),
+        (
+            "BOVEDA — fuera del indice vectorial y del egreso",
+            Sensitivity::Vault,
+        ),
         ("SENSIBLE — solo modelos locales", Sensitivity::Sensitive),
     ] {
-        let del_nivel: Vec<&Verdict> =
-            verdicts.iter().filter(|v| v.signal.level == nivel).collect();
+        let del_nivel: Vec<&Verdict> = verdicts
+            .iter()
+            .filter(|v| v.signal.level == nivel)
+            .collect();
         println!("\n══ {titulo} ({}) ═══", del_nivel.len());
         if del_nivel.is_empty() {
             println!("  (ninguno)");
@@ -211,9 +216,8 @@ fn sample(store: &Store, verdicts: &[Verdict]) {
                 (Capability::Reranker, Runs::Local, "reordenar en local"),
                 (Capability::Answerer, Runs::Remote, "responder en remoto"),
             ] {
-                let d = gate::check(store, &v.entity, cap, runs).unwrap_or(gate::Decision::Deny(
-                    "error al leer la sensibilidad",
-                ));
+                let d = gate::check(store, &v.entity, cap, runs)
+                    .unwrap_or(gate::Decision::Deny("error al leer la sensibilidad"));
                 let simbolo = match d {
                     gate::Decision::Allow => "PERMITIDO".to_string(),
                     gate::Decision::NeedsConsent => "REQUIERE CONSENTIMIENTO".to_string(),
@@ -244,13 +248,7 @@ fn truncar(s: &str, n: usize) -> String {
 
 /// `--marcar`: escribe aserciones de método `user`, que ninguna pasada
 /// posterior del clasificador puede desplazar.
-fn marcar(
-    store: &Store,
-    files: &[FileRow],
-    patron: &str,
-    nivel: Sensitivity,
-    at: i64,
-) -> ExitCode {
+fn marcar(store: &Store, files: &[FileRow], patron: &str, nivel: Sensitivity, at: i64) -> ExitCode {
     let objetivo: Vec<&FileRow> = files
         .iter()
         .filter(|f| f.path.to_lowercase().contains(&patron.to_lowercase()))
@@ -259,7 +257,11 @@ fn marcar(
         println!("\n  ningun archivo contiene {patron:?} en su ruta");
         return ExitCode::SUCCESS;
     }
-    println!("\n▸ marcando {} archivos como {}", objetivo.len(), nivel.as_str());
+    println!(
+        "\n▸ marcando {} archivos como {}",
+        objetivo.len(),
+        nivel.as_str()
+    );
     for f in &objetivo {
         if let Err(e) = mark_by_user(store, &f.entity, nivel, at) {
             eprintln!("  error en {}: {e}", f.file_name());

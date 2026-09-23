@@ -41,10 +41,7 @@ pub struct FileView {
 
 impl FileView {
     pub fn file_name(&self) -> &str {
-        self.path
-            .rsplit(['\\', '/'])
-            .next()
-            .unwrap_or(&self.path)
+        self.path.rsplit(['\\', '/']).next().unwrap_or(&self.path)
     }
 
     pub fn parent(&self) -> &str {
@@ -88,7 +85,10 @@ pub fn load_files(store: &Store, at: TimePoint) -> Result<Vec<FileView>> {
             continue;
         };
         out.push(FileView {
-            hash: hashes.get(&entity).and_then(|v| v.as_text()).map(str::to_string),
+            hash: hashes
+                .get(&entity)
+                .and_then(|v| v.as_text())
+                .map(str::to_string),
             modified_ms: match mtimes.get(&entity) {
                 Some(Value::Timestamp(t)) => *t,
                 _ => 0,
@@ -160,9 +160,15 @@ pub(crate) fn write_edge(
         return Ok(false);
     }
     store.assert(
-        NewAssertion::new(edge.subject.clone(), edge.predicate, edge.object, edge.method, at)
-            .confidence(edge.confidence)
-            .source(edge.source),
+        NewAssertion::new(
+            edge.subject.clone(),
+            edge.predicate,
+            edge.object,
+            edge.method,
+            at,
+        )
+        .confidence(edge.confidence)
+        .source(edge.source),
     )?;
     Ok(true)
 }
@@ -313,7 +319,11 @@ pub fn sample_edges(
     at: TimePoint,
 ) -> Result<Vec<String>> {
     let mut out = Vec::new();
-    for a in store.query(None, Some(predicate), at)?.into_iter().take(limit) {
+    for a in store
+        .query(None, Some(predicate), at)?
+        .into_iter()
+        .take(limit)
+    {
         let from = label(store, &a.subject, at);
         let to = match &a.object {
             Value::Entity(e) => label(store, e, at),

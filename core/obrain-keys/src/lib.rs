@@ -54,13 +54,17 @@ pub enum Error {
     #[error("el archivo de la llave está dañado: {0}")]
     Formato(String),
 
-    #[error("este equipo no puede abrir la llave de la base ({0}); hace falta la clave de recuperación")]
+    #[error(
+        "este equipo no puede abrir la llave de la base ({0}); hace falta la clave de recuperación"
+    )]
     SistemaNoDisponible(String),
 
     #[error("esa no es la clave de recuperación de esta base")]
     ClaveIncorrecta,
 
-    #[error("una clave de recuperación son 25 letras y números (los guiones y los espacios dan igual)")]
+    #[error(
+        "una clave de recuperación son 25 letras y números (los guiones y los espacios dan igual)"
+    )]
     CodigoMalFormado,
 
     #[error("ya existe una llave para esta base")]
@@ -100,8 +104,16 @@ impl DataKey {
         let mut s = Zeroizing::new(String::with_capacity(67));
         s.push_str("x'");
         for b in self.0.iter() {
-            s.push(char::from_digit(u32::from(b >> 4), 16).unwrap_or('0').to_ascii_uppercase());
-            s.push(char::from_digit(u32::from(b & 0x0f), 16).unwrap_or('0').to_ascii_uppercase());
+            s.push(
+                char::from_digit(u32::from(b >> 4), 16)
+                    .unwrap_or('0')
+                    .to_ascii_uppercase(),
+            );
+            s.push(
+                char::from_digit(u32::from(b & 0x0f), 16)
+                    .unwrap_or('0')
+                    .to_ascii_uppercase(),
+            );
         }
         s.push('\'');
         s
@@ -166,9 +178,17 @@ pub struct KdfParams {
 impl KdfParams {
     /// 64 MiB y 3 pasadas: unas décimas de segundo en una laptop, y sólo se
     /// paga al crear la llave y al recuperarla.
-    pub const DEFAULT: KdfParams = KdfParams { m_kib: 64 * 1024, t: 3, p: 1 };
+    pub const DEFAULT: KdfParams = KdfParams {
+        m_kib: 64 * 1024,
+        t: 3,
+        p: 1,
+    };
     /// Para los tests: el mínimo que acepta Argon2. **Nunca** en una base real.
-    pub const FAST_FOR_TESTS: KdfParams = KdfParams { m_kib: 8, t: 1, p: 1 };
+    pub const FAST_FOR_TESTS: KdfParams = KdfParams {
+        m_kib: 8,
+        t: 1,
+        p: 1,
+    };
 }
 
 /// Lo que devuelve crear una llave: la llave, y la clave de recuperación que
@@ -234,7 +254,10 @@ pub fn prepare(kdf: KdfParams) -> Result<Pending> {
         sistema: sistema::wrap(&key)?,
         recuperacion: wrap_recovery(&key, &recovery, kdf)?,
     };
-    Ok(Pending { created: Created { key, recovery }, archivo })
+    Ok(Pending {
+        created: Created { key, recovery },
+        archivo,
+    })
 }
 
 /// La llave, abierta por el sistema. Es lo que pasa cada vez que se abre la
@@ -322,7 +345,13 @@ fn wrap_recovery(key: &DataKey, code: &RecoveryCode, kdf: KdfParams) -> Result<C
     azar(&mut nonce)?;
     let kek = derive(code, &sal, kdf.m_kib, kdf.t, kdf.p)?;
     let caja = XChaCha20Poly1305::new(kek.as_ref().into())
-        .encrypt(XNonce::from_slice(&nonce), Payload { msg: key.bytes(), aad: AAD })
+        .encrypt(
+            XNonce::from_slice(&nonce),
+            Payload {
+                msg: key.bytes(),
+                aad: AAD,
+            },
+        )
         .map_err(|_| Error::Formato("no se pudo cifrar la caja de recuperación".into()))?;
     Ok(CajaRecuperacion {
         kdf: "argon2id".into(),
@@ -347,7 +376,13 @@ fn unwrap_recovery(c: &CajaRecuperacion, code: &RecoveryCode) -> Result<DataKey>
     let kek = derive(code, &sal, c.m, c.t, c.p)?;
     let llave = Zeroizing::new(
         XChaCha20Poly1305::new(kek.as_ref().into())
-            .decrypt(XNonce::from_slice(&nonce), Payload { msg: &datos, aad: AAD })
+            .decrypt(
+                XNonce::from_slice(&nonce),
+                Payload {
+                    msg: &datos,
+                    aad: AAD,
+                },
+            )
             // Un código equivocado y una caja manipulada fallan igual, y para
             // quien lo usa significan lo mismo: con esto no se abre.
             .map_err(|_| Error::ClaveIncorrecta)?,
@@ -372,7 +407,10 @@ mod tests {
 
     #[test]
     fn la_llave_vive_junto_a_la_base() {
-        assert_eq!(key_path(Path::new("/x/brain.obrain")), PathBuf::from("/x/brain.obrain.llave"));
+        assert_eq!(
+            key_path(Path::new("/x/brain.obrain")),
+            PathBuf::from("/x/brain.obrain.llave")
+        );
     }
 
     #[test]
@@ -384,7 +422,10 @@ mod tests {
         assert!(exists(&db));
         let k = unlock(&db).unwrap();
         assert_eq!(k.bytes(), c.key.bytes());
-        assert!(matches!(create_with(&db, KdfParams::FAST_FOR_TESTS), Err(Error::YaExiste)));
+        assert!(matches!(
+            create_with(&db, KdfParams::FAST_FOR_TESTS),
+            Err(Error::YaExiste)
+        ));
     }
 
     /// La clave de recuperación abre la llave, y la equivocada no.
@@ -399,7 +440,10 @@ mod tests {
 
         let otra = RecoveryCode::generate().unwrap();
         assert!(matches!(recover(&db, &otra), Err(Error::ClaveIncorrecta)));
-        assert!(matches!(verify_recovery(&db, &otra), Err(Error::ClaveIncorrecta)));
+        assert!(matches!(
+            verify_recovery(&db, &otra),
+            Err(Error::ClaveIncorrecta)
+        ));
     }
 
     /// El caso para el que existe: la llave se guardó con un sistema que este
@@ -412,10 +456,15 @@ mod tests {
         let c = create_with(&db, KdfParams::FAST_FOR_TESTS).unwrap();
 
         let ruta = key_path(&db);
-        let otro_sistema = if cfg!(windows) { "sin-proteger" } else { "dpapi" };
-        let texto = std::fs::read_to_string(&ruta)
-            .unwrap()
-            .replace(&format!("\"tipo\": \"{}\"", sistema::TIPO), &format!("\"tipo\": \"{otro_sistema}\""));
+        let otro_sistema = if cfg!(windows) {
+            "sin-proteger"
+        } else {
+            "dpapi"
+        };
+        let texto = std::fs::read_to_string(&ruta).unwrap().replace(
+            &format!("\"tipo\": \"{}\"", sistema::TIPO),
+            &format!("\"tipo\": \"{otro_sistema}\""),
+        );
         std::fs::write(&ruta, texto).unwrap();
         assert!(matches!(unlock(&db), Err(Error::SistemaNoDisponible(_))));
 

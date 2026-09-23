@@ -6,7 +6,7 @@
 //! la puerta con un embebedor de juguete.
 
 use obrain_core::{EntityId, Facet, Method, NewAssertion, Store, TimePoint, Value};
-use obrain_extract::{extract_all, extract_all_with, index, load_files, search, ExtractReport};
+use obrain_extract::{ExtractReport, extract_all, extract_all_with, index, load_files, search};
 use obrain_ocr::Ocr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -26,10 +26,15 @@ fn ingerir(store: &Store, path: &Path, at: i64) -> EntityId {
     let bytes = std::fs::read(path).unwrap();
     let e = store.create_entity(at).unwrap();
     let w = |p: &str, v: Value| {
-        store.assert(NewAssertion::new(e.clone(), p, v, Method::Deterministic, at).source("scan@m1")).unwrap();
+        store
+            .assert(NewAssertion::new(e.clone(), p, v, Method::Deterministic, at).source("scan@m1"))
+            .unwrap();
     };
     w("has_facet", Facet::Addressable.as_str().into());
-    w("path_observed_at", path.to_string_lossy().to_string().into());
+    w(
+        "path_observed_at",
+        path.to_string_lossy().to_string().into(),
+    );
     w("file_size", Value::Number(bytes.len() as f64));
     w("availability", "local".into());
     w("has_hash", blake3::hash(&bytes).to_hex().to_string().into());
@@ -44,7 +49,10 @@ struct Juguete {
 
 impl Juguete {
     fn new(texto: &'static str) -> Self {
-        Juguete { texto, llamadas: AtomicUsize::new(0) }
+        Juguete {
+            texto,
+            llamadas: AtomicUsize::new(0),
+        }
     }
     fn llamadas(&self) -> usize {
         self.llamadas.load(Ordering::Relaxed)
@@ -68,8 +76,13 @@ impl Ocr for Juguete {
 fn correr(store: &mut Store, at: i64, ocr: Option<&dyn Ocr>) -> ExtractReport {
     let files = load_files(store, TimePoint::at(at)).unwrap();
     let mut r = ExtractReport::default();
-    store.transaction(|s| extract_all_with(s, &files, at, &mut r, ocr)).unwrap();
-    assert!(r.arithmetic_holds(), "la aritmética del informe no cierra: {r:?}");
+    store
+        .transaction(|s| extract_all_with(s, &files, at, &mut r, ocr))
+        .unwrap();
+    assert!(
+        r.arithmetic_holds(),
+        "la aritmética del informe no cierra: {r:?}"
+    );
     r
 }
 
@@ -88,11 +101,17 @@ fn pdf_escaneado() -> Vec<u8> {
         pdf.push_str(&format!("{} 0 obj\n{o}\nendobj\n", i + 1));
     }
     let xref = pdf.len();
-    pdf.push_str(&format!("xref\n0 {}\n0000000000 65535 f \n", objetos.len() + 1));
+    pdf.push_str(&format!(
+        "xref\n0 {}\n0000000000 65535 f \n",
+        objetos.len() + 1
+    ));
     for o in offsets {
         pdf.push_str(&format!("{o:010} 00000 n \n"));
     }
-    pdf.push_str(&format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objetos.len() + 1));
+    pdf.push_str(&format!(
+        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+        objetos.len() + 1
+    ));
     pdf.into_bytes()
 }
 
@@ -136,10 +155,18 @@ fn con_ocr_la_foto_de_la_tie_se_lee_y_se_busca() {
     assert_eq!(hits.first().map(|h| &h.entity), Some(&tie));
 
     let tp = TimePoint::at(3);
-    let motor = store.resolve(&tie, "ocr_engine", tp).unwrap().expect("tiene que decir quién lo leyó");
+    let motor = store
+        .resolve(&tie, "ocr_engine", tp)
+        .unwrap()
+        .expect("tiene que decir quién lo leyó");
     assert_eq!(motor.object.as_text(), Some("juguete/es-ES"));
     assert_eq!(
-        store.resolve(&tie, "extraction_status", tp).unwrap().unwrap().object.as_text(),
+        store
+            .resolve(&tie, "extraction_status", tp)
+            .unwrap()
+            .unwrap()
+            .object
+            .as_text(),
         Some("ok")
     );
 
@@ -158,7 +185,12 @@ fn una_foto_sin_texto_sale_vacia() {
     let e = ingerir(&store, &dir.join("atardecer.png"), 1);
     let r = correr(&mut store, 2, Some(&Juguete::new("   \n  ")));
     assert_eq!((r.empty, r.ocr), (1, 0));
-    assert!(store.resolve(&e, "ocr_engine", TimePoint::at(3)).unwrap().is_none());
+    assert!(
+        store
+            .resolve(&e, "ocr_engine", TimePoint::at(3))
+            .unwrap()
+            .is_none()
+    );
 }
 
 // ══════════════════════════════════════════════════════════ PDF escaneados
@@ -179,9 +211,18 @@ fn un_pdf_escaneado_se_reintenta_una_vez_cuando_hay_ocr() {
     let r = correr(&mut store, 3, Some(&ocr));
     assert_eq!((r.extracted, r.ocr), (1, 1), "{r:?}");
     assert_eq!(ocr.llamadas(), 1);
-    assert!(!search(&store, "caducidad", 5, TimePoint::at(4)).unwrap().is_empty());
+    assert!(
+        !search(&store, "caducidad", 5, TimePoint::at(4))
+            .unwrap()
+            .is_empty()
+    );
     assert_eq!(
-        store.resolve(&pas, "ocr_engine", TimePoint::at(4)).unwrap().unwrap().object.as_text(),
+        store
+            .resolve(&pas, "ocr_engine", TimePoint::at(4))
+            .unwrap()
+            .unwrap()
+            .object
+            .as_text(),
         Some("juguete/es-ES")
     );
     let prev = index::previous(
@@ -196,7 +237,11 @@ fn un_pdf_escaneado_se_reintenta_una_vez_cuando_hay_ocr() {
 
     let r = correr(&mut store, 5, Some(&ocr));
     assert_eq!(r.unchanged, 1);
-    assert_eq!(ocr.llamadas(), 1, "no se vuelve a reconocer lo que no cambió");
+    assert_eq!(
+        ocr.llamadas(),
+        1,
+        "no se vuelve a reconocer lo que no cambió"
+    );
 }
 
 /// Un PDF con texto de verdad no pasa por el OCR.

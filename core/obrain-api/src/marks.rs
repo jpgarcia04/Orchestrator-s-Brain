@@ -116,7 +116,12 @@ pub fn marked(store: &Store, at: TimePoint) -> Result<Vec<MarkedFolder>> {
             since: m.asserted_at,
         })
         .collect();
-    out.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()).then(a.id.cmp(&b.id)));
+    out.sort_by(|a, b| {
+        a.label
+            .to_lowercase()
+            .cmp(&b.label.to_lowercase())
+            .then(a.id.cmp(&b.id))
+    });
     Ok(out)
 }
 

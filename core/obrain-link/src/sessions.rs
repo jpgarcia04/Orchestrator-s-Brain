@@ -15,7 +15,7 @@
 //! es una operación de máquina. Agruparlos produciría un nodo gigante y falso
 //! que contamina el grafo. Por eso los grupos demasiado grandes se descartan.
 
-use crate::{write_edge, Edge, FileView, LinkReport};
+use crate::{Edge, FileView, LinkReport, write_edge};
 use obrain_core::{Facet, Method, NewAssertion, Result, Store, Value};
 
 /// Hueco máximo entre dos archivos consecutivos para seguir en la misma sesión.
@@ -195,9 +195,18 @@ mod tests {
         assert_eq!(r.occurred_during, 6);
 
         let tp = TimePoint::at(9_999);
-        let s1 = s.resolve(&files[0].entity, "occurred_during", tp).unwrap().unwrap();
-        let s2 = s.resolve(&files[2].entity, "occurred_during", tp).unwrap().unwrap();
-        let s3 = s.resolve(&files[3].entity, "occurred_during", tp).unwrap().unwrap();
+        let s1 = s
+            .resolve(&files[0].entity, "occurred_during", tp)
+            .unwrap()
+            .unwrap();
+        let s2 = s
+            .resolve(&files[2].entity, "occurred_during", tp)
+            .unwrap()
+            .unwrap();
+        let s3 = s
+            .resolve(&files[3].entity, "occurred_during", tp)
+            .unwrap()
+            .unwrap();
         assert_eq!(s1.object, s2.object);
         assert_ne!(s1.object, s3.object);
     }
@@ -228,7 +237,11 @@ mod tests {
     fn la_sesion_es_inferida_no_determinista() {
         let s = Store::open_in_memory().unwrap();
         let base = 1_700_000_000_000i64;
-        let files = vec![fv(&s, "a", base), fv(&s, "b", base + MIN), fv(&s, "c", base + 2 * MIN)];
+        let files = vec![
+            fv(&s, "a", base),
+            fv(&s, "b", base + MIN),
+            fv(&s, "c", base + 2 * MIN),
+        ];
         let mut r = LinkReport::default();
         super::link(&s, &files, 9_000, &mut r).unwrap();
 
@@ -236,7 +249,11 @@ mod tests {
             .resolve(&files[0].entity, "occurred_during", TimePoint::at(9_999))
             .unwrap()
             .unwrap();
-        assert_eq!(a.method, Method::Inferred, "es una heuristica, puede estar mal");
+        assert_eq!(
+            a.method,
+            Method::Inferred,
+            "es una heuristica, puede estar mal"
+        );
         assert!(a.confidence < 1.0);
         assert_eq!(a.source, "heuristic:mtime-session");
     }

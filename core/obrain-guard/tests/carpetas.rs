@@ -8,9 +8,9 @@
 //! [ADR-0020]: ../../../docs/adr/0020-sensibilidad-por-carpeta.md
 
 use obrain_core::{
-    EntityId, Error, Method, NewAssertion, Sensitivity, Store, TimePoint, CONTENTS_SENSITIVITY,
+    CONTENTS_SENSITIVITY, EntityId, Error, Method, NewAssertion, Sensitivity, Store, TimePoint,
 };
-use obrain_guard::{classify_all, mark_by_user, mark_folder, GuardReport};
+use obrain_guard::{GuardReport, classify_all, mark_by_user, mark_folder};
 
 const T: i64 = 1_000_000;
 
@@ -23,8 +23,14 @@ fn base() -> Store {
 
 fn carpeta(s: &Store, ruta: &str) -> EntityId {
     let e = s.create_entity(T).unwrap();
-    s.assert(NewAssertion::new(e.clone(), "folder_path", ruta, Method::Deterministic, T))
-        .unwrap();
+    s.assert(NewAssertion::new(
+        e.clone(),
+        "folder_path",
+        ruta,
+        Method::Deterministic,
+        T,
+    ))
+    .unwrap();
     e
 }
 
@@ -32,7 +38,14 @@ fn carpeta(s: &Store, ruta: &str) -> EntityId {
 fn archivo(s: &Store, ruta: &str, at: i64) -> EntityId {
     let e = s.create_entity(at).unwrap();
     for (p, v) in [("path_observed_at", ruta), ("availability", "local")] {
-        s.assert(NewAssertion::new(e.clone(), p, v, Method::Deterministic, at)).unwrap();
+        s.assert(NewAssertion::new(
+            e.clone(),
+            p,
+            v,
+            Method::Deterministic,
+            at,
+        ))
+        .unwrap();
     }
     e
 }
@@ -63,10 +76,18 @@ fn marcar_identidad_protege_la_foto_de_la_tie() {
     assert_eq!(nivel(&s, &tie), Sensitivity::Normal);
 
     let r = mark_folder(&s, &identidad, Some(Sensitivity::Sensitive), T + 2).unwrap();
-    assert_eq!(nivel(&s, &tie), Sensitivity::Sensitive, "sube al marcar, sin reindexar");
+    assert_eq!(
+        nivel(&s, &tie),
+        Sensitivity::Sensitive,
+        "sube al marcar, sin reindexar"
+    );
     assert_eq!(nivel(&s, &identidad), Sensitivity::Sensitive);
     assert_eq!(nivel(&s, &salud), Sensitivity::Normal);
-    assert_eq!(nivel(&s, &boveda), Sensitivity::Normal, "la madre no hereda de la hija");
+    assert_eq!(
+        nivel(&s, &boveda),
+        Sensitivity::Normal,
+        "la madre no hereda de la hija"
+    );
     assert_eq!(r.under, 2, "la carpeta y la foto");
     assert_eq!(r.changed, 2);
 }
@@ -101,7 +122,11 @@ fn una_subcarpeta_nueva_tambien_hereda() {
 
     let nueva = carpeta(&s, r"C:\Bóveda\01 Identidad\Renovación 2027");
     let otra = carpeta(&s, r"C:\Bóveda\02 Salud");
-    assert_eq!(nivel(&s, &nueva), Sensitivity::Normal, "todavía nadie la ha mirado");
+    assert_eq!(
+        nivel(&s, &nueva),
+        Sensitivity::Normal,
+        "todavía nadie la ha mirado"
+    );
     clasificar(&s, T + 1);
     assert_eq!(nivel(&s, &nueva), Sensitivity::Sensitive);
     assert_eq!(nivel(&s, &otra), Sensitivity::Normal);
@@ -121,7 +146,13 @@ fn ningun_reescaneo_pisa_la_marca() {
         clasificar(&s, T + 10 + i);
     }
     assert_eq!(nivel(&s, &tie), Sensitivity::Sensitive);
-    let marcas = s.query(Some(&identidad), Some(CONTENTS_SENSITIVITY), TimePoint::at(T + 20)).unwrap();
+    let marcas = s
+        .query(
+            Some(&identidad),
+            Some(CONTENTS_SENSITIVITY),
+            TimePoint::at(T + 20),
+        )
+        .unwrap();
     assert_eq!(marcas.len(), 1, "la marca sigue viva y es una sola");
     assert_eq!(s.log_len().unwrap(), antes, "reclasificar no escribe nada");
 }
@@ -140,10 +171,19 @@ fn quitar_la_marca_devuelve_lo_que_diga_el_clasificador() {
     let r = mark_folder(&s, &identidad, None, T + 3).unwrap();
     assert_eq!(r.level, None);
     assert_eq!(nivel(&s, &tie), Sensitivity::Normal);
-    assert_eq!(nivel(&s, &pasaporte), Sensitivity::Sensitive, "su nombre lo sigue delatando");
+    assert_eq!(
+        nivel(&s, &pasaporte),
+        Sensitivity::Sensitive,
+        "su nombre lo sigue delatando"
+    );
 
     // La marca no se borró: se retractó (I4). En T+2 existía.
-    assert!(s.folder_marks(TimePoint::at(T + 2)).unwrap().of(&identidad).is_some());
+    assert!(
+        s.folder_marks(TimePoint::at(T + 2))
+            .unwrap()
+            .of(&identidad)
+            .is_some()
+    );
     assert!(s.folder_marks(TimePoint::at(T + 4)).unwrap().is_empty());
 }
 
@@ -162,7 +202,9 @@ fn marcar_es_idempotente_y_cambiar_de_nivel_sustituye() {
 
     mark_folder(&s, &c, Some(Sensitivity::Vault), T + 3).unwrap();
     assert_eq!(nivel(&s, &f), Sensitivity::Vault);
-    let vivas = s.query(Some(&c), Some(CONTENTS_SENSITIVITY), TimePoint::at(T + 4)).unwrap();
+    let vivas = s
+        .query(Some(&c), Some(CONTENTS_SENSITIVITY), TimePoint::at(T + 4))
+        .unwrap();
     assert_eq!(vivas.len(), 1);
     assert_eq!(vivas[0].object.as_text(), Some("vault"));
     assert!(s.contradictions(TimePoint::at(T + 4)).unwrap().is_empty());

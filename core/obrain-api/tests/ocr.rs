@@ -3,7 +3,7 @@
 //! El reconocedor es de juguete —el de verdad es el de Windows—, pero todo lo
 //! demás es el pipeline real: escanear, enlazar, extraer, clasificar.
 
-use obrain_api::{indexar, Brain};
+use obrain_api::{Brain, indexar};
 use obrain_core::{Sensitivity, Store};
 use obrain_ocr::Ocr;
 
@@ -32,7 +32,8 @@ fn la_foto_de_la_tie_se_encuentra_se_ve_y_sale_sensible_sin_marcar_nada() {
         .unwrap();
 
     let mut store = Store::open_in_memory().unwrap();
-    let r = indexar::index_with(&mut store, std::slice::from_ref(&boveda), None, Some(&Tie)).unwrap();
+    let r =
+        indexar::index_with(&mut store, std::slice::from_ref(&boveda), None, Some(&Tie)).unwrap();
     assert_eq!((r.documents_read, r.ocr), (1, 1), "{r:?}");
     assert_eq!(r.sensitive, 1, "el NIE reconocido la vuelve sensible");
 
@@ -51,5 +52,10 @@ fn la_foto_de_la_tie_se_encuentra_se_ve_y_sale_sensible_sin_marcar_nada() {
 
     // Y el porqué: quién leyó el texto.
     let ficha = b.entity(&id).unwrap();
-    assert!(ficha.observed.iter().any(|c| c.predicate == "ocr_engine" && c.value == "juguete/es-ES"));
+    assert!(
+        ficha
+            .observed
+            .iter()
+            .any(|c| c.predicate == "ocr_engine" && c.value == "juguete/es-ES")
+    );
 }

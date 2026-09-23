@@ -65,15 +65,80 @@ impl Format {
 /// coste de leer un `.ts` es idéntico al de leer un `.txt`.
 const PLAIN: &[&str] = &[
     // prosa y notas
-    "txt", "md", "markdown", "rst", "adoc", "tex", "csv", "tsv", "srt", "vtt", "log",
+    "txt",
+    "md",
+    "markdown",
+    "rst",
+    "adoc",
+    "tex",
+    "csv",
+    "tsv",
+    "srt",
+    "vtt",
+    "log",
     // configuración
-    "ini", "cfg", "conf", "env", "yml", "yaml", "toml", "json", "jsonl", "xml", "properties",
-    "gitignore", "gitattributes", "editorconfig", "example", "lock",
+    "ini",
+    "cfg",
+    "conf",
+    "env",
+    "yml",
+    "yaml",
+    "toml",
+    "json",
+    "jsonl",
+    "xml",
+    "properties",
+    "gitignore",
+    "gitattributes",
+    "editorconfig",
+    "example",
+    "lock",
     // código
-    "rs", "js", "mjs", "cjs", "jsx", "ts", "tsx", "vue", "svelte", "py", "rb", "php", "go", "java",
-    "kt", "swift", "c", "h", "cpp", "hpp", "cc", "cs", "sql", "sh", "bash", "zsh", "ps1", "psm1",
-    "psd1", "ps1xml", "bat", "cmd", "css", "scss", "sass", "less", "prisma", "graphql", "proto",
-    "r", "lua", "pl", "dart", "ex", "exs",
+    "rs",
+    "js",
+    "mjs",
+    "cjs",
+    "jsx",
+    "ts",
+    "tsx",
+    "vue",
+    "svelte",
+    "py",
+    "rb",
+    "php",
+    "go",
+    "java",
+    "kt",
+    "swift",
+    "c",
+    "h",
+    "cpp",
+    "hpp",
+    "cc",
+    "cs",
+    "sql",
+    "sh",
+    "bash",
+    "zsh",
+    "ps1",
+    "psm1",
+    "psd1",
+    "ps1xml",
+    "bat",
+    "cmd",
+    "css",
+    "scss",
+    "sass",
+    "less",
+    "prisma",
+    "graphql",
+    "proto",
+    "r",
+    "lua",
+    "pl",
+    "dart",
+    "ex",
+    "exs",
 ];
 
 /// Archivos sin extensión que sí son texto y que aparecen de verdad en repos.
@@ -116,7 +181,9 @@ pub fn detect(path: &str) -> Option<Format> {
         "docx" | "docm" | "xlsx" | "xlsm" | "pptx" | "pptm" => Some(Format::Ooxml),
         // Lo que decodifica Windows sin instalar nada más; `heic` y `webp` si
         // tiene sus extensiones, y si no, el reconocedor lo dice y se anota.
-        "jpg" | "jpeg" | "png" | "bmp" | "gif" | "tif" | "tiff" | "webp" | "heic" => Some(Format::Image),
+        "jpg" | "jpeg" | "png" | "bmp" | "gif" | "tif" | "tiff" | "webp" | "heic" => {
+            Some(Format::Image)
+        }
         e if PLAIN.contains(&e) => Some(Format::PlainText),
         _ => {
             let lower = name.to_ascii_lowercase();
@@ -175,9 +242,15 @@ mod tests {
     /// pipeline decide qué hacer si no hay reconocedor.
     #[test]
     fn una_foto_es_una_imagen() {
-        assert_eq!(detect(r"C:\Bóveda\01 Identidad\IMG_2291.JPG"), Some(Format::Image));
+        assert_eq!(
+            detect(r"C:\Bóveda\01 Identidad\IMG_2291.JPG"),
+            Some(Format::Image)
+        );
         assert_eq!(detect(r"C:\a\escaneo.tiff"), Some(Format::Image));
-        assert!(Format::Image.extract(b"\x89PNG").is_err(), "sin OCR no se extrae");
+        assert!(
+            Format::Image.extract(b"\x89PNG").is_err(),
+            "sin OCR no se extrae"
+        );
     }
 
     #[test]

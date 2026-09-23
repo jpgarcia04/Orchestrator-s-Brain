@@ -5,8 +5,8 @@
 //! información": es un documento que sale en toda búsqueda y no responde a
 //! ninguna. Por eso este extractor **quita** mucho más de lo que conserva.
 
-use scraper::node::Node;
 use scraper::Html;
+use scraper::node::Node;
 
 /// Subárboles que nunca contienen prosa del documento.
 const SKIP: &[&str] = &[
@@ -22,9 +22,39 @@ const SKIP: &[&str] = &[
 /// como límite de párrafo, así que un `<p>` de HTML acaba siendo un párrafo de
 /// verdad y no un trozo cualquiera a 1.200 bytes del anterior.
 const BLOCK: &[&str] = &[
-    "p", "div", "hr", "li", "ul", "ol", "tr", "td", "th", "table", "h1", "h2", "h3", "h4", "h5",
-    "h6", "section", "article", "header", "footer", "nav", "aside", "main", "blockquote", "pre",
-    "figcaption", "form", "label", "option", "dt", "dd", "details", "summary",
+    "p",
+    "div",
+    "hr",
+    "li",
+    "ul",
+    "ol",
+    "tr",
+    "td",
+    "th",
+    "table",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "section",
+    "article",
+    "header",
+    "footer",
+    "nav",
+    "aside",
+    "main",
+    "blockquote",
+    "pre",
+    "figcaption",
+    "form",
+    "label",
+    "option",
+    "dt",
+    "dd",
+    "details",
+    "summary",
 ];
 
 pub fn extract(bytes: &[u8]) -> Result<String, String> {
@@ -156,7 +186,10 @@ mod tests {
         let t = extract(html).unwrap();
         assert!(t.contains("Los Frutos de Maria"));
         assert!(t.contains("Crema facial"));
-        assert!(t.contains("aceite de rosa mosqueta"), "espacios colapsados: {t:?}");
+        assert!(
+            t.contains("aceite de rosa mosqueta"),
+            "espacios colapsados: {t:?}"
+        );
         assert!(!t.contains("font-size"), "entro CSS: {t:?}");
         assert!(!t.contains("dataLayer"), "entro JS: {t:?}");
     }

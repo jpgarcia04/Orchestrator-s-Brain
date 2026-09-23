@@ -20,7 +20,7 @@
 //! de suministro. Comprobar el hash publicado contra el archivo bajado es el
 //! paso siguiente y está anotado en el informe, no escondido aquí.
 
-use crate::{e5, Error, Result};
+use crate::{Error, Result, e5};
 use std::path::{Path, PathBuf};
 
 /// El repositorio oficial del modelo. `intfloat` es el equipo que lo publicó y
@@ -61,7 +61,10 @@ pub fn is_present(dir: &Path) -> bool {
 pub fn manual_instructions(dir: &Path) -> String {
     let mut s = format!("  mkdir \"{}\"\n", dir.display());
     for (remote, local) in REMOTE {
-        s.push_str(&format!("  curl -L -o \"{}\" {BASE}/{remote}\n", dir.join(local).display()));
+        s.push_str(&format!(
+            "  curl -L -o \"{}\" {BASE}/{remote}\n",
+            dir.join(local).display()
+        ));
     }
     s
 }

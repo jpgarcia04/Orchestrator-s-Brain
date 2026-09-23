@@ -18,7 +18,7 @@
 //! HostUrl=https://banco.example/descargas/nomina_marzo.pdf
 //! ```
 
-use crate::{write_edge, Edge, FileView, LinkReport};
+use crate::{Edge, FileView, LinkReport, write_edge};
 use obrain_core::{Method, Result, Store, Value};
 
 /// Extrae la mejor URL disponible. `HostUrl` es la del archivo en sí;
@@ -124,7 +124,10 @@ mod tests {
 
     #[test]
     fn sin_zona_no_hay_arista() {
-        assert_eq!(parse_zone_identifier("[ZoneTransfer]\r\nZoneId=3\r\n"), None);
+        assert_eq!(
+            parse_zone_identifier("[ZoneTransfer]\r\nZoneId=3\r\n"),
+            None
+        );
         assert_eq!(parse_zone_identifier(""), None);
     }
 }

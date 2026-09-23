@@ -172,7 +172,10 @@ fn read_tree(store: &Store, at: TimePoint) -> Result<Tree> {
     // real son esos catorce.
     let mut es_registro: HashSet<EntityId> = HashSet::new();
     for a in store.query(None, Some("path_observed_at"), at)? {
-        if a.object.as_text().is_some_and(|p| p.to_ascii_lowercase().ends_with(".log")) {
+        if a.object
+            .as_text()
+            .is_some_and(|p| p.to_ascii_lowercase().ends_with(".log"))
+        {
             es_registro.insert(a.subject);
         }
     }
@@ -203,7 +206,9 @@ fn read_tree(store: &Store, at: TimePoint) -> Result<Tree> {
     let mut home = HashMap::new();
 
     for a in store.query(None, Some("contained_by"), at)? {
-        let Value::Entity(up) = a.object else { continue };
+        let Value::Entity(up) = a.object else {
+            continue;
+        };
         // Por encima de una biblioteca sólo está el camino del disco hasta ella.
         if libraries.contains(&a.subject) {
             continue;
@@ -244,17 +249,19 @@ fn read_tree(store: &Store, at: TimePoint) -> Result<Tree> {
     let mut legible: HashMap<EntityId, usize> = HashMap::new();
     for h in order.iter().rev() {
         let own = direct.get(h).map_or(0, Vec::len);
-        let sub: usize = children
-            .get(h)
-            .map_or(0, |cs| cs.iter().map(|c| weight.get(c).copied().unwrap_or(0)).sum());
+        let sub: usize = children.get(h).map_or(0, |cs| {
+            cs.iter().map(|c| weight.get(c).copied().unwrap_or(0)).sum()
+        });
         weight.insert(h.clone(), own + sub);
 
-        let own_leg = direct
-            .get(h)
-            .map_or(0, |ds| ds.iter().filter(|d| con_formato.contains(*d)).count());
-        let sub_leg: usize = children
-            .get(h)
-            .map_or(0, |cs| cs.iter().map(|c| legible.get(c).copied().unwrap_or(0)).sum());
+        let own_leg = direct.get(h).map_or(0, |ds| {
+            ds.iter().filter(|d| con_formato.contains(*d)).count()
+        });
+        let sub_leg: usize = children.get(h).map_or(0, |cs| {
+            cs.iter()
+                .map(|c| legible.get(c).copied().unwrap_or(0))
+                .sum()
+        });
         legible.insert(h.clone(), own_leg + sub_leg);
     }
 
@@ -453,7 +460,9 @@ pub fn audit(store: &Store, target: usize, at: TimePoint) -> Result<Vec<RegionAu
 
     let mut fecha: HashMap<EntityId, i64> = HashMap::new();
     for a in store.query(None, Some("modified_at"), at)? {
-        let Value::Timestamp(t) = a.object else { continue };
+        let Value::Timestamp(t) = a.object else {
+            continue;
+        };
         fecha.insert(a.subject, t);
     }
 
@@ -526,7 +535,11 @@ pub fn audit(store: &Store, target: usize, at: TimePoint) -> Result<Vec<RegionAu
                 files: reg.weight,
                 assertions: asr,
                 sessions: ses.len(),
-                span_days: if min == i64::MAX { 0 } else { (max - min) / 86_400_000 },
+                span_days: if min == i64::MAX {
+                    0
+                } else {
+                    (max - min) / 86_400_000
+                },
                 out_edges: fuera[i],
             }
         })
@@ -561,7 +574,12 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
             .filter(|c| !tree.muda(c))
             .cloned()
             .collect();
-        v.sort_by(|a, b| tree.weight.get(b).cmp(&tree.weight.get(a)).then_with(|| a.cmp(b)));
+        v.sort_by(|a, b| {
+            tree.weight
+                .get(b)
+                .cmp(&tree.weight.get(a))
+                .then_with(|| a.cmp(b))
+        });
         v
     };
 
@@ -582,7 +600,12 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
     let mut open: Vec<Abierta> = tree
         .roots()
         .into_iter()
-        .map(|id| Abierta { id, zoom: Zoom::Subtree, nivel: 0, tomadas: 0 })
+        .map(|id| Abierta {
+            id,
+            zoom: Zoom::Subtree,
+            nivel: 0,
+            tomadas: 0,
+        })
         .collect();
 
     let peso = |a: &Abierta| -> usize {
@@ -665,9 +688,13 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
         let sitio = cuantas.saturating_sub(open.len());
         let margen = sitio.min(tope);
         let todas = pendientes <= margen;
-        let promovidas = if todas { pendientes } else { margen.saturating_sub(1) };
+        let promovidas = if todas {
+            pendientes
+        } else {
+            margen.saturating_sub(1)
+        };
         if promovidas == 0 {
-            open.push(madre);       // no cabe ni una más: el reparto terminó
+            open.push(madre); // no cabe ni una más: el reparto terminó
             break;
         }
 
@@ -718,8 +745,12 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
     let mut reciente: HashMap<&EntityId, i64> = HashMap::new();
     let (mut oldest, mut newest) = (i64::MAX, 0i64);
     for a in store.query(None, Some("modified_at"), at)? {
-        let Value::Timestamp(t) = a.object else { continue };
-        let Some(r) = de_quien.get(&a.subject) else { continue };
+        let Value::Timestamp(t) = a.object else {
+            continue;
+        };
+        let Some(r) = de_quien.get(&a.subject) else {
+            continue;
+        };
         oldest = oldest.min(t);
         newest = newest.max(t);
         let e = reciente.entry(r).or_insert(0);
@@ -748,9 +779,12 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
         });
     }
     regions.sort_by(|a, b| b.weight.cmp(&a.weight).then_with(|| a.id.cmp(&b.id)));
-    desambiguar(&mut regions, |r| r.label.clone(), |r, l| r.label = l, |r| {
-        tree.parent_name(&EntityId(r.id.clone()))
-    });
+    desambiguar(
+        &mut regions,
+        |r| r.label.clone(),
+        |r, l| r.label = l,
+        |r| tree.parent_name(&EntityId(r.id.clone())),
+    );
 
     // La sensibilidad más restrictiva que haya dentro sube a la región.
     let mut peor: HashMap<String, &'static str> = HashMap::new();
@@ -770,7 +804,9 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
     // ── los puentes: las sesiones que cruzaron regiones ──
     let mut por_sesion: BTreeMap<EntityId, BTreeSet<String>> = BTreeMap::new();
     for a in store.query(None, Some("occurred_during"), at)? {
-        let Value::Entity(sesion) = a.object else { continue };
+        let Value::Entity(sesion) = a.object else {
+            continue;
+        };
         if let Some(r) = de_quien.get(&a.subject) {
             por_sesion.entry(sesion).or_default().insert(r.0.clone());
         }
@@ -1071,10 +1107,14 @@ impl<'a> Filas<'a> {
     }
 
     fn sitio(&self, e: &EntityId) -> String {
-        self.tree.folders.get(e).cloned().unwrap_or_else(|| match self.ruta.get(e) {
-            Some(Value::Text(p)) => p.clone(),
-            _ => String::new(),
-        })
+        self.tree
+            .folders
+            .get(e)
+            .cloned()
+            .unwrap_or_else(|| match self.ruta.get(e) {
+                Some(Value::Text(p)) => p.clone(),
+                _ => String::new(),
+            })
     }
 
     fn nivel(&self, e: &EntityId) -> &'static str {
@@ -1086,10 +1126,10 @@ impl<'a> Filas<'a> {
             // Sin nombre por ruta ni por carpeta sólo quedan las sesiones, que
             // no aparecen como filas. Se paga la consulta suelta antes que
             // enseñar un identificador.
-            label: self
-                .nombres
-                .get(e)
-                .map_or_else(|| obrain_link::label(self.store, e, self.at), str::to_string),
+            label: self.nombres.get(e).map_or_else(
+                || obrain_link::label(self.store, e, self.at),
+                str::to_string,
+            ),
             path: self.sitio(e),
             kind: if carpeta { "folder" } else { "file" },
             weight: if carpeta {
@@ -1115,7 +1155,11 @@ pub fn recent(store: &Store, limit: usize, at: TimePoint) -> Result<Vec<Row>> {
     let f = Filas::cargar(store, at)?;
     let mut archivos: Vec<&EntityId> = f.tree.home.keys().collect();
     archivos.sort_by(|a, b| f.stamp(b).cmp(&f.stamp(a)).then_with(|| a.cmp(b)));
-    Ok(archivos.into_iter().take(limit).map(|e| f.fila(e, false)).collect())
+    Ok(archivos
+        .into_iter()
+        .take(limit)
+        .map(|e| f.fila(e, false))
+        .collect())
 }
 
 /// **Lo sensible**: los archivos que la puerta de egreso retiene (`sensitive` o
@@ -1129,7 +1173,12 @@ pub fn sensitive(store: &Store, at: TimePoint) -> Result<Vec<Row>> {
         .filter(|e| f.nivel(e) != "normal")
         .map(|e| f.fila(e, false))
         .collect();
-    filas.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()).then_with(|| a.id.cmp(&b.id)));
+    filas.sort_by(|a, b| {
+        a.label
+            .to_lowercase()
+            .cmp(&b.label.to_lowercase())
+            .then_with(|| a.id.cmp(&b.id))
+    });
     Ok(filas)
 }
 
@@ -1184,15 +1233,28 @@ pub fn children(store: &Store, focus: Option<&EntityId>, at: TimePoint) -> Resul
     let mut cs: Vec<Row> = carpetas.iter().map(|c| fila(c, true)).collect();
     cs.sort_by(|a, b| b.weight.cmp(&a.weight).then_with(|| a.label.cmp(&b.label)));
     let mut fs: Vec<Row> = archivos.iter().map(|a| fila(a, false)).collect();
-    fs.sort_by(|a, b| b.recency.cmp(&a.recency).then_with(|| a.label.cmp(&b.label)));
+    fs.sort_by(|a, b| {
+        b.recency
+            .cmp(&a.recency)
+            .then_with(|| a.label.cmp(&b.label))
+    });
     let (folders, files) = (cs.len(), fs.len());
     // Dentro de una carpeta no puede haber dos hijas con el mismo nombre, pero
     // en la raíz sí: dos bibliotecas llamadas `Documentos` en sitios distintos.
-    desambiguar(&mut cs, |r| r.label.clone(), |r, l| r.label = l, |r| {
-        let limpio = r.path.trim_end_matches(['\\', '/']);
-        let madre = &limpio[..limpio.rfind(['\\', '/'])?];
-        madre.rsplit(['\\', '/']).next().filter(|m| !m.is_empty()).map(str::to_string)
-    });
+    desambiguar(
+        &mut cs,
+        |r| r.label.clone(),
+        |r, l| r.label = l,
+        |r| {
+            let limpio = r.path.trim_end_matches(['\\', '/']);
+            let madre = &limpio[..limpio.rfind(['\\', '/'])?];
+            madre
+                .rsplit(['\\', '/'])
+                .next()
+                .filter(|m| !m.is_empty())
+                .map(str::to_string)
+        },
+    );
     rows.append(&mut cs);
     rows.append(&mut fs);
 
@@ -1203,7 +1265,9 @@ pub fn children(store: &Store, focus: Option<&EntityId>, at: TimePoint) -> Resul
         let mut cur = f.clone();
         let mut vistos = HashSet::new();
         while vistos.insert(cur.clone()) && trail.len() < 32 {
-            let Some(up) = tree.parent.get(&cur).cloned() else { break };
+            let Some(up) = tree.parent.get(&cur).cloned() else {
+                break;
+            };
             trail.push(Crumb {
                 label: nombres
                     .get(&up)
@@ -1224,7 +1288,10 @@ pub fn children(store: &Store, focus: Option<&EntityId>, at: TimePoint) -> Resul
 
     Ok(Listing {
         protection,
-        label: focus.map_or_else(|| "inicio".to_string(), |f| obrain_link::label(store, f, at)),
+        label: focus.map_or_else(
+            || "inicio".to_string(),
+            |f| obrain_link::label(store, f, at),
+        ),
         path: focus.map_or_else(String::new, sitio),
         focus: focus.map(|f| f.0.clone()),
         trail,
@@ -1278,10 +1345,15 @@ pub fn cluster(store: &Store, hits: &[crate::Hit], at: TimePoint) -> Result<Vec<
     // los grupos sale de ahí: no hace falta una puntuación agregada, que
     // siempre acaba siendo una media que no significa nada.
     grupos.sort_by_key(|g| g.best);
-    desambiguar(&mut grupos, |g| g.label.clone(), |g, l| g.label = l, |g| {
-        g.ancestors
-            .first()
-            .map(|up| obrain_link::label(store, &EntityId(up.clone()), at))
-    });
+    desambiguar(
+        &mut grupos,
+        |g| g.label.clone(),
+        |g, l| g.label = l,
+        |g| {
+            g.ancestors
+                .first()
+                .map(|up| obrain_link::label(store, &EntityId(up.clone()), at))
+        },
+    );
     Ok(grupos)
 }

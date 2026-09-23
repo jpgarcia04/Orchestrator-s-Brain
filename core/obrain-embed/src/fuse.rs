@@ -92,7 +92,10 @@ mod tests {
     use super::*;
 
     fn r<'a>(name: &'a str, items: &[&str]) -> Ranking<'a, String> {
-        Ranking { name, items: items.iter().map(|s| s.to_string()).collect() }
+        Ranking {
+            name,
+            items: items.iter().map(|s| s.to_string()).collect(),
+        }
     }
 
     /// Lo que RRF compra: un documento que las dos ramas ponen segundo gana a
@@ -101,7 +104,10 @@ mod tests {
     #[test]
     fn el_acuerdo_de_dos_ramas_gana_a_la_certeza_de_una() {
         let f = rrf(
-            &[r("bm25", &["solo-lexico", "acordado"]), r("knn", &["solo-vectorial", "acordado"])],
+            &[
+                r("bm25", &["solo-lexico", "acordado"]),
+                r("knn", &["solo-vectorial", "acordado"]),
+            ],
             10,
         );
         assert_eq!(f[0].item, "acordado");

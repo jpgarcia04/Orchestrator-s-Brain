@@ -81,7 +81,9 @@ fn etiquetas(l: &sky::Listing) -> Vec<&str> {
 fn raiz(store: &Store) -> EntityId {
     let l = sky::children(store, None, at()).unwrap();
     let foco = l.focus.clone();
-    EntityId(foco.unwrap_or_else(|| panic!("este fixture tiene una sola raíz: {:?}", etiquetas(&l))))
+    EntityId(
+        foco.unwrap_or_else(|| panic!("este fixture tiene una sola raíz: {:?}", etiquetas(&l))),
+    )
 }
 
 /// Baja hasta el fondo contando archivos. Es la cuenta que el explorador tiene
@@ -106,7 +108,12 @@ fn sin_foco_se_entra_por_las_raices() {
 
     let raiz = sky::children(&store, None, at()).unwrap();
     assert_eq!(raiz.focus, None);
-    assert_eq!(raiz.folders, 2, "dos volúmenes, dos raíces: {:?}", etiquetas(&raiz));
+    assert_eq!(
+        raiz.folders,
+        2,
+        "dos volúmenes, dos raíces: {:?}",
+        etiquetas(&raiz)
+    );
     assert_eq!(raiz.files, 0, "de una raíz no cuelga ningún archivo suelto");
     assert!(raiz.trail.is_empty(), "en la raíz no hay migas que enseñar");
 }
@@ -132,10 +139,20 @@ fn las_carpetas_van_primero_y_por_peso() {
     assert_eq!(l.folders, 2);
     assert_eq!(l.files, 1);
     assert_eq!(l.rows[0].kind, "folder");
-    assert!(l.rows[0].label.contains("muchas"), "la mayor primero: {:?}", etiquetas(&l));
+    assert!(
+        l.rows[0].label.contains("muchas"),
+        "la mayor primero: {:?}",
+        etiquetas(&l)
+    );
     assert!(l.rows[1].label.contains("pocas"));
-    assert_eq!(l.rows[2].kind, "file", "los archivos, detrás de las carpetas");
-    assert_eq!(l.rows[0].weight, 3, "el peso es lo que hay dentro de verdad");
+    assert_eq!(
+        l.rows[2].kind, "file",
+        "los archivos, detrás de las carpetas"
+    );
+    assert_eq!(
+        l.rows[0].weight, 3,
+        "el peso es lo que hay dentro de verdad"
+    );
 }
 
 // ───────────────────────────────────── la consecuencia #4: un solo estado
@@ -184,8 +201,15 @@ fn las_migas_reconstruyen_el_camino_entero() {
 
     let l = sky::children(&store, Some(&roma), at()).unwrap();
     let camino: Vec<&str> = l.trail.iter().map(|c| c.label.as_str()).collect();
-    assert_eq!(camino.len(), 2, "vida → viajes, de fuera hacia dentro: {camino:?}");
-    assert!(camino[0].ends_with("vida"), "la de fuera va primero: {camino:?}");
+    assert_eq!(
+        camino.len(),
+        2,
+        "vida → viajes, de fuera hacia dentro: {camino:?}"
+    );
+    assert!(
+        camino[0].ends_with("vida"),
+        "la de fuera va primero: {camino:?}"
+    );
     assert!(camino[1].ends_with("viajes"));
     assert_eq!(l.files, 1, "y dentro, la foto");
 }
@@ -200,7 +224,10 @@ fn se_baja_por_una_sesion_igual_que_por_una_carpeta() {
     let store = base();
     let files = arbol(
         &store,
-        &["C:\\vida\\trabajo\\informe.pdf", "C:\\vida\\viajes\\billete.pdf"],
+        &[
+            "C:\\vida\\trabajo\\informe.pdf",
+            "C:\\vida\\viajes\\billete.pdf",
+        ],
     );
 
     // Una sesión que cruzó dos carpetas: exactamente el caso que el árbol de
@@ -219,7 +246,10 @@ fn se_baja_por_una_sesion_igual_que_por_una_carpeta() {
     }
 
     let l = sky::children(&store, Some(&sesion), at()).unwrap();
-    assert_eq!(l.files, 2, "los dos archivos de la sesión, de dos carpetas distintas");
+    assert_eq!(
+        l.files, 2,
+        "los dos archivos de la sesión, de dos carpetas distintas"
+    );
     assert_eq!(l.folders, 0, "una sesión no tiene subcarpetas");
     assert!(l.rows.iter().all(|r| r.kind == "file"));
 }
@@ -235,7 +265,13 @@ fn cada_fila_dice_si_su_contenido_se_puede_leer() {
     let files = arbol(&store, &["C:\\vida\\local.txt", "C:\\vida\\nube.txt"]);
     for (f, v) in files.iter().zip(["local", "cloud_dehydrated"]) {
         store
-            .assert(NewAssertion::new(f.clone(), "availability", v, Method::Deterministic, T))
+            .assert(NewAssertion::new(
+                f.clone(),
+                "availability",
+                v,
+                Method::Deterministic,
+                T,
+            ))
             .unwrap();
     }
 
@@ -276,9 +312,20 @@ fn una_sola_biblioteca_se_abre_directamente() {
     );
 
     let l = sky::children(&store, None, at()).unwrap();
-    assert_eq!(l.focus.as_deref(), Some(lib.as_str()), "se entra en la biblioteca");
-    assert_eq!(l.label, "Bóveda", "se llama como la carpeta, sin el padre delante");
-    assert!(l.trail.is_empty(), "por encima de la bóveda no hay migas: {:?}", l.trail.len());
+    assert_eq!(
+        l.focus.as_deref(),
+        Some(lib.as_str()),
+        "se entra en la biblioteca"
+    );
+    assert_eq!(
+        l.label, "Bóveda",
+        "se llama como la carpeta, sin el padre delante"
+    );
+    assert!(
+        l.trail.is_empty(),
+        "por encima de la bóveda no hay migas: {:?}",
+        l.trail.len()
+    );
     assert_eq!(etiquetas(&l), vec!["Salud", "pasaporte.pdf"]);
 }
 
@@ -297,7 +344,12 @@ fn una_base_antigua_se_corta_en_la_biblioteca_sin_tocar_el_log() {
     );
     // Sin biblioteca, la raíz es lo más alto que el enlazador encadenó.
     let antes = sky::children(&store, None, at()).unwrap();
-    assert_eq!(antes.label, "Users", "el camino del disco: {:?}", etiquetas(&antes));
+    assert_eq!(
+        antes.label,
+        "Users",
+        "el camino del disco: {:?}",
+        etiquetas(&antes)
+    );
 
     let lib = biblioteca(&store, "C:\\Users\\jp\\Bóveda");
     let salud = carpeta(&sky::children(&store, Some(&lib), at()).unwrap(), "Salud");
@@ -306,7 +358,11 @@ fn una_base_antigua_se_corta_en_la_biblioteca_sin_tocar_el_log() {
     assert_eq!(migas, vec!["Bóveda"], "las migas empiezan en la bóveda");
 
     let raices = sky::children(&store, None, at()).unwrap();
-    assert_eq!(raices.focus.as_deref(), Some(lib.as_str()), "el camino vacío no es una raíz");
+    assert_eq!(
+        raices.focus.as_deref(),
+        Some(lib.as_str()),
+        "el camino vacío no es una raíz"
+    );
 }
 
 /// Dos bibliotecas que se llaman igual no pueden ser dos filas idénticas.
@@ -315,7 +371,13 @@ fn dos_bibliotecas_con_el_mismo_nombre_se_distinguen() {
     let store = base();
     biblioteca(&store, "C:\\casa\\Documentos");
     biblioteca(&store, "D:\\trabajo\\Documentos");
-    arbol(&store, &["C:\\casa\\Documentos\\a.pdf", "D:\\trabajo\\Documentos\\b.pdf"]);
+    arbol(
+        &store,
+        &[
+            "C:\\casa\\Documentos\\a.pdf",
+            "D:\\trabajo\\Documentos\\b.pdf",
+        ],
+    );
 
     let l = sky::children(&store, None, at()).unwrap();
     let mut e = etiquetas(&l);
@@ -330,15 +392,32 @@ fn dos_bibliotecas_con_el_mismo_nombre_se_distinguen() {
 #[test]
 fn los_recientes_van_del_mas_nuevo_al_mas_viejo() {
     let store = base();
-    let ids = arbol(&store, &["C:\\vida\\viejo.txt", "C:\\vida\\nuevo.txt", "C:\\vida\\medio.txt"]);
+    let ids = arbol(
+        &store,
+        &[
+            "C:\\vida\\viejo.txt",
+            "C:\\vida\\nuevo.txt",
+            "C:\\vida\\medio.txt",
+        ],
+    );
     for (e, t) in ids.iter().zip([T - 3_000, T - 1_000, T - 2_000]) {
         store
-            .assert(NewAssertion::new(e.clone(), "modified_at", Value::Timestamp(t), Method::Deterministic, T))
+            .assert(NewAssertion::new(
+                e.clone(),
+                "modified_at",
+                Value::Timestamp(t),
+                Method::Deterministic,
+                T,
+            ))
             .unwrap();
     }
     let r = sky::recent(&store, 2, at()).unwrap();
     let nombres: Vec<&str> = r.iter().map(|f| f.label.as_str()).collect();
-    assert_eq!(nombres, vec!["nuevo.txt", "medio.txt"], "el tope se respeta y el orden es por fecha");
+    assert_eq!(
+        nombres,
+        vec!["nuevo.txt", "medio.txt"],
+        "el tope se respeta y el orden es por fecha"
+    );
     assert!(r.iter().all(|f| f.kind == "file"));
 }
 
@@ -346,9 +425,20 @@ fn los_recientes_van_del_mas_nuevo_al_mas_viejo() {
 #[test]
 fn los_sensibles_son_solo_lo_que_la_puerta_retiene() {
     let store = base();
-    let ids = arbol(&store, &["C:\\vida\\pasaporte.pdf", "C:\\vida\\receta.pdf", "C:\\vida\\clave.txt"]);
-    store.set_sensitivity(&ids[0], obrain_core::Sensitivity::Sensitive).unwrap();
-    store.set_sensitivity(&ids[2], obrain_core::Sensitivity::Vault).unwrap();
+    let ids = arbol(
+        &store,
+        &[
+            "C:\\vida\\pasaporte.pdf",
+            "C:\\vida\\receta.pdf",
+            "C:\\vida\\clave.txt",
+        ],
+    );
+    store
+        .set_sensitivity(&ids[0], obrain_core::Sensitivity::Sensitive)
+        .unwrap();
+    store
+        .set_sensitivity(&ids[2], obrain_core::Sensitivity::Vault)
+        .unwrap();
     let s = sky::sensitive(&store, at()).unwrap();
     let nombres: Vec<&str> = s.iter().map(|f| f.label.as_str()).collect();
     assert_eq!(nombres, vec!["clave.txt", "pasaporte.pdf"]);

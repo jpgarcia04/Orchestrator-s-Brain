@@ -37,7 +37,13 @@ pub fn prepare(raw: &str) -> Option<String> {
             (core.trim().to_string(), prefix)
         })
         .filter(|(c, _)| !c.is_empty())
-        .map(|(c, prefix)| if prefix { format!("\"{c}\"*") } else { format!("\"{c}\"") })
+        .map(|(c, prefix)| {
+            if prefix {
+                format!("\"{c}\"*")
+            } else {
+                format!("\"{c}\"")
+            }
+        })
         .collect();
     (!terms.is_empty()).then(|| terms.join(" AND "))
 }
@@ -50,7 +56,10 @@ pub fn prepare(raw: &str) -> Option<String> {
 /// se sustituye por [`crate::evidence::pick`] cuando trae texto que no escribió
 /// una persona. El razonamiento y la medición están en ese módulo.
 fn guard(fts: String, text: &str, raw_query: &str) -> String {
-    if !fts.split_whitespace().any(crate::evidence::is_machine_token) {
+    if !fts
+        .split_whitespace()
+        .any(crate::evidence::is_machine_token)
+    {
         return fts;
     }
     crate::evidence::pick(text, raw_query, crate::evidence::BUDGET)
@@ -114,13 +123,19 @@ mod tests {
 
     #[test]
     fn una_consulta_normal_se_convierte_en_and_de_frases() {
-        assert_eq!(prepare("matricula 2025").unwrap(), "\"matricula\" AND \"2025\"");
+        assert_eq!(
+            prepare("matricula 2025").unwrap(),
+            "\"matricula\" AND \"2025\""
+        );
     }
 
     #[test]
     fn los_guiones_no_rompen_la_sintaxis_de_fts5() {
         // Sin entrecomillar, FTS5 interpreta `-` como operador y falla.
-        assert_eq!(prepare("consultaExpte_Z27-2025").unwrap(), "\"consultaExpte_Z27-2025\"");
+        assert_eq!(
+            prepare("consultaExpte_Z27-2025").unwrap(),
+            "\"consultaExpte_Z27-2025\""
+        );
     }
 
     #[test]

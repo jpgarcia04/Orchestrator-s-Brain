@@ -40,8 +40,8 @@ pub mod rules;
 
 use obrain_core::rusqlite::Connection;
 use obrain_core::{
-    Assertion, AssertionId, EntityId, Error, Method, NewAssertion, Origin, Result, Sensitivity,
-    Store, TimePoint, Value, CONTENTS_SENSITIVITY,
+    Assertion, AssertionId, CONTENTS_SENSITIVITY, EntityId, Error, Method, NewAssertion, Origin,
+    Result, Sensitivity, Store, TimePoint, Value,
 };
 use obrain_extract::FileRow;
 use rules::Signal;
@@ -78,7 +78,11 @@ impl Verdict {
     }
 
     pub fn source(&self) -> String {
-        let origen = if self.chunk.is_some() { "content" } else { "name" };
+        let origen = if self.chunk.is_some() {
+            "content"
+        } else {
+            "name"
+        };
         format!("{CLASSIFIER}:{origen}@{CLASSIFIER_VERSION}")
     }
 }
@@ -262,7 +266,8 @@ fn scan_chunks(
     conn: &Connection,
     report: &mut GuardReport,
 ) -> Result<HashMap<EntityId, (Signal, i64)>> {
-    let mut stmt = conn.prepare("SELECT entity, ordinal, text FROM chunks ORDER BY entity, ordinal")?;
+    let mut stmt =
+        conn.prepare("SELECT entity, ordinal, text FROM chunks ORDER BY entity, ordinal")?;
     let mut rows = stmt.query([])?;
     let mut mejor: HashMap<EntityId, (Signal, i64)> = HashMap::new();
     let mut vistas: std::collections::HashSet<EntityId> = std::collections::HashSet::new();
@@ -273,7 +278,10 @@ fn scan_chunks(
         vistas.insert(entity.clone());
 
         // Una entidad ya marcada como bóveda no puede subir de nivel.
-        if mejor.get(&entity).is_some_and(|(s, _)| s.level == Sensitivity::Vault) {
+        if mejor
+            .get(&entity)
+            .is_some_and(|(s, _)| s.level == Sensitivity::Vault)
+        {
             continue;
         }
         let texto: String = row.get(2)?;
@@ -470,7 +478,10 @@ pub fn mark_folder(
     // Todo lo que está **ahora** debajo de su ruta, a cualquier profundidad:
     // archivos por su ruta observada, subcarpetas por la suya.
     let marcas = store.folder_marks(tp)?;
-    let mut report = FolderMarkReport { level, ..Default::default() };
+    let mut report = FolderMarkReport {
+        level,
+        ..Default::default()
+    };
     let mut vistos = std::collections::HashSet::new();
     for pred in ["path_observed_at", "folder_path"] {
         for a in store.query(None, Some(pred), tp)? {
@@ -478,7 +489,9 @@ pub fn mark_folder(
                 continue;
             }
             // La ruta vigente, no una antigua: `query` trae todas.
-            let Some(donde) = store.location(&a.subject, tp)? else { continue };
+            let Some(donde) = store.location(&a.subject, tp)? else {
+                continue;
+            };
             if !obrain_core::sensitivity::path_within(&donde, &ruta) {
                 continue;
             }
@@ -499,7 +512,10 @@ mod tests {
 
     #[test]
     fn el_padre_es_solo_la_carpeta_inmediata() {
-        assert_eq!(parent_dir(r"C:\Users\a\Visados\solicitud.pdf"), Some("Visados"));
+        assert_eq!(
+            parent_dir(r"C:\Users\a\Visados\solicitud.pdf"),
+            Some("Visados")
+        );
         assert_eq!(parent_dir("suelto.txt"), None);
     }
 
@@ -514,18 +530,30 @@ mod tests {
 
         store
             .assert(
-                NewAssertion::new(e.clone(), "sensitivity_level", "vault", Method::Inferred, at)
-                    .source("guard:name@1"),
+                NewAssertion::new(
+                    e.clone(),
+                    "sensitivity_level",
+                    "vault",
+                    Method::Inferred,
+                    at,
+                )
+                .source("guard:name@1"),
             )
             .unwrap();
-        assert_eq!(store.reproject_sensitivity(&e, tp).unwrap(), Sensitivity::Vault);
+        assert_eq!(
+            store.reproject_sensitivity(&e, tp).unwrap(),
+            Sensitivity::Vault
+        );
 
         mark_by_user(&store, &e, Sensitivity::Normal, at + 1).unwrap();
         assert_eq!(store.sensitivity(&e).unwrap(), Sensitivity::Normal);
 
         // Y una reproyección posterior no lo revierte.
         let despues = TimePoint::at(at + 2);
-        assert_eq!(store.reproject_sensitivity(&e, despues).unwrap(), Sensitivity::Normal);
+        assert_eq!(
+            store.reproject_sensitivity(&e, despues).unwrap(),
+            Sensitivity::Normal
+        );
     }
 
     /// Sin usuario de por medio, entre dos señales gana la que no filtra.
@@ -544,7 +572,10 @@ mod tests {
                 )
                 .unwrap();
         }
-        assert_eq!(store.reproject_sensitivity(&e, tp).unwrap(), Sensitivity::Vault);
+        assert_eq!(
+            store.reproject_sensitivity(&e, tp).unwrap(),
+            Sensitivity::Vault
+        );
     }
 
     #[test]

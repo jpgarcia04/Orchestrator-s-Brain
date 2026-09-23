@@ -19,16 +19,35 @@
 //! `IMG_0002` no lo llevan; `informe` e `informe_v2` sí. Un número suelto de
 //! tres o más dígitos es numeración de cámara o de escáner, no una versión.
 
-use crate::{write_edge, Edge, FileView, LinkReport};
+use crate::{Edge, FileView, LinkReport, write_edge};
 use obrain_core::{Method, Result, Store, Value};
 use std::collections::HashMap;
 
 /// Marcadores textuales inequívocos, en español e inglés.
 const EXPLICIT_SUFFIXES: &[&str] = &[
-    " - copia", " - copy", "-copia", "_copia", "-copy", "_copy",
-    " copia", " copy", "_final", "-final", " final",
-    "_definitivo", "-definitivo", "_old", "-old", ".old",
-    "_backup", "-backup", "_bak", "-bak", "_nuevo", "_new", "-new",
+    " - copia",
+    " - copy",
+    "-copia",
+    "_copia",
+    "-copy",
+    "_copy",
+    " copia",
+    " copy",
+    "_final",
+    "-final",
+    " final",
+    "_definitivo",
+    "-definitivo",
+    "_old",
+    "-old",
+    ".old",
+    "_backup",
+    "-backup",
+    "_bak",
+    "-bak",
+    "_nuevo",
+    "_new",
+    "-new",
 ];
 
 /// Qué clase de marcador llevaba el nombre.
@@ -110,7 +129,11 @@ pub fn strip_version_markers(stem: &str) -> Option<VersionMark> {
         }
     }
 
-    if found { Some(VersionMark { base: s, kind }) } else { None }
+    if found {
+        Some(VersionMark { base: s, kind })
+    } else {
+        None
+    }
 }
 
 fn split_name(name: &str) -> (&str, &str) {
@@ -204,7 +227,11 @@ mod tests {
             ("informe_final_definitivo", "informe"),
             ("nomina_old", "nomina"),
         ] {
-            assert_eq!(base_of(entrada).as_deref(), Some(esperado), "fallo con {entrada}");
+            assert_eq!(
+                base_of(entrada).as_deref(),
+                Some(esperado),
+                "fallo con {entrada}"
+            );
             assert_eq!(
                 strip_version_markers(entrada).unwrap().kind,
                 MarkKind::Explicit,
@@ -215,7 +242,13 @@ mod tests {
 
     #[test]
     fn un_numero_suelto_es_ambiguo_por_si_solo() {
-        for entrada in ["IMG_1234", "DSC_0042", "Bloque 3", "presupuesto_2", "data_1"] {
+        for entrada in [
+            "IMG_1234",
+            "DSC_0042",
+            "Bloque 3",
+            "presupuesto_2",
+            "data_1",
+        ] {
             assert_eq!(
                 strip_version_markers(entrada).unwrap().kind,
                 MarkKind::Numeric,
@@ -255,10 +288,17 @@ mod tests {
 
         assert_eq!(r.version_of, 2, "dos antiguos apuntan al mas reciente");
         let tp = TimePoint::at(6000);
-        let a = s.resolve(&files[0].entity, "version_of", tp).unwrap().unwrap();
+        let a = s
+            .resolve(&files[0].entity, "version_of", tp)
+            .unwrap()
+            .unwrap();
         assert_eq!(a.object.as_entity(), Some(&files[2].entity));
         assert_eq!(a.method, Method::Inferred);
-        assert!(s.resolve(&files[3].entity, "version_of", tp).unwrap().is_none());
+        assert!(
+            s.resolve(&files[3].entity, "version_of", tp)
+                .unwrap()
+                .is_none()
+        );
     }
 
     /// Primera regresión encontrada en corpus real: 246 fotos encadenadas.
@@ -270,7 +310,10 @@ mod tests {
             .collect();
         let mut r = LinkReport::default();
         super::link(&s, &files, 5000, &mut r).unwrap();
-        assert_eq!(r.version_of, 0, "40 fotos distintas, no una cadena de 39 versiones");
+        assert_eq!(
+            r.version_of, 0,
+            "40 fotos distintas, no una cadena de 39 versiones"
+        );
     }
 
     /// Segunda regresión, encontrada al auditar con `--sample`:
@@ -285,7 +328,10 @@ mod tests {
         ];
         let mut r = LinkReport::default();
         super::link(&s, &files, 5000, &mut r).unwrap();
-        assert_eq!(r.version_of, 0, "todos numerados y sin original: es una serie");
+        assert_eq!(
+            r.version_of, 0,
+            "todos numerados y sin original: es una serie"
+        );
     }
 
     /// Pero si existe el original sin numerar, sí es una cadena.
@@ -322,6 +368,9 @@ mod tests {
         ];
         let mut r = LinkReport::default();
         super::link(&s, &files, 5000, &mut r).unwrap();
-        assert_eq!(r.version_of, 0, "mismo nombre en carpetas distintas no es una cadena");
+        assert_eq!(
+            r.version_of, 0,
+            "mismo nombre en carpetas distintas no es una cadena"
+        );
     }
 }

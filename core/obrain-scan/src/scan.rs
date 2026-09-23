@@ -5,8 +5,8 @@
 //! triaje marca como `CloudPlaceholder` no se toca jamás.
 
 use crate::exclude::{ExclusionSet, SkipReason};
-use crate::identity::{content_hash, file_identity, FileIdentity};
-use crate::triage::{classify, Availability};
+use crate::identity::{FileIdentity, content_hash, file_identity};
+use crate::triage::{Availability, classify};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -137,7 +137,9 @@ impl Scanner {
             let meta = match entry.metadata() {
                 Ok(m) => m,
                 Err(e) => {
-                    report.errors.push(format!("{}: {e}", entry.path().display()));
+                    report
+                        .errors
+                        .push(format!("{}: {e}", entry.path().display()));
                     continue;
                 }
             };
@@ -172,7 +174,9 @@ impl Scanner {
                         Some(id)
                     }
                     Err(e) => {
-                        report.errors.push(format!("{}: {e}", entry.path().display()));
+                        report
+                            .errors
+                            .push(format!("{}: {e}", entry.path().display()));
                         None
                     }
                 }

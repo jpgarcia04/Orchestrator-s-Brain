@@ -35,7 +35,9 @@ pub struct Store {
 
 impl Store {
     pub fn open_in_memory() -> Result<Self> {
-        let store = Store { conn: Connection::open_in_memory()? };
+        let store = Store {
+            conn: Connection::open_in_memory()?,
+        };
         store.migrate()?;
         Ok(store)
     }
@@ -66,12 +68,17 @@ impl Store {
         if let Some(k) = key {
             // La llave tiene que ser lo primero que se le dice a la conexión.
             // En crudo (`x'…'`) no hay derivación: son 256 bits de azar.
-            conn.execute_batch(&format!("PRAGMA key = \"{}\";", k.sqlcipher_literal().as_str()))?;
+            conn.execute_batch(&format!(
+                "PRAGMA key = \"{}\";",
+                k.sqlcipher_literal().as_str()
+            ))?;
             // SQLCipher no comprueba la llave hasta leer la primera página.
             // Se lee aquí para que una llave equivocada sea este error y no un
             // «file is not a database» tres llamadas más tarde.
-            conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get::<_, i64>(0))
-                .map_err(|_| Error::WrongKey)?;
+            conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .map_err(|_| Error::WrongKey)?;
         }
         // Lo temporal, en memoria: un archivo temporal de SQLite en claro al
         // lado de una base cifrada sería una fuga por la puerta de atrás.
@@ -286,10 +293,12 @@ impl Store {
         let id = AssertionId::new();
         let (kind, ent, txt, num) = decompose(&a.object);
         self.conn.execute(
-            &format!("INSERT INTO assertions ({COLS}) VALUES \
+            &format!(
+                "INSERT INTO assertions ({COLS}) VALUES \
                       (:id, :subject, :predicate, :kind, :ent, :txt, :num, \
                        :valid_from, :valid_to, :asserted_at, NULL, \
-                       :method, :source, :confidence, :evidence)"),
+                       :method, :source, :confidence, :evidence)"
+            ),
             named_params! {
                 ":id":          id.as_str(),
                 ":subject":     a.subject.as_str(),
@@ -491,7 +500,11 @@ impl Store {
         for (subject, predicate) in keys {
             let subject = EntityId(subject);
             let assertions = self.query(Some(&subject), Some(&predicate), at)?;
-            out.push(Contradiction { subject, predicate, assertions });
+            out.push(Contradiction {
+                subject,
+                predicate,
+                assertions,
+            });
         }
         Ok(out)
     }

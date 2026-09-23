@@ -61,7 +61,9 @@ fn open_attributes_only(path: &Path) -> std::io::Result<File> {
 #[cfg(windows)]
 pub fn file_identity(path: &Path) -> std::io::Result<FileIdentity> {
     use std::os::windows::io::AsRawHandle;
-    use windows_sys::Win32::Storage::FileSystem::{FileIdInfo, GetFileInformationByHandleEx, FILE_ID_INFO};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ID_INFO, FileIdInfo, GetFileInformationByHandleEx,
+    };
 
     let file = open_attributes_only(path)?;
     let mut info: FILE_ID_INFO = unsafe { std::mem::zeroed() };
@@ -91,7 +93,10 @@ pub fn file_identity(path: &Path) -> std::io::Result<FileIdentity> {
         let m = std::fs::metadata(path)?;
         let mut file_id = [0u8; 16];
         file_id[..8].copy_from_slice(&m.ino().to_le_bytes());
-        Ok(FileIdentity { volume: m.dev(), file_id })
+        Ok(FileIdentity {
+            volume: m.dev(),
+            file_id,
+        })
     }
     #[cfg(not(unix))]
     {

@@ -17,7 +17,7 @@
 //! razonable y la calidad baja sin que nada falle. Por eso el prefijo no es un
 //! detalle de esta implementación sino [`Role`], que viaja en el contrato.
 
-use crate::embedder::{normalize, Embedder, ModelId, Role};
+use crate::embedder::{Embedder, ModelId, Role, normalize};
 use crate::{Error, Result};
 use ort::session::Session;
 use ort::value::Tensor;
@@ -27,7 +27,11 @@ use tokenizers::Tokenizer;
 /// `version` es de la **integración**, no del repositorio de HuggingFace.
 /// Cambiar los prefijos, el pooling o [`MAX_TOKENS`] cambia los vectores y
 /// obliga a subirla: eso es lo que I7 compra.
-pub const MODEL: ModelId = ModelId { id: "multilingual-e5-small", version: 1, dim: 384 };
+pub const MODEL: ModelId = ModelId {
+    id: "multilingual-e5-small",
+    version: 1,
+    dim: 384,
+};
 
 /// El modelo tiene 512 posiciones. Un fragmento de `paragraph-pack@1` son
 /// 1.200 bytes, que en castellano rondan los 300 tokens: cabe con holgura y el
@@ -66,7 +70,10 @@ impl E5 {
             .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)
             .unwrap_or_else(|e| e.recover())
             .commit_from_file(dir.join("model.onnx"))?;
-        Ok(E5 { session: std::cell::RefCell::new(session), tokenizer })
+        Ok(E5 {
+            session: std::cell::RefCell::new(session),
+            tokenizer,
+        })
     }
 
     /// El texto tal y como lo ve el modelo. Público porque es lo que hay que
@@ -128,9 +135,14 @@ impl Embedder for E5 {
         ])?;
 
         let (out_shape, hidden) = outputs["last_hidden_state"].try_extract_tensor::<f32>()?;
-        let dim = *out_shape.last().ok_or_else(|| Error::Model("salida sin forma".into()))? as usize;
+        let dim = *out_shape
+            .last()
+            .ok_or_else(|| Error::Model("salida sin forma".into()))? as usize;
         if dim != MODEL.dim {
-            return Err(Error::Model(format!("el modelo devuelve {dim} dimensiones, no {}", MODEL.dim)));
+            return Err(Error::Model(format!(
+                "el modelo devuelve {dim} dimensiones, no {}",
+                MODEL.dim
+            )));
         }
 
         // ── mean pooling con la máscara ──
@@ -174,8 +186,14 @@ mod tests {
     #[test]
     fn la_consulta_y_el_documento_no_se_preparan_igual() {
         let t = "certificado de ingresos";
-        assert_eq!(E5::prepare(t, Role::Query), "query: certificado de ingresos");
-        assert_eq!(E5::prepare(t, Role::Passage), "passage: certificado de ingresos");
+        assert_eq!(
+            E5::prepare(t, Role::Query),
+            "query: certificado de ingresos"
+        );
+        assert_eq!(
+            E5::prepare(t, Role::Passage),
+            "passage: certificado de ingresos"
+        );
         assert_ne!(E5::prepare(t, Role::Query), E5::prepare(t, Role::Passage));
     }
 }

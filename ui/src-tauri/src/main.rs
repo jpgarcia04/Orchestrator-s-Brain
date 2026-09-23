@@ -46,13 +46,13 @@
 
 use obrain_api::seguridad::{self, Estado as EstadoSeguridad};
 use obrain_api::{
-    default_db_path, Brain, Embedder, EntityView, FolderMarked, Glance, IndexReport, Lens, Listing,
-    MarkedFolder, Preview, Row, Sky,
+    Brain, Embedder, EntityView, FolderMarked, Glance, IndexReport, Lens, Listing, MarkedFolder,
+    Preview, Row, Sky, default_db_path,
 };
 use obrain_core::{EntityId, Sensitivity, Store};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
@@ -246,7 +246,11 @@ fn corregir(
     cerebro: State<'_, Cerebro>,
 ) -> Result<String, String> {
     con(&cerebro, |b| {
-        b.correct(&EntityId(subject), &predicate, obrain_core::Value::Text(object))
+        b.correct(
+            &EntityId(subject),
+            &predicate,
+            obrain_core::Value::Text(object),
+        )
     })
 }
 
@@ -341,7 +345,11 @@ fn pin_bloquear(cerebro: State<'_, Cerebro>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn pin_poner(nuevo: String, actual: Option<String>, cerebro: State<'_, Cerebro>) -> Result<(), String> {
+fn pin_poner(
+    nuevo: String,
+    actual: Option<String>,
+    cerebro: State<'_, Cerebro>,
+) -> Result<(), String> {
     con(&cerebro, |b| b.set_pin(&nuevo, actual.as_deref()))
 }
 
@@ -366,7 +374,11 @@ fn pin_restablecer(
 /// hilo y el resultado llega con el evento `indexado`. Devuelve `false` si ya
 /// había uno en marcha (o si la base está cerrada).
 #[tauri::command]
-fn actualizar(app: AppHandle, cerebro: State<'_, Cerebro>, indexando: State<'_, Indexando>) -> bool {
+fn actualizar(
+    app: AppHandle,
+    cerebro: State<'_, Cerebro>,
+    indexando: State<'_, Indexando>,
+) -> bool {
     if cerebro.0.lock().map(|g| g.is_none()).unwrap_or(true) {
         return false;
     }
@@ -375,7 +387,11 @@ fn actualizar(app: AppHandle, cerebro: State<'_, Cerebro>, indexando: State<'_, 
     }
     // El modelo se presta: vectorizar con el cerebro cogido dejaría la barra
     // sin responder. Mientras tanto la búsqueda sigue, en léxico.
-    let modelo = cerebro.0.lock().ok().and_then(|mut g| g.as_mut().and_then(Brain::take_embedder));
+    let modelo = cerebro
+        .0
+        .lock()
+        .ok()
+        .and_then(|mut g| g.as_mut().and_then(Brain::take_embedder));
     std::thread::spawn(move || indexar_en_fondo(&app, None, modelo));
     true
 }
@@ -392,7 +408,13 @@ async fn anadir_biblioteca(app: AppHandle) -> Result<bool, String> {
     if app.state::<Indexando>().0.load(Ordering::SeqCst) {
         return Ok(false);
     }
-    if app.state::<Cerebro>().0.lock().map(|g| g.is_none()).unwrap_or(true) {
+    if app
+        .state::<Cerebro>()
+        .0
+        .lock()
+        .map(|g| g.is_none())
+        .unwrap_or(true)
+    {
         return Err(CERRADA.to_string());
     }
     // El diálogo bloquea hasta que se elige: fuera del hilo de la ventana.
@@ -432,14 +454,16 @@ fn indexar_en_fondo(
     raices: Option<Vec<PathBuf>>,
     modelo: Option<Box<dyn Embedder + Send>>,
 ) {
-    let res = Store::open(default_db_path()).map_err(texto).and_then(|mut store| {
-        let m = modelo.as_deref().map(|m| m as &dyn Embedder);
-        match &raices {
-            Some(r) => obrain_api::indexar::index(&mut store, r, m),
-            None => obrain_api::indexar::reindex(&mut store, m),
-        }
+    let res = Store::open(default_db_path())
         .map_err(texto)
-    });
+        .and_then(|mut store| {
+            let m = modelo.as_deref().map(|m| m as &dyn Embedder);
+            match &raices {
+                Some(r) => obrain_api::indexar::index(&mut store, r, m),
+                None => obrain_api::indexar::reindex(&mut store, m),
+            }
+            .map_err(texto)
+        });
     // El modelo vuelve al cerebro pase lo que pase.
     if let Some(m) = modelo {
         if let Ok(mut g) = app.state::<Cerebro>().0.lock() {
@@ -450,10 +474,16 @@ fn indexar_en_fondo(
     }
     app.state::<Indexando>().0.store(false, Ordering::SeqCst);
     let aviso = match res {
-        Ok(r) => Indexado { report: Some(r), error: None },
+        Ok(r) => Indexado {
+            report: Some(r),
+            error: None,
+        },
         Err(e) => {
             eprintln!("no se pudo actualizar: {e}");
-            Indexado { report: None, error: Some(e) }
+            Indexado {
+                report: None,
+                error: Some(e),
+            }
         }
     };
     let _ = app.emit("indexado", aviso);

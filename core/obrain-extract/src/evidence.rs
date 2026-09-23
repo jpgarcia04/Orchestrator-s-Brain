@@ -113,7 +113,10 @@ pub fn is_machine_token(token: &str) -> bool {
     {
         return false;
     }
-    let distintos = token.bytes().collect::<std::collections::BTreeSet<_>>().len();
+    let distintos = token
+        .bytes()
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
     distintos >= TOKEN_ALPHABET
 }
 
@@ -238,7 +241,10 @@ pub fn pick(text: &str, query: &str, budget: usize) -> Option<Evidence> {
 fn human_regions(text: &str) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     let mut cursor = 0usize;
-    for (s, e) in machine_spans(text).into_iter().chain([(text.len(), text.len())]) {
+    for (s, e) in machine_spans(text)
+        .into_iter()
+        .chain([(text.len(), text.len())])
+    {
         if s > cursor {
             if let Some(r) = trim(text, cursor, s) {
                 if r.1 - r.0 >= MIN_REGION {
@@ -392,7 +398,8 @@ mod tests {
 
     #[test]
     fn un_sello_del_sat_es_texto_de_maquina() {
-        let sello = "cVejnMn0metP6NKFVY3yqH6kpl9/a2ShlcblLAgmESH+55HuX8nTdiyGC0vsy9bzLpz6534S92lDEAM2";
+        let sello =
+            "cVejnMn0metP6NKFVY3yqH6kpl9/a2ShlcblLAgmESH+55HuX8nTdiyGC0vsy9bzLpz6534S92lDEAM2";
         assert!(is_machine_token(sello));
     }
 
@@ -400,7 +407,9 @@ mod tests {
     /// y un correo dentro de un documento es prueba legítima.
     #[test]
     fn un_correo_largo_no_es_texto_de_maquina() {
-        assert!(!is_machine_token("centrodeatencioneninversiones@banamex.com"));
+        assert!(!is_machine_token(
+            "centrodeatencioneninversiones@banamex.com"
+        ));
     }
 
     #[test]
@@ -430,10 +439,12 @@ mod tests {
     /// caracteres del final del sello.
     #[test]
     fn la_cola_corta_de_un_sello_va_con_el_sello() {
-        let largo = "iwX4NqLgLpsOJX36FLppM+lpBwsv2SodqahcWZz3FWTiHRJSEMgNsHWOqAAeLr9ePvNDGJAlMHDXx+pY";
+        let largo =
+            "iwX4NqLgLpsOJX36FLppM+lpBwsv2SodqahcWZz3FWTiHRJSEMgNsHWOqAAeLr9ePvNDGJAlMHDXx+pY";
         let cola = "hFgGS2zF4X8KGm+dJP+tkg==";
         assert!(!is_machine_token(cola), "por sí sola es demasiado corta");
-        let texto = format!("{largo}\n{cola}\n\nESTE DOCUMENTO ES UNA REPRESENTACIÓN IMPRESA DE UN CFDI");
+        let texto =
+            format!("{largo}\n{cola}\n\nESTE DOCUMENTO ES UNA REPRESENTACIÓN IMPRESA DE UN CFDI");
         let ev = pick(&texto, "comprobante", BUDGET).unwrap();
         check(&texto, &ev);
         assert!(!ev.text.contains("hFgGS2"), "enseñó la cola: {:?}", ev.text);
@@ -455,7 +466,11 @@ mod tests {
         let s = "Bu6YkTnIjkqhfh+tysHTfaddjFwPMiLfYjtTq+WncDXWfz5hPq9kBiAOvR157Vgz";
         assert!(is_machine_token(s));
         let texto = format!("{s}\n{s}");
-        assert_eq!(machine_spans(&texto).len(), 1, "dos sellos seguidos son uno");
+        assert_eq!(
+            machine_spans(&texto).len(),
+            1,
+            "dos sellos seguidos son uno"
+        );
     }
 
     // ── la elección de ventana ──
@@ -464,7 +479,8 @@ mod tests {
     /// fragmento 82 del corpus: sello delante, la frase que explica detrás.
     #[test]
     fn la_prueba_salta_el_sello_y_enseña_la_frase_que_explica() {
-        let sello = "iwX4NqLgLpsOJX36FLppM+lpBwsv2SodqahcWZz3FWTiHRJSEMgNsHWOqAAeLr9ePvNDGJAlMHDXx+pY";
+        let sello =
+            "iwX4NqLgLpsOJX36FLppM+lpBwsv2SodqahcWZz3FWTiHRJSEMgNsHWOqAAeLr9ePvNDGJAlMHDXx+pY";
         let texto = format!(
             "{sello}\n{sello}\n\nESTE DOCUMENTO ES UNA REPRESENTACIÓN IMPRESA DE UN CFDI\n\n\
              Folio Fiscal: 7E99BB34-A9F0-42FA-AD06-D818CC775D5A"
@@ -472,7 +488,11 @@ mod tests {
         let ev = pick(&texto, "comprobante fiscal", BUDGET).expect("hay texto legible");
         check(&texto, &ev);
         assert!(ev.text.contains("CFDI"), "enseñó {:?}", ev.text);
-        assert!(!ev.text.contains("iwX4Nq"), "enseñó el sello: {:?}", ev.text);
+        assert!(
+            !ev.text.contains("iwX4Nq"),
+            "enseñó el sello: {:?}",
+            ev.text
+        );
     }
 
     #[test]
@@ -499,7 +519,9 @@ mod tests {
     fn sin_coincidencia_se_enseña_el_tramo_mas_largo() {
         let sello = "Zm9vYmFyYmF6cXV4cXV1eDEyMzQ1Njc4OTBhYmNkZWY".to_string();
         assert!(is_machine_token(&sello));
-        let texto = format!("{sello}\n\nUna frase larga y perfectamente legible que explica el documento entero.");
+        let texto = format!(
+            "{sello}\n\nUna frase larga y perfectamente legible que explica el documento entero."
+        );
         let ev = pick(&texto, "nada que ver", BUDGET).unwrap();
         check(&texto, &ev);
         assert!(ev.text.starts_with("Una frase larga"));
@@ -509,7 +531,8 @@ mod tests {
     /// enseñar, y decirlo es mejor que enseñar el sello.
     #[test]
     fn un_fragmento_que_es_todo_sello_no_tiene_prueba() {
-        let sello = "iwX4NqLgLpsOJX36FLppM+lpBwsv2SodqahcWZz3FWTiHRJSEMgNsHWOqAAeLr9ePvNDGJAlMHDXx+pY";
+        let sello =
+            "iwX4NqLgLpsOJX36FLppM+lpBwsv2SodqahcWZz3FWTiHRJSEMgNsHWOqAAeLr9ePvNDGJAlMHDXx+pY";
         let texto = format!("{sello}\n{sello}\n{sello}");
         assert_eq!(pick(&texto, "comprobante", BUDGET), None);
     }

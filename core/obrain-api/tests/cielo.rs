@@ -5,7 +5,7 @@
 //! el sistema escribe de verdad, y un árbol construido a mano puede tener una
 //! forma que `obrain-link` nunca produce.
 
-use obrain_api::{sky, Brain};
+use obrain_api::{Brain, sky};
 use obrain_core::{EntityId, Method, NewAssertion, Sensitivity, Store, TimePoint, Value};
 use obrain_link::{FileView, LinkReport};
 
@@ -61,9 +61,18 @@ fn etiquetas(c: &sky::Sky) -> Vec<&str> {
 /// ver un `.git` en el disco; aquí se pone a mano porque el fixture inventa
 /// rutas que no existen en ningún sitio.
 fn faceta(store: &Store, ruta: &str, facet: &str) {
-    let e = store.find_subject_by_value("folder_path", ruta, at()).unwrap().unwrap();
+    let e = store
+        .find_subject_by_value("folder_path", ruta, at())
+        .unwrap()
+        .unwrap();
     store
-        .assert(NewAssertion::new(e, "has_facet", facet, Method::Deterministic, T))
+        .assert(NewAssertion::new(
+            e,
+            "has_facet",
+            facet,
+            Method::Deterministic,
+            T,
+        ))
         .unwrap();
 }
 
@@ -116,7 +125,8 @@ fn un_proyecto_de_codigo_no_se_parte_y_un_taller_de_proyectos_tampoco() {
     let e = etiquetas(&c);
 
     assert!(
-        !e.iter().any(|l| l.contains("src") || l.contains("dist") || l.contains("docs")),
+        !e.iter()
+            .any(|l| l.contains("src") || l.contains("dist") || l.contains("docs")),
         "nada de dentro de un repositorio se gana una estrella: {e:?}"
     );
     assert!(
@@ -162,7 +172,8 @@ fn una_carpeta_sin_un_solo_formato_reconocido_no_gasta_estrella() {
     let c = sky::regions(&store, 8, at()).unwrap();
     let e = etiquetas(&c);
     assert!(
-        !e.iter().any(|l| l.contains("perfil") || l.contains("cache")),
+        !e.iter()
+            .any(|l| l.contains("perfil") || l.contains("cache")),
         "el almacén interno de un programa no es un sitio de una vida: {e:?}"
     );
     assert!(e.iter().any(|l| l.contains("papeles")), "{e:?}");
@@ -235,10 +246,7 @@ fn un_pasillo_de_carpetas_no_gasta_regiones() {
     let store = base();
     arbol(
         &store,
-        &[
-            r"C:\a\b\c\izquierda\x.txt",
-            r"C:\a\b\c\derecha\y.txt",
-        ],
+        &[r"C:\a\b\c\izquierda\x.txt", r"C:\a\b\c\derecha\y.txt"],
     );
 
     let c = sky::regions(&store, 2, at()).unwrap();
@@ -298,7 +306,10 @@ fn todos_los_archivos_caen_en_alguna_region() {
 
     for objetivo in [1, 2, 3, 5, 10, 50] {
         let c = sky::regions(&store, objetivo, at()).unwrap();
-        assert_eq!(c.covered, 5, "con objetivo {objetivo} se pierde algun archivo");
+        assert_eq!(
+            c.covered, 5,
+            "con objetivo {objetivo} se pierde algun archivo"
+        );
         assert_eq!(c.files, 5);
         let suma: usize = c.regions.iter().map(|r| r.weight).sum();
         assert!(
@@ -339,9 +350,15 @@ fn una_region_con_algo_en_la_boveda_se_marca_entera() {
     let store = base();
     let files = arbol(
         &store,
-        &[r"C:\v\claves\.env", r"C:\v\claves\otro.txt", r"C:\v\normal\a.txt"],
+        &[
+            r"C:\v\claves\.env",
+            r"C:\v\claves\otro.txt",
+            r"C:\v\normal\a.txt",
+        ],
     );
-    store.set_sensitivity(&files[0], Sensitivity::Vault).unwrap();
+    store
+        .set_sensitivity(&files[0], Sensitivity::Vault)
+        .unwrap();
 
     let c = sky::regions(&store, 2, at()).unwrap();
     let claves = c.regions.iter().find(|r| r.label == "claves").unwrap();
@@ -360,7 +377,10 @@ fn una_region_con_algo_en_la_boveda_se_marca_entera() {
 #[test]
 fn una_sesion_que_cruza_dos_carpetas_es_una_arista_entre_regiones() {
     let store = base();
-    let files = arbol(&store, &[r"C:\v\codigo\a.rs", r"C:\v\docs\b.md", r"C:\v\docs\c.md"]);
+    let files = arbol(
+        &store,
+        &[r"C:\v\codigo\a.rs", r"C:\v\docs\b.md", r"C:\v\docs\c.md"],
+    );
 
     // Una tarde en la que se tocó código y documentación a la vez.
     let sesion = store.create_entity(T).unwrap();
@@ -397,7 +417,11 @@ fn una_sesion_que_cruza_dos_carpetas_es_una_arista_entre_regiones() {
         !c.regions.iter().any(|r| r.label.starts_with("sesión")),
         "una sesion no es una region: no es un lugar"
     );
-    assert_eq!(c.bridges.len(), 1, "una sesion cruzando dos regiones es un puente");
+    assert_eq!(
+        c.bridges.len(),
+        1,
+        "una sesion cruzando dos regiones es un puente"
+    );
     assert_eq!(c.bridges[0].weight, 1);
 
     let extremos: Vec<&str> = c
@@ -414,7 +438,10 @@ fn una_sesion_que_cruza_dos_carpetas_es_una_arista_entre_regiones() {
 #[test]
 fn una_sesion_dentro_de_una_sola_region_no_es_un_puente() {
     let store = base();
-    let files = arbol(&store, &[r"C:\v\docs\a.md", r"C:\v\docs\b.md", r"C:\v\otro\c.txt"]);
+    let files = arbol(
+        &store,
+        &[r"C:\v\docs\a.md", r"C:\v\docs\b.md", r"C:\v\otro\c.txt"],
+    );
 
     let sesion = store.create_entity(T).unwrap();
     for f in &files[..2] {
@@ -492,7 +519,14 @@ fn los_resultados_salen_agrupados_por_la_carpeta_que_comparten() {
 #[test]
 fn el_grupo_del_mejor_resultado_va_primero() {
     let store = base();
-    let files = arbol(&store, &[r"C:\v\raro\exacto.txt", r"C:\v\comun\a.txt", r"C:\v\comun\b.txt"]);
+    let files = arbol(
+        &store,
+        &[
+            r"C:\v\raro\exacto.txt",
+            r"C:\v\comun\a.txt",
+            r"C:\v\comun\b.txt",
+        ],
+    );
     for (f, texto) in files.iter().zip([
         "expediente expediente expediente",
         "menciona expediente una vez entre muchas otras palabras de relleno",
@@ -516,7 +550,10 @@ fn el_grupo_del_mejor_resultado_va_primero() {
     let brain = Brain::from_store(store);
     let r = brain.search("expediente", 10).unwrap();
 
-    assert_eq!(r.clusters[0].best, 1, "el primer grupo contiene el resultado numero uno");
+    assert_eq!(
+        r.clusters[0].best, 1,
+        "el primer grupo contiene el resultado numero uno"
+    );
     assert_eq!(r.clusters[0].label, "raro");
 }
 
@@ -576,7 +613,11 @@ fn el_numero_de_regiones_se_adapta_al_tamano_del_corpus() {
         "con 100 archivos no se abren 30 regiones: salieron {}",
         c.regions.len()
     );
-    assert!(c.regions.len() >= 8, "pero tampoco una: salieron {}", c.regions.len());
+    assert!(
+        c.regions.len() >= 8,
+        "pero tampoco una: salieron {}",
+        c.regions.len()
+    );
     assert_eq!(c.covered, 100, "y siguen cabiendo todos");
 }
 

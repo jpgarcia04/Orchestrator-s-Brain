@@ -46,7 +46,7 @@ use obrain_scan::Availability;
 use std::collections::{BTreeMap, HashMap};
 
 pub use format::Format;
-pub use search::{search, Hit};
+pub use search::{Hit, search};
 
 /// Techo de tamaño para abrir un archivo. Se decide **con el tamaño que ya
 /// está en el log**, sin tocar el disco.
@@ -337,7 +337,19 @@ pub fn extract_all_with(
             Err(e) => {
                 report.failed += 1;
                 report.errors.push(format!("{}: {e}", file.file_name()));
-                write_outcome(store, report, file, format.as_str(), Status::Failed, None, None, 0, 0, at, tp)?;
+                write_outcome(
+                    store,
+                    report,
+                    file,
+                    format.as_str(),
+                    Status::Failed,
+                    None,
+                    None,
+                    0,
+                    0,
+                    at,
+                    tp,
+                )?;
                 continue;
             }
         };
@@ -351,7 +363,9 @@ pub fn extract_all_with(
             (Format::Image, Some(o)) => o.image(&bytes),
             _ => format.extract(&bytes),
         };
-        let mut leido_con: Option<String> = (format == Format::Image).then(|| ocr.map(|o| o.engine())).flatten();
+        let mut leido_con: Option<String> = (format == Format::Image)
+            .then(|| ocr.map(|o| o.engine()))
+            .flatten();
         let mut extractor = format.as_str();
         let raw = match extraido {
             Ok(t) => t,
@@ -370,9 +384,23 @@ pub fn extract_all_with(
                             _ => detail,
                         };
                         report.failed += 1;
-                        report.errors.push(format!("{}: {por_que}", file.file_name()));
+                        report
+                            .errors
+                            .push(format!("{}: {por_que}", file.file_name()));
                         report.by_format.entry(format.as_str()).or_default().failed += 1;
-                        write_outcome(store, report, file, extractor, Status::Failed, None, None, 0, 0, at, tp)?;
+                        write_outcome(
+                            store,
+                            report,
+                            file,
+                            extractor,
+                            Status::Failed,
+                            None,
+                            None,
+                            0,
+                            0,
+                            at,
+                            tp,
+                        )?;
                         continue;
                     }
                 }
@@ -383,11 +411,25 @@ pub fn extract_all_with(
                     Status::Binary
                 } else {
                     report.failed += 1;
-                    report.errors.push(format!("{}: {detail}", file.file_name()));
+                    report
+                        .errors
+                        .push(format!("{}: {detail}", file.file_name()));
                     report.by_format.entry(format.as_str()).or_default().failed += 1;
                     Status::Failed
                 };
-                write_outcome(store, report, file, format.as_str(), status, None, None, 0, 0, at, tp)?;
+                write_outcome(
+                    store,
+                    report,
+                    file,
+                    format.as_str(),
+                    status,
+                    None,
+                    None,
+                    0,
+                    0,
+                    at,
+                    tp,
+                )?;
                 continue;
             }
         };
@@ -413,7 +455,19 @@ pub fn extract_all_with(
         if normalized.is_empty() {
             report.empty += 1;
             report.by_format.entry(format.as_str()).or_default().empty += 1;
-            write_outcome(store, report, file, extractor, Status::Empty, None, None, 0, 0, at, tp)?;
+            write_outcome(
+                store,
+                report,
+                file,
+                extractor,
+                Status::Empty,
+                None,
+                None,
+                0,
+                0,
+                at,
+                tp,
+            )?;
             continue;
         }
 
@@ -428,7 +482,9 @@ pub fn extract_all_with(
                 noise::Noise::Minified => Status::Minified,
                 noise::Noise::WordList => Status::WordList,
             };
-            write_outcome(store, report, file, extractor, status, None, None, 0, 0, at, tp)?;
+            write_outcome(
+                store, report, file, extractor, status, None, None, 0, 0, at, tp,
+            )?;
             continue;
         }
 
@@ -515,16 +571,48 @@ fn write_outcome(
         return Ok(());
     }
 
-    assert_if_changed(store, report, file, "extraction_status", status.as_str().into(), tp, at)?;
+    assert_if_changed(
+        store,
+        report,
+        file,
+        "extraction_status",
+        status.as_str().into(),
+        tp,
+        at,
+    )?;
     if status == Status::Ok {
-        assert_if_changed(store, report, file, "text_chars", Value::Number(chars as f64), tp, at)?;
-        assert_if_changed(store, report, file, "chunk_count", Value::Number(chunk_count as f64), tp, at)?;
+        assert_if_changed(
+            store,
+            report,
+            file,
+            "text_chars",
+            Value::Number(chars as f64),
+            tp,
+            at,
+        )?;
+        assert_if_changed(
+            store,
+            report,
+            file,
+            "chunk_count",
+            Value::Number(chunk_count as f64),
+            tp,
+            at,
+        )?;
         if let Some(h) = text_hash {
             assert_if_changed(store, report, file, "text_hash", h.into(), tp, at)?;
         }
         // I7: el chunker queda en el log, no sólo en la tabla. Cuando M4
         // escriba vectores, esta aserción es la que dice de qué fragmentos son.
-        assert_if_changed(store, report, file, "chunker", chunk::chunker_id().into(), tp, at)?;
+        assert_if_changed(
+            store,
+            report,
+            file,
+            "chunker",
+            chunk::chunker_id().into(),
+            tp,
+            at,
+        )?;
         // Quién leyó el texto, si no estaba en el archivo. Y si ahora sí lo
         // estaba —el PDF se rehízo con texto—, lo del OCR deja de ser cierto.
         match ocr_engine {
@@ -575,8 +663,14 @@ fn assert_if_changed(
         }
     }
     store.assert(
-        NewAssertion::new(file.entity.clone(), predicate, value, Method::Deterministic, at)
-            .source("extract@m2"),
+        NewAssertion::new(
+            file.entity.clone(),
+            predicate,
+            value,
+            Method::Deterministic,
+            at,
+        )
+        .source("extract@m2"),
     )?;
     report.assertions_written += 1;
     Ok(())

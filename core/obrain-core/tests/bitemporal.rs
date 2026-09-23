@@ -33,12 +33,17 @@ fn escribe_y_lee_una_asercion() {
     )
     .unwrap();
 
-    let found = s.query(Some(&doc), Some("about"), TimePoint::at(T_HOY)).unwrap();
+    let found = s
+        .query(Some(&doc), Some("about"), TimePoint::at(T_HOY))
+        .unwrap();
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].object.as_text(), Some("impuestos"));
     assert_eq!(found[0].method, Method::Inferred);
     assert_eq!(found[0].confidence, 0.7);
-    assert_eq!(found[0].evidence.as_deref(), Some("pagina 1, offset 240-268"));
+    assert_eq!(
+        found[0].evidence.as_deref(),
+        Some("pagina 1, offset 240-268")
+    );
 }
 
 // ═══════════════════════════════════════════════════════ I4 · nada se borra
@@ -48,7 +53,13 @@ fn retractar_no_borra_deja_de_estar_vigente() {
     let s = store();
     let doc = s.create_entity(T_2021).unwrap();
     let id = s
-        .assert(NewAssertion::new(doc.clone(), "about", "japon", Method::Inferred, T_2022))
+        .assert(NewAssertion::new(
+            doc.clone(),
+            "about",
+            "japon",
+            Method::Inferred,
+            T_2022,
+        ))
         .unwrap();
 
     assert_eq!(s.log_len().unwrap(), 1);
@@ -58,22 +69,42 @@ fn retractar_no_borra_deja_de_estar_vigente() {
     assert_eq!(s.log_len().unwrap(), 1);
 
     // ya no está vigente hoy
-    assert!(s.query(Some(&doc), Some("about"), TimePoint::at(T_HOY)).unwrap().is_empty());
+    assert!(
+        s.query(Some(&doc), Some("about"), TimePoint::at(T_HOY))
+            .unwrap()
+            .is_empty()
+    );
 
     // pero sigue siendo visible como creencia pasada — esto es "recordar"
-    let antes = s.query(Some(&doc), Some("about"), TimePoint::at(T_2022)).unwrap();
-    assert_eq!(antes.len(), 1, "la creencia pasada tiene que sobrevivir a la retraccion");
+    let antes = s
+        .query(Some(&doc), Some("about"), TimePoint::at(T_2022))
+        .unwrap();
+    assert_eq!(
+        antes.len(),
+        1,
+        "la creencia pasada tiene que sobrevivir a la retraccion"
+    );
 }
 
 #[test]
 fn el_motor_impide_borrar_aserciones() {
     let s = store();
     let doc = s.create_entity(T_2021).unwrap();
-    s.assert(NewAssertion::new(doc, "about", "x", Method::Inferred, T_2022)).unwrap();
+    s.assert(NewAssertion::new(
+        doc,
+        "about",
+        "x",
+        Method::Inferred,
+        T_2022,
+    ))
+    .unwrap();
 
     let err = s.conn().execute("DELETE FROM assertions", []).unwrap_err();
     let msg = err.to_string();
-    assert!(msg.contains("I4"), "el trigger debe rechazar el DELETE, dijo: {msg}");
+    assert!(
+        msg.contains("I4"),
+        "el trigger debe rechazar el DELETE, dijo: {msg}"
+    );
     assert!(Error::from(err).is_invariant_violation());
     assert_eq!(s.log_len().unwrap(), 1);
 }
@@ -83,12 +114,21 @@ fn la_retraccion_es_definitiva() {
     let s = store();
     let doc = s.create_entity(T_2021).unwrap();
     let id = s
-        .assert(NewAssertion::new(doc, "about", "x", Method::Inferred, T_2022))
+        .assert(NewAssertion::new(
+            doc,
+            "about",
+            "x",
+            Method::Inferred,
+            T_2022,
+        ))
         .unwrap();
 
     s.retract(&id, T_2023_MAR).unwrap();
     let err = s.retract(&id, T_2024_FEB).unwrap_err();
-    assert!(err.to_string().contains("I4"), "no se puede reescribir la historia: {err}");
+    assert!(
+        err.to_string().contains("I4"),
+        "no se puede reescribir la historia: {err}"
+    );
 }
 
 // ═════════════════════════════════════════════════════ I1 · log inmutable
@@ -97,7 +137,14 @@ fn la_retraccion_es_definitiva() {
 fn el_motor_impide_mutar_el_log() {
     let s = store();
     let doc = s.create_entity(T_2021).unwrap();
-    s.assert(NewAssertion::new(doc, "about", "x", Method::Inferred, T_2022)).unwrap();
+    s.assert(NewAssertion::new(
+        doc,
+        "about",
+        "x",
+        Method::Inferred,
+        T_2022,
+    ))
+    .unwrap();
 
     for sql in [
         "UPDATE assertions SET confidence = 0.01",
@@ -107,7 +154,10 @@ fn el_motor_impide_mutar_el_log() {
         "UPDATE assertions SET source = 'falsificado'",
     ] {
         let err = s.conn().execute(sql, []).unwrap_err();
-        assert!(err.to_string().contains("I1"), "deberia rechazar `{sql}`, dijo: {err}");
+        assert!(
+            err.to_string().contains("I1"),
+            "deberia rechazar `{sql}`, dijo: {err}"
+        );
     }
 }
 
@@ -131,10 +181,16 @@ fn eje_de_validez_que_era_cierto_en_el_mundo() {
     )
     .unwrap();
 
-    let en_2022 = s.resolve(&persona, "about", TimePoint::at(T_2022)).unwrap().unwrap();
+    let en_2022 = s
+        .resolve(&persona, "about", TimePoint::at(T_2022))
+        .unwrap()
+        .unwrap();
     assert_eq!(en_2022.object.as_text(), Some("Acme"));
 
-    let hoy = s.resolve(&persona, "about", TimePoint::at(T_HOY)).unwrap().unwrap();
+    let hoy = s
+        .resolve(&persona, "about", TimePoint::at(T_HOY))
+        .unwrap()
+        .unwrap();
     assert_eq!(hoy.object.as_text(), Some("Globex"));
 }
 
@@ -145,22 +201,41 @@ fn eje_de_conocimiento_que_sabia_yo_en_marzo_de_2023() {
 
     // En 2022 el sistema creía que el documento trataba de impuestos.
     let viejo = s
-        .assert(NewAssertion::new(doc.clone(), "about", "impuestos", Method::Inferred, T_2022))
+        .assert(NewAssertion::new(
+            doc.clone(),
+            "about",
+            "impuestos",
+            Method::Inferred,
+            T_2022,
+        ))
         .unwrap();
     // En noviembre de 2023 se dio cuenta de que era sobre la visa.
     s.retract(&viejo, T_2023_NOV).unwrap();
-    s.assert(NewAssertion::new(doc.clone(), "about", "visa", Method::Inferred, T_2023_NOV))
-        .unwrap();
+    s.assert(NewAssertion::new(
+        doc.clone(),
+        "about",
+        "visa",
+        Method::Inferred,
+        T_2023_NOV,
+    ))
+    .unwrap();
 
     // "¿Qué creía el sistema en marzo de 2023?"
     let creencia = s
-        .resolve(&doc, "about", TimePoint::as_known_at(T_2023_MAR, T_2023_MAR))
+        .resolve(
+            &doc,
+            "about",
+            TimePoint::as_known_at(T_2023_MAR, T_2023_MAR),
+        )
         .unwrap()
         .unwrap();
     assert_eq!(creencia.object.as_text(), Some("impuestos"));
 
     // "¿Y qué cree hoy?"
-    let ahora = s.resolve(&doc, "about", TimePoint::at(T_HOY)).unwrap().unwrap();
+    let ahora = s
+        .resolve(&doc, "about", TimePoint::at(T_HOY))
+        .unwrap()
+        .unwrap();
     assert_eq!(ahora.object.as_text(), Some("visa"));
 }
 
@@ -172,8 +247,14 @@ fn precedencia_del_usuario_sobre_la_inferencia() {
     let factura = s.create_entity(T_2021).unwrap();
 
     s.assert(
-        NewAssertion::new(factura.clone(), "part_of_process", "viaje-japon", Method::Inferred, T_2022)
-            .confidence(0.88),
+        NewAssertion::new(
+            factura.clone(),
+            "part_of_process",
+            "viaje-japon",
+            Method::Inferred,
+            T_2022,
+        )
+        .confidence(0.88),
     )
     .unwrap();
     s.assert(NewAssertion::new(
@@ -205,9 +286,15 @@ fn la_correccion_del_usuario_sobrevive_a_un_reescaneo() {
 
     // 1 · el clasificador infiere, con confianza alta
     s.assert(
-        NewAssertion::new(factura.clone(), "part_of_process", "viaje-japon", Method::Inferred, T_2022)
-            .confidence(0.93)
-            .source("classifier@v1"),
+        NewAssertion::new(
+            factura.clone(),
+            "part_of_process",
+            "viaje-japon",
+            Method::Inferred,
+            T_2022,
+        )
+        .confidence(0.93)
+        .source("classifier@v1"),
     )
     .unwrap();
 
@@ -224,9 +311,15 @@ fn la_correccion_del_usuario_sobrevive_a_un_reescaneo() {
     // 3 · MESES DESPUÉS, un reescaneo vuelve a inferir lo de antes,
     //     con más confianza todavía y un modelo más nuevo.
     s.assert(
-        NewAssertion::new(factura.clone(), "part_of_process", "viaje-japon", Method::Inferred, T_2024_FEB)
-            .confidence(0.99)
-            .source("classifier@v4"),
+        NewAssertion::new(
+            factura.clone(),
+            "part_of_process",
+            "viaje-japon",
+            Method::Inferred,
+            T_2024_FEB,
+        )
+        .confidence(0.99)
+        .source("classifier@v4"),
     )
     .unwrap();
 
@@ -256,13 +349,25 @@ fn deteccion_de_contradicciones_es_una_consulta_no_un_job() {
 
     // `contained_by` tiene cardinalidad `one`: dos valores vivos = contradicción
     s.assert(
-        NewAssertion::new(doc.clone(), "contained_by", "carpeta-a", Method::Deterministic, T_2022)
-            .source("scan@2022"),
+        NewAssertion::new(
+            doc.clone(),
+            "contained_by",
+            "carpeta-a",
+            Method::Deterministic,
+            T_2022,
+        )
+        .source("scan@2022"),
     )
     .unwrap();
     s.assert(
-        NewAssertion::new(doc.clone(), "contained_by", "carpeta-b", Method::Inferred, T_2023_MAR)
-            .confidence(0.7),
+        NewAssertion::new(
+            doc.clone(),
+            "contained_by",
+            "carpeta-b",
+            Method::Inferred,
+            T_2023_MAR,
+        )
+        .confidence(0.7),
     )
     .unwrap();
 
@@ -280,8 +385,14 @@ fn cardinalidad_many_no_es_contradiccion() {
     let doc = s.create_entity(T_2021).unwrap();
     // `mentions` es `many`: mencionar dos cosas es normal
     for t in ["irpf", "nomina"] {
-        s.assert(NewAssertion::new(doc.clone(), "mentions", t, Method::Deterministic, T_2022))
-            .unwrap();
+        s.assert(NewAssertion::new(
+            doc.clone(),
+            "mentions",
+            t,
+            Method::Deterministic,
+            T_2022,
+        ))
+        .unwrap();
     }
     assert!(s.contradictions(TimePoint::at(T_HOY)).unwrap().is_empty());
 }
@@ -295,13 +406,25 @@ fn las_facetas_son_aserciones_y_pueden_inferirse() {
 
     // deterministas, del propio archivo
     for f in [Facet::Addressable, Facet::Textual] {
-        s.assert(NewAssertion::new(doc.clone(), "has_facet", f.as_str(), Method::Deterministic, T_2022))
-            .unwrap();
+        s.assert(NewAssertion::new(
+            doc.clone(),
+            "has_facet",
+            f.as_str(),
+            Method::Deterministic,
+            T_2022,
+        ))
+        .unwrap();
     }
     // inferida por un clasificador — con confianza, como debe ser
     s.assert(
-        NewAssertion::new(doc.clone(), "has_facet", Facet::Financial.as_str(), Method::Inferred, T_2023_MAR)
-            .confidence(0.81),
+        NewAssertion::new(
+            doc.clone(),
+            "has_facet",
+            Facet::Financial.as_str(),
+            Method::Inferred,
+            T_2023_MAR,
+        )
+        .confidence(0.81),
     )
     .unwrap();
 
@@ -340,15 +463,27 @@ fn la_pregunta_de_la_visa_a_nivel_de_datos() {
     // El sistema detecta un proceso — nadie lo escribió a mano.
     let visa = s.create_entity(T_2023_NOV).unwrap();
     s.assert(
-        NewAssertion::new(visa.clone(), "has_facet", Facet::Process.as_str(), Method::Inferred, T_2023_NOV)
-            .confidence(0.84)
-            .source("process-detector@v1"),
+        NewAssertion::new(
+            visa.clone(),
+            "has_facet",
+            Facet::Process.as_str(),
+            Method::Inferred,
+            T_2023_NOV,
+        )
+        .confidence(0.84)
+        .source("process-detector@v1"),
     )
     .unwrap();
     s.assert(
-        NewAssertion::new(visa.clone(), "about", "tramite de visa", Method::Inferred, T_2023_NOV)
-            .confidence(0.84)
-            .valid(Some(T_2023_NOV), Some(T_2024_FEB)),
+        NewAssertion::new(
+            visa.clone(),
+            "about",
+            "tramite de visa",
+            Method::Inferred,
+            T_2023_NOV,
+        )
+        .confidence(0.84)
+        .valid(Some(T_2023_NOV), Some(T_2024_FEB)),
     )
     .unwrap();
 
@@ -365,8 +500,14 @@ fn la_pregunta_de_la_visa_a_nivel_de_datos() {
         ))
         .unwrap();
         s.assert(
-            NewAssertion::new(n.clone(), "evidence_for", "ingresos", Method::Inferred, T_2023_NOV)
-                .confidence(0.9),
+            NewAssertion::new(
+                n.clone(),
+                "evidence_for",
+                "ingresos",
+                Method::Inferred,
+                T_2023_NOV,
+            )
+            .confidence(0.9),
         )
         .unwrap();
         nominas.push(n);
@@ -405,7 +546,11 @@ fn la_pregunta_de_la_visa_a_nivel_de_datos() {
         })
         .collect();
 
-    assert_eq!(prueba_ingresos.len(), 3, "las tres nominas, y no el recibo de la luz");
+    assert_eq!(
+        prueba_ingresos.len(),
+        3,
+        "las tres nominas, y no el recibo de la luz"
+    );
 }
 
 /// Un intervalo que ya pasó **no** es cierto hoy, y por eso `resolve` con el
@@ -443,9 +588,13 @@ fn un_intervalo_pasado_se_lee_preguntando_por_lo_sostenido_y_no_por_lo_vigente()
 
     // Pero dentro del intervalo, sí.
     assert!(
-        s.resolve(&sesion, "session_span", TimePoint::as_known_at(T_2023_MAR - 1, T_HOY))
-            .unwrap()
-            .is_some()
+        s.resolve(
+            &sesion,
+            "session_span",
+            TimePoint::as_known_at(T_2023_MAR - 1, T_HOY)
+        )
+        .unwrap()
+        .is_some()
     );
 
     // Y sin filtrar por validez, siempre: es lo que necesita quien va a

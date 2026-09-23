@@ -20,7 +20,9 @@ fn dir(nombre: &str) -> PathBuf {
 }
 
 fn en_claro(p: &Path) -> bool {
-    std::fs::read(p).map(|b| b.windows(9).any(|w| w == b"PASAPORTE")).unwrap_or(false)
+    std::fs::read(p)
+        .map(|b| b.windows(9).any(|w| w == b"PASAPORTE"))
+        .unwrap_or(false)
 }
 
 fn con_sufijo(p: &Path, s: &str) -> PathBuf {
@@ -32,14 +34,26 @@ fn con_sufijo(p: &Path, s: &str) -> PathBuf {
 /// Un documento con texto indexado, como lo deja M2.
 fn documento(s: &Store, ruta: &str, texto: &str) -> EntityId {
     let e = s.create_entity(1).unwrap();
-    s.assert(NewAssertion::new(e.clone(), "path_observed_at", ruta, Method::Deterministic, 1)).unwrap();
+    s.assert(NewAssertion::new(
+        e.clone(),
+        "path_observed_at",
+        ruta,
+        Method::Deterministic,
+        1,
+    ))
+    .unwrap();
     obrain_extract::index::migrate(s.conn()).unwrap();
     obrain_extract::index::replace_chunks(
         s.conn(),
         &e,
         "paragraph-pack",
         1,
-        &[Chunk { ordinal: 0, byte_start: 0, byte_end: texto.len(), text: texto.to_string() }],
+        &[Chunk {
+            ordinal: 0,
+            byte_start: 0,
+            byte_end: texto.len(),
+            text: texto.to_string(),
+        }],
     )
     .unwrap();
     e
@@ -57,11 +71,21 @@ fn una_base_nueva_nace_cifrada() {
 
     let e = b.security().unwrap();
     assert!(e.cifrada);
-    assert_eq!(e.proteccion.as_deref(), Some(if cfg!(windows) { "dpapi" } else { "sin-proteger" }));
+    assert_eq!(
+        e.proteccion.as_deref(),
+        Some(if cfg!(windows) {
+            "dpapi"
+        } else {
+            "sin-proteger"
+        })
+    );
     assert!(e.recuperacion_pendiente);
     assert!(!e.pin);
 
-    let codigo = b.recovery_code().unwrap().expect("tiene que haber clave de recuperación");
+    let codigo = b
+        .recovery_code()
+        .unwrap()
+        .expect("tiene que haber clave de recuperación");
     assert_eq!(codigo.len(), 29);
     b.confirm_recovery_saved().unwrap();
     assert!(!b.security().unwrap().recuperacion_pendiente);
@@ -75,14 +99,24 @@ fn una_base_en_claro_se_cifra_al_abrirla() {
     let db = d.join("brain.obrain");
     let doc = {
         let s = Store::open(&db).unwrap();
-        documento(&s, r"C:\Bóveda\01 Identidad\pasaporte.pdf", "PASAPORTE G00000000 valido hasta 2031")
+        documento(
+            &s,
+            r"C:\Bóveda\01 Identidad\pasaporte.pdf",
+            "PASAPORTE G00000000 valido hasta 2031",
+        )
     };
     assert!(en_claro(&db));
 
     let b = Brain::from_store(abrir_con(&db, K).unwrap());
     assert!(b.security().unwrap().cifrada);
     assert!(b.security().unwrap().recuperacion_pendiente);
-    assert!(b.preview(&doc, None).unwrap().text.unwrap().contains("G00000000"));
+    assert!(
+        b.preview(&doc, None)
+            .unwrap()
+            .text
+            .unwrap()
+            .contains("G00000000")
+    );
     drop(b);
 
     assert!(!en_claro(&db), "después de cifrar queda texto en claro");
@@ -90,8 +124,12 @@ fn una_base_en_claro_se_cifra_al_abrirla() {
         assert!(!con_sufijo(&db, resto).exists(), "queda {resto}");
     }
     // Y abrirla otra vez no vuelve a cifrar nada: la clave sigue siendo la misma.
-    let codigo = Brain::from_store(abrir_con(&db, K).unwrap()).recovery_code().unwrap();
-    let otra = Brain::from_store(abrir_con(&db, K).unwrap()).recovery_code().unwrap();
+    let codigo = Brain::from_store(abrir_con(&db, K).unwrap())
+        .recovery_code()
+        .unwrap();
+    let otra = Brain::from_store(abrir_con(&db, K).unwrap())
+        .recovery_code()
+        .unwrap();
     assert_eq!(codigo, otra);
 }
 
@@ -113,7 +151,13 @@ fn un_cifrado_a_medias_se_termina_al_abrir() {
     assert!(en_claro(&db), "el corte deja la original en claro");
 
     let b = Brain::from_store(abrir_con(&db, K).unwrap());
-    assert!(b.preview(&doc, None).unwrap().text.unwrap().contains("G00000000"));
+    assert!(
+        b.preview(&doc, None)
+            .unwrap()
+            .text
+            .unwrap()
+            .contains("G00000000")
+    );
     drop(b);
     assert!(!en_claro(&db));
     assert!(!con_sufijo(&db, ".cifrando").exists());
@@ -125,16 +169,32 @@ fn un_cifrado_a_medias_se_termina_al_abrir() {
 fn sin_la_llave_de_windows_se_entra_con_la_clave_de_recuperacion() {
     let d = dir("recuperar");
     let db = d.join("brain.obrain");
-    let codigo = Brain::from_store(abrir_con(&db, K).unwrap()).recovery_code().unwrap().unwrap();
+    let codigo = Brain::from_store(abrir_con(&db, K).unwrap())
+        .recovery_code()
+        .unwrap()
+        .unwrap();
 
     let llave = obrain_keys::key_path(&db);
-    let propio = if cfg!(windows) { "dpapi" } else { "sin-proteger" };
-    let ajeno = if cfg!(windows) { "sin-proteger" } else { "dpapi" };
-    let texto = std::fs::read_to_string(&llave).unwrap().replace(propio, ajeno);
+    let propio = if cfg!(windows) {
+        "dpapi"
+    } else {
+        "sin-proteger"
+    };
+    let ajeno = if cfg!(windows) {
+        "sin-proteger"
+    } else {
+        "dpapi"
+    };
+    let texto = std::fs::read_to_string(&llave)
+        .unwrap()
+        .replace(propio, ajeno);
     std::fs::write(&llave, texto).unwrap();
 
     let err = Brain::open(&db).err().expect("no debería abrir");
-    assert!(err.is_key_unavailable(), "el error tiene que decir que falta la llave: {err}");
+    assert!(
+        err.is_key_unavailable(),
+        "el error tiene que decir que falta la llave: {err}"
+    );
 
     assert!(seguridad::recuperar(&db, "AAAAA-AAAAA-AAAAA-AAAAA-AAAAA").is_err());
     seguridad::recuperar(&db, &codigo.to_lowercase()).unwrap();
@@ -147,8 +207,16 @@ fn cerebro_con_pasaporte() -> (Brain, EntityId, EntityId, PathBuf) {
     let d = dir(&format!("pin-{}", obrain_core::EntityId::new()));
     let db = d.join("brain.obrain");
     let store = abrir_con(&db, K).unwrap();
-    let pasaporte = documento(&store, r"C:\Bóveda\01 Identidad\pasaporte.pdf", "PASAPORTE numero G00000000");
-    let receta = documento(&store, r"C:\Bóveda\02 Salud\receta.txt", "receta de ibuprofeno numero 600");
+    let pasaporte = documento(
+        &store,
+        r"C:\Bóveda\01 Identidad\pasaporte.pdf",
+        "PASAPORTE numero G00000000",
+    );
+    let receta = documento(
+        &store,
+        r"C:\Bóveda\02 Salud\receta.txt",
+        "receta de ibuprofeno numero 600",
+    );
     obrain_guard::mark_by_user(&store, &pasaporte, Sensitivity::Sensitive, 2).unwrap();
     (Brain::from_store(store), pasaporte, receta, db)
 }
@@ -179,10 +247,20 @@ fn con_pin_lo_sensible_no_sale_hasta_desbloquear() {
     assert!(matches!(b.recovery_code(), Err(Error::Bloqueado)));
 
     let r = b.search("numero", 10).unwrap();
-    let del_pasaporte = r.hits.iter().find(|h| h.entity == pasaporte.0).expect("sale en la lista");
-    assert!(del_pasaporte.snippet.is_empty(), "el fragmento de lo sensible no puede salir");
+    let del_pasaporte = r
+        .hits
+        .iter()
+        .find(|h| h.entity == pasaporte.0)
+        .expect("sale en la lista");
+    assert!(
+        del_pasaporte.snippet.is_empty(),
+        "el fragmento de lo sensible no puede salir"
+    );
     let de_la_receta = r.hits.iter().find(|h| h.entity == receta.0).unwrap();
-    assert!(!de_la_receta.snippet.is_empty(), "lo normal sigue con su fragmento");
+    assert!(
+        !de_la_receta.snippet.is_empty(),
+        "lo normal sigue con su fragmento"
+    );
     assert!(b.preview(&receta, None).unwrap().text.is_some());
 
     // Un PIN equivocado no desbloquea.
@@ -218,7 +296,10 @@ fn un_pin_olvidado_se_restablece_con_la_clave_de_recuperacion() {
     let codigo = b.recovery_code().unwrap().unwrap();
     b.lock();
 
-    assert!(b.reset_pin("AAAAA-AAAAA-AAAAA-AAAAA-AAAAA", Some("9999")).is_err());
+    assert!(
+        b.reset_pin("AAAAA-AAAAA-AAAAA-AAAAA-AAAAA", Some("9999"))
+            .is_err()
+    );
     b.reset_pin(&codigo, Some("9999")).unwrap();
     b.lock();
     assert!(b.unlock("2468").is_err());
@@ -235,14 +316,23 @@ fn la_espera_tras_los_fallos_sobrevive_a_cerrar_la_app() {
     let t = 1_000_000;
     let conn = b.store().conn();
     for _ in 0..3 {
-        assert!(matches!(seguridad::comprobar_pin(conn, "0000", t), Err(seguridad::Error::PinIncorrecto)));
+        assert!(matches!(
+            seguridad::comprobar_pin(conn, "0000", t),
+            Err(seguridad::Error::PinIncorrecto)
+        ));
     }
     // Ni siquiera el bueno entra mientras dura la espera.
-    assert!(matches!(seguridad::comprobar_pin(conn, "2468", t + 1_000), Err(seguridad::Error::PinEnEspera(_))));
+    assert!(matches!(
+        seguridad::comprobar_pin(conn, "2468", t + 1_000),
+        Err(seguridad::Error::PinEnEspera(_))
+    ));
     drop(b);
 
     let b = Brain::from_store(abrir_con(&db, K).unwrap());
     let conn = b.store().conn();
-    assert!(matches!(seguridad::comprobar_pin(conn, "2468", t + 1_000), Err(seguridad::Error::PinEnEspera(_))));
+    assert!(matches!(
+        seguridad::comprobar_pin(conn, "2468", t + 1_000),
+        Err(seguridad::Error::PinEnEspera(_))
+    ));
     seguridad::comprobar_pin(conn, "2468", t + 31_000).unwrap();
 }

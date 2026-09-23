@@ -152,8 +152,8 @@ mod tests {
         let mut buf = Vec::new();
         {
             let mut w = zip::ZipWriter::new(Cursor::new(&mut buf));
-            let opts: zip::write::FileOptions<'_, ()> =
-                zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+            let opts: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
             for (name, body) in parts {
                 w.start_file(*name, opts).unwrap();
                 w.write_all(body.as_bytes()).unwrap();
@@ -190,7 +190,10 @@ mod tests {
         let t = extract(&z).unwrap();
         assert!(t.contains("Presupuesto Universidad Canadá"), "{t:?}");
         assert!(t.contains("CFE Consumos Electricidad"), "{t:?}");
-        assert!(!t.contains("1284.5"), "los numeros sueltos son ruido: {t:?}");
+        assert!(
+            !t.contains("1284.5"),
+            "los numeros sueltos son ruido: {t:?}"
+        );
     }
 
     #[test]

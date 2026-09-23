@@ -5,7 +5,7 @@
 //! esconde que está enseñando una parte, o que coloca los nodos en un sitio
 //! distinto cada vez, ha fallado aunque renderice a 60 fps.
 
-use obrain_api::{lens, Brain};
+use obrain_api::{Brain, lens};
 use obrain_core::{EntityId, Method, NewAssertion, Sensitivity, Store, TimePoint, Value};
 
 const T: i64 = 1_000;
@@ -102,7 +102,11 @@ fn el_hub_aparece_aunque_solo_sea_objeto_de_sus_aristas() {
         l.nodes.iter().any(|n| n.id == hub.0),
         "la carpeta tiene que estar: es el vecino del archivo"
     );
-    assert_eq!(l.nodes.len(), 2, "radio 1 desde un archivo: el archivo y su carpeta");
+    assert_eq!(
+        l.nodes.len(),
+        2,
+        "radio 1 desde un archivo: el archivo y su carpeta"
+    );
 }
 
 /// Radio 2 desde un archivo llega a sus hermanos **a través** del hub, que es
@@ -114,10 +118,17 @@ fn radio_dos_alcanza_a_los_hermanos_por_el_hub() {
 
     let l = lens::open(&store, &[hijos[0].clone()], 2, 50, at()).unwrap();
 
-    assert_eq!(l.nodes.len(), 6, "los 5 archivos + la carpeta, y ninguno mas");
+    assert_eq!(
+        l.nodes.len(),
+        6,
+        "los 5 archivos + la carpeta, y ninguno mas"
+    );
     assert!(!l.truncated);
     let hermano = l.nodes.iter().find(|n| n.id == hijos[3].0).unwrap();
-    assert_eq!(hermano.distance, 2, "se llega a un hermano en dos saltos, no en uno");
+    assert_eq!(
+        hermano.distance, 2,
+        "se llega a un hermano en dos saltos, no en uno"
+    );
 }
 
 /// I2: **presupuesto duro**. Y cuando corta, lo dice.
@@ -129,7 +140,10 @@ fn el_presupuesto_corta_y_la_lente_lo_confiesa() {
     let l = lens::open(&store, &[hijos[0].clone()], 2, 10, at()).unwrap();
 
     assert_eq!(l.nodes.len(), 10, "el presupuesto es duro, no orientativo");
-    assert!(l.truncated, "hay mas grafo del que se ensena y hay que decirlo");
+    assert!(
+        l.truncated,
+        "hay mas grafo del que se ensena y hay que decirlo"
+    );
     assert!(
         l.reached > l.nodes.len(),
         "y hay que decir cuanto: {} alcanzados frente a {} dibujados",
@@ -207,8 +221,14 @@ fn ninguna_arista_apunta_fuera_de_lo_dibujado() {
 
     let dentro: Vec<&str> = l.nodes.iter().map(|n| n.id.as_str()).collect();
     for e in &l.edges {
-        assert!(dentro.contains(&e.from.as_str()), "arista desde un nodo que no se dibuja");
-        assert!(dentro.contains(&e.to.as_str()), "arista hacia un nodo que no se dibuja");
+        assert!(
+            dentro.contains(&e.from.as_str()),
+            "arista desde un nodo que no se dibuja"
+        );
+        assert!(
+            dentro.contains(&e.to.as_str()),
+            "arista hacia un nodo que no se dibuja"
+        );
     }
 }
 
@@ -225,7 +245,11 @@ fn el_grado_de_un_nodo_no_cambia_con_el_presupuesto() {
 
     let grado = |l: &lens::Lens| l.nodes.iter().find(|n| n.id == hub.0).unwrap().degree;
     assert_eq!(grado(&amplia), 60, "la carpeta tiene 60 aristas vivas");
-    assert_eq!(grado(&estrecha), 60, "y sigue teniendo 60 aunque solo se dibujen 3 nodos");
+    assert_eq!(
+        grado(&estrecha),
+        60,
+        "y sigue teniendo 60 aunque solo se dibujen 3 nodos"
+    );
 }
 
 /// Los canales visuales de `EXPERIENCE.md` §1 salen resueltos del núcleo: el
@@ -242,12 +266,20 @@ fn cada_arista_llega_con_su_metodo_y_su_confianza() {
 
     let l = lens::open(&store, std::slice::from_ref(&a), 1, 50, at()).unwrap();
 
-    let version = l.edges.iter().find(|e| e.predicate == "version_of").unwrap();
+    let version = l
+        .edges
+        .iter()
+        .find(|e| e.predicate == "version_of")
+        .unwrap();
     assert_eq!(version.method, "inferred", "punteada: es una heuristica");
     assert!((version.confidence - 0.75).abs() < 1e-9);
     assert_eq!(lens::stroke(Method::Inferred), "dashed");
 
-    let dup = l.edges.iter().find(|e| e.predicate == "duplicate_of").unwrap();
+    let dup = l
+        .edges
+        .iter()
+        .find(|e| e.predicate == "duplicate_of")
+        .unwrap();
     assert_eq!(dup.method, "deterministic", "solida: es un hash");
     assert_eq!(lens::stroke(Method::Deterministic), "solid");
 }
@@ -262,7 +294,9 @@ fn cada_arista_llega_con_su_metodo_y_su_confianza() {
 fn un_nodo_de_boveda_llega_marcado() {
     let store = base();
     let (_, hijos) = carpeta(&store, "Tramites", 3);
-    store.set_sensitivity(&hijos[1], Sensitivity::Vault).unwrap();
+    store
+        .set_sensitivity(&hijos[1], Sensitivity::Vault)
+        .unwrap();
 
     let l = lens::open(&store, &[hijos[0].clone()], 2, 50, at()).unwrap();
 
@@ -309,9 +343,16 @@ fn el_panel_separa_el_hecho_de_la_sospecha() {
         "una heuristica no puede colarse en el bloque solido"
     );
     // El vocabulario controlado trae su etiqueta: `version_of` → "versión de".
-    let ver = v.inferred.iter().find(|c| c.predicate == "version_of").unwrap();
+    let ver = v
+        .inferred
+        .iter()
+        .find(|c| c.predicate == "version_of")
+        .unwrap();
     assert_eq!(ver.label, "versión de");
-    assert!(ver.value_entity.is_some(), "el objeto es una entidad y se puede navegar");
+    assert!(
+        ver.value_entity.is_some(),
+        "el objeto es una entidad y se puede navegar"
+    );
 }
 
 /// I5 en la superficie: la corrección del usuario gana, aparece en el bloque
@@ -362,10 +403,22 @@ fn el_panel_no_ensena_la_fontaneria() {
     let store = base();
     let a = archivo(&store, "C:\\x\\doc.pdf");
     store
-        .assert(NewAssertion::new(a.clone(), "chunk_count", 12.0, Method::Deterministic, T))
+        .assert(NewAssertion::new(
+            a.clone(),
+            "chunk_count",
+            12.0,
+            Method::Deterministic,
+            T,
+        ))
         .unwrap();
     store
-        .assert(NewAssertion::new(a.clone(), "has_facet", "textual", Method::Deterministic, T))
+        .assert(NewAssertion::new(
+            a.clone(),
+            "has_facet",
+            "textual",
+            Method::Deterministic,
+            T,
+        ))
         .unwrap();
 
     let brain = Brain::from_store(store);
@@ -417,9 +470,15 @@ fn sin_modelo_la_barra_responde_igual_y_lo_admite() {
     let r = brain.search("Titulacion", 10).unwrap();
     assert_eq!(r.hits.len(), 1);
     assert_eq!(r.branches, vec!["bm25"]);
-    assert!(!r.semantic, "hay que decir que la mitad semantica no ha corrido");
+    assert!(
+        !r.semantic,
+        "hay que decir que la mitad semantica no ha corrido"
+    );
     assert_eq!(r.hits[0].ranks, vec![("bm25".to_string(), 1)]);
-    assert_eq!(r.hits[0].label, "matricula.pdf", "el nombre lo decide M3, no la interfaz");
+    assert_eq!(
+        r.hits[0].label, "matricula.pdf",
+        "el nombre lo decide M3, no la interfaz"
+    );
     assert_eq!(r.hits[0].sensitivity, "normal");
 }
 
@@ -447,11 +506,23 @@ fn el_sustrato_se_abre_sobre_los_resultados_de_la_consulta() {
     let brain = Brain::from_store(store);
     let g = brain.glance("expediente", 10).unwrap();
 
-    assert_eq!(g.answer.hits.len(), 1, "la lista y el sustrato salen de una sola busqueda");
-    assert_eq!(g.lens.focus, vec![hijos[0].0.clone()]);
-    assert!(g.lens.nodes.iter().any(|n| n.id == hub.0), "y su carpeta se enciende con el");
     assert_eq!(
-        g.lens.nodes.iter().find(|n| n.id == hijos[0].0).unwrap().distance,
+        g.answer.hits.len(),
+        1,
+        "la lista y el sustrato salen de una sola busqueda"
+    );
+    assert_eq!(g.lens.focus, vec![hijos[0].0.clone()]);
+    assert!(
+        g.lens.nodes.iter().any(|n| n.id == hub.0),
+        "y su carpeta se enciende con el"
+    );
+    assert_eq!(
+        g.lens
+            .nodes
+            .iter()
+            .find(|n| n.id == hijos[0].0)
+            .unwrap()
+            .distance,
         0
     );
 }

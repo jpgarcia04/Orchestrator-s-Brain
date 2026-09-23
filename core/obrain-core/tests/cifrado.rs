@@ -30,7 +30,8 @@ fn en_claro(db: &Path) -> bool {
 
 fn escribir(s: &Store) {
     let e = s.create_entity(1).unwrap();
-    s.assert(NewAssertion::new(e, "about", SECRETO, Method::User, 1)).unwrap();
+    s.assert(NewAssertion::new(e, "about", SECRETO, Method::User, 1))
+        .unwrap();
 }
 
 fn leer(s: &Store) -> Vec<String> {
@@ -70,7 +71,10 @@ fn sin_llave_o_con_otra_no_se_abre() {
 
     // Con la llave de otra base.
     let otra = obrain_keys::create_with(&d.join("otra.obrain"), KdfParams::FAST_FOR_TESTS).unwrap();
-    assert!(matches!(Store::open_with(&db, Some(&otra.key)), Err(Error::WrongKey)));
+    assert!(matches!(
+        Store::open_with(&db, Some(&otra.key)),
+        Err(Error::WrongKey)
+    ));
 }
 
 /// La migración de una base en claro: todo llega —también los triggers que
@@ -101,7 +105,11 @@ fn cifrar_una_base_en_claro_no_pierde_nada() {
     assert_eq!(leer(&s), vec![SECRETO]);
     let n: i64 = s
         .conn()
-        .query_row("SELECT count(*) FROM fts WHERE fts MATCH 'vigencia'", [], |r| r.get(0))
+        .query_row(
+            "SELECT count(*) FROM fts WHERE fts MATCH 'vigencia'",
+            [],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(n, 1, "el índice FTS5 llega y sigue buscando");
 

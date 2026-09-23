@@ -58,16 +58,16 @@ pub fn platform() -> Option<Box<dyn Ocr>> {
 #[cfg(windows)]
 mod windows_ocr {
     use super::Ocr;
-    use windows::core::HSTRING;
     use windows::Data::Pdf::{PdfDocument, PdfPageRenderOptions};
     use windows::Globalization::Language;
     use windows::Graphics::Imaging::{
-        BitmapAlphaMode, BitmapDecoder, BitmapInterpolationMode, BitmapPixelFormat, BitmapTransform,
-        ColorManagementMode, ExifOrientationMode, SoftwareBitmap,
+        BitmapAlphaMode, BitmapDecoder, BitmapInterpolationMode, BitmapPixelFormat,
+        BitmapTransform, ColorManagementMode, ExifOrientationMode, SoftwareBitmap,
     };
     use windows::Media::Ocr::OcrEngine;
     use windows::Storage::Streams::{DataWriter, InMemoryRandomAccessStream};
-    use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
+    use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize};
+    use windows::core::HSTRING;
 
     type R<T> = windows::core::Result<T>;
 
@@ -97,8 +97,17 @@ mod windows_ocr {
             init();
             let engine = OcrEngine::TryCreateFromUserProfileLanguages()
                 .ok()
-                .or_else(|| ["es-ES", "es-MX", "es", "en-US"].iter().find_map(|t| engine_for(t).ok()))?;
-            let tag = engine.RecognizerLanguage().ok()?.LanguageTag().ok()?.to_string();
+                .or_else(|| {
+                    ["es-ES", "es-MX", "es", "en-US"]
+                        .iter()
+                        .find_map(|t| engine_for(t).ok())
+                })?;
+            let tag = engine
+                .RecognizerLanguage()
+                .ok()?
+                .LanguageTag()
+                .ok()?
+                .to_string();
             Some(WindowsOcr { tag })
         }
     }
@@ -121,7 +130,9 @@ mod windows_ocr {
     fn preparar(decoder: &BitmapDecoder) -> R<SoftwareBitmap> {
         let max = OcrEngine::MaxImageDimension()?;
         let t = BitmapTransform::new()?;
-        let lado = decoder.OrientedPixelWidth()?.max(decoder.OrientedPixelHeight()?);
+        let lado = decoder
+            .OrientedPixelWidth()?
+            .max(decoder.OrientedPixelHeight()?);
         if lado > max {
             let f = f64::from(max) / f64::from(lado);
             t.SetScaledWidth((f64::from(decoder.PixelWidth()?) * f) as u32)?;
@@ -183,7 +194,9 @@ mod windows_ocr {
                     opciones.SetDestinationWidth((f64::from(tam.Width) * escala) as u32)?;
                     opciones.SetDestinationHeight((f64::from(tam.Height) * escala) as u32)?;
                     let pintada = InMemoryRandomAccessStream::new()?;
-                    pagina.RenderWithOptionsToStreamAsync(&pintada, &opciones)?.get()?;
+                    pagina
+                        .RenderWithOptionsToStreamAsync(&pintada, &opciones)?
+                        .get()?;
                     let decoder = BitmapDecoder::CreateAsync(&pintada)?.get()?;
                     let bitmap = SoftwareBitmap::Convert(
                         &decoder.GetSoftwareBitmapAsync()?.get()?,

@@ -16,10 +16,14 @@
 use obrain_core::rusqlite::params;
 use obrain_core::{EntityId, Method, NewAssertion, Sensitivity, Store, TimePoint};
 use obrain_embed::embedder::{Embedder, ModelId, Role};
-use obrain_embed::{index, EmbedReport};
+use obrain_embed::{EmbedReport, index};
 use std::cell::RefCell;
 
-const M: ModelId = ModelId { id: "juguete", version: 1, dim: 4 };
+const M: ModelId = ModelId {
+    id: "juguete",
+    version: 1,
+    dim: 4,
+};
 
 /// Determinista y trazable: registra **todo** lo que se le pide embeber, que
 /// es lo que permite afirmar que el texto de la bóveda no llegó al modelo.
@@ -76,8 +80,14 @@ fn con_fragmentos(store: &Store, at: i64, textos: &[&str]) -> EntityId {
 fn a_la_boveda(store: &Store, e: &EntityId, at: i64) {
     store
         .assert(
-            NewAssertion::new(e.clone(), "sensitivity_level", "vault", Method::Inferred, at)
-                .source("test"),
+            NewAssertion::new(
+                e.clone(),
+                "sensitivity_level",
+                "vault",
+                Method::Inferred,
+                at,
+            )
+            .source("test"),
         )
         .unwrap();
     store.reproject_sensitivity(e, TimePoint::at(at)).unwrap();
@@ -87,7 +97,11 @@ fn a_la_boveda(store: &Store, e: &EntityId, at: i64) {
 fn vectores_de(store: &Store, e: &EntityId) -> i64 {
     store
         .conn()
-        .query_row("SELECT COUNT(*) FROM vectors WHERE entity = ?1", [e.as_str()], |r| r.get(0))
+        .query_row(
+            "SELECT COUNT(*) FROM vectors WHERE entity = ?1",
+            [e.as_str()],
+            |r| r.get(0),
+        )
         .unwrap()
 }
 
@@ -105,12 +119,19 @@ fn la_boveda_no_acaba_con_un_solo_vector() {
     let mut r = EmbedReport::default();
     obrain_embed::embed_all(&store, &modelo, at, &mut r).unwrap();
 
-    assert_eq!(vectores_de(&store, &secreto), 0, "la boveda ha entrado en el indice vectorial");
+    assert_eq!(
+        vectores_de(&store, &secreto),
+        0,
+        "la boveda ha entrado en el indice vectorial"
+    );
     assert_eq!(vectores_de(&store, &normal), 2);
     assert_eq!(r.vectors_written, 2);
     assert_eq!(r.chunks_withheld, 2);
     assert_eq!(r.entities_withheld, 1);
-    assert_eq!(r.denied_at_call, 0, "embeddable y check tienen que estar de acuerdo");
+    assert_eq!(
+        r.denied_at_call, 0,
+        "embeddable y check tienen que estar de acuerdo"
+    );
 
     // Y el texto de la bóveda **ni siquiera se le ofreció al modelo**. Con un
     // modelo local la diferencia parece académica; con uno remoto es la
@@ -135,8 +156,18 @@ fn la_boveda_tampoco_deja_procedencia() {
     obrain_embed::embed_all(&store, &Juguete::default(), at, &mut r).unwrap();
 
     let tp = TimePoint::at(at);
-    assert!(store.resolve(&secreto, "embedded_with", tp).unwrap().is_none());
-    assert!(store.resolve(&secreto, "vector_count", tp).unwrap().is_none());
+    assert!(
+        store
+            .resolve(&secreto, "embedded_with", tp)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        store
+            .resolve(&secreto, "vector_count", tp)
+            .unwrap()
+            .is_none()
+    );
 }
 
 /// Clasificar algo como bóveda **después** de vectorizarlo es el caso
@@ -179,7 +210,12 @@ fn la_pasada_siguiente_saca_del_indice_lo_que_subio_a_boveda() {
     let mut r = EmbedReport::default();
     obrain_embed::embed_all(&store, &Juguete::default(), at, &mut r).unwrap();
     assert_eq!(vectores_de(&store, &e), 1);
-    assert!(store.resolve(&e, "embedded_with", TimePoint::at(at)).unwrap().is_some());
+    assert!(
+        store
+            .resolve(&e, "embedded_with", TimePoint::at(at))
+            .unwrap()
+            .is_some()
+    );
 
     a_la_boveda(&store, &e, at + 1);
     let mut r2 = EmbedReport::default();
@@ -208,8 +244,14 @@ fn lo_sensible_si_se_vectoriza_en_local() {
     let e = con_fragmentos(&store, at, &["matricula con un NIE dentro"]);
     store
         .assert(
-            NewAssertion::new(e.clone(), "sensitivity_level", "sensitive", Method::Inferred, at)
-                .source("test"),
+            NewAssertion::new(
+                e.clone(),
+                "sensitivity_level",
+                "sensitive",
+                Method::Inferred,
+                at,
+            )
+            .source("test"),
         )
         .unwrap();
     store.reproject_sensitivity(&e, TimePoint::at(at)).unwrap();

@@ -68,7 +68,9 @@ impl FolderMarks {
     /// Las marcas que cubren esta ruta.
     pub fn covering<'a>(&'a self, location: &str) -> impl Iterator<Item = &'a FolderMark> + 'a {
         let loc = fold_path(location);
-        self.0.iter().filter(move |m| within_folded(&loc, &m.folded))
+        self.0
+            .iter()
+            .filter(move |m| within_folded(&loc, &m.folded))
     }
 
     /// La marca de esta carpeta, si la tiene ella misma (no heredada).
@@ -121,8 +123,7 @@ fn within_folded(path: &str, folder: &str) -> bool {
         // La raíz de un sistema tipo Unix: `/` lo contiene todo.
         return path.starts_with(['\\', '/']);
     }
-    path == folder
-        || (path.starts_with(folder) && path[folder.len()..].starts_with(['\\', '/']))
+    path == folder || (path.starts_with(folder) && path[folder.len()..].starts_with(['\\', '/']))
 }
 
 fn parse(a: &Assertion) -> Option<Sensitivity> {
@@ -225,8 +226,14 @@ impl Store {
                 .copied()
                 .filter(|m| m.level > dicho && m.asserted_at > u.asserted_at);
             return Ok(match strongest(&mut posteriores) {
-                Some(m) => Resolution { level: m.level, origin: Origin::Folder(m) },
-                None => Resolution { level: dicho, origin: Origin::User },
+                Some(m) => Resolution {
+                    level: m.level,
+                    origin: Origin::Folder(m),
+                },
+                None => Resolution {
+                    level: dicho,
+                    origin: Origin::User,
+                },
             });
         }
 
@@ -235,11 +242,18 @@ impl Store {
         Ok(match (clasificador, carpeta) {
             // A igual nivel se cuenta la carpeta: «lo marcaste tú» explica más
             // que una regla del clasificador, y es igual de cierto.
-            (c, Some(m)) if c.is_none_or(|c| c <= m.level) => {
-                Resolution { level: m.level, origin: Origin::Folder(m) }
-            }
-            (Some(c), _) => Resolution { level: c, origin: Origin::Classifier },
-            (None, _) => Resolution { level: Sensitivity::Normal, origin: Origin::Default },
+            (c, Some(m)) if c.is_none_or(|c| c <= m.level) => Resolution {
+                level: m.level,
+                origin: Origin::Folder(m),
+            },
+            (Some(c), _) => Resolution {
+                level: c,
+                origin: Origin::Classifier,
+            },
+            (None, _) => Resolution {
+                level: Sensitivity::Normal,
+                origin: Origin::Default,
+            },
         })
     }
 
@@ -266,21 +280,39 @@ mod tests {
 
     fn carpeta(s: &Store, ruta: &str) -> EntityId {
         let e = s.create_entity(T).unwrap();
-        s.assert(NewAssertion::new(e.clone(), "folder_path", ruta, Method::Deterministic, T))
-            .unwrap();
+        s.assert(NewAssertion::new(
+            e.clone(),
+            "folder_path",
+            ruta,
+            Method::Deterministic,
+            T,
+        ))
+        .unwrap();
         e
     }
 
     fn archivo(s: &Store, ruta: &str) -> EntityId {
         let e = s.create_entity(T).unwrap();
-        s.assert(NewAssertion::new(e.clone(), "path_observed_at", ruta, Method::Deterministic, T))
-            .unwrap();
+        s.assert(NewAssertion::new(
+            e.clone(),
+            "path_observed_at",
+            ruta,
+            Method::Deterministic,
+            T,
+        ))
+        .unwrap();
         e
     }
 
     fn marcar(s: &Store, c: &EntityId, nivel: &str, at: i64) {
-        s.assert(NewAssertion::new(c.clone(), CONTENTS_SENSITIVITY, nivel, Method::User, at))
-            .unwrap();
+        s.assert(NewAssertion::new(
+            c.clone(),
+            CONTENTS_SENSITIVITY,
+            nivel,
+            Method::User,
+            at,
+        ))
+        .unwrap();
     }
 
     fn dice(s: &Store, e: &EntityId, nivel: &str, metodo: Method, at: i64) {
@@ -296,23 +328,39 @@ mod tests {
 
     fn resolver(s: &Store, e: &EntityId, at: i64) -> Resolution {
         let tp = TimePoint::at(at);
-        s.resolve_sensitivity(e, tp, &s.folder_marks(tp).unwrap()).unwrap()
+        s.resolve_sensitivity(e, tp, &s.folder_marks(tp).unwrap())
+            .unwrap()
     }
 
     #[test]
     fn dentro_exige_frontera_de_separador() {
-        assert!(path_within(r"C:\Bóveda\01 Identidad\tie.jpg", r"C:\Bóveda\01 Identidad"));
-        assert!(path_within(r"C:\Bóveda\01 Identidad\2024\tie.jpg", r"C:\Bóveda\01 Identidad"));
-        assert!(path_within(r"C:\Bóveda\01 Identidad", r"C:\Bóveda\01 Identidad"));
+        assert!(path_within(
+            r"C:\Bóveda\01 Identidad\tie.jpg",
+            r"C:\Bóveda\01 Identidad"
+        ));
+        assert!(path_within(
+            r"C:\Bóveda\01 Identidad\2024\tie.jpg",
+            r"C:\Bóveda\01 Identidad"
+        ));
+        assert!(path_within(
+            r"C:\Bóveda\01 Identidad",
+            r"C:\Bóveda\01 Identidad"
+        ));
         assert!(path_within("/home/jp/Bóveda/x.pdf", "/home/jp/Bóveda/"));
         // Un prefijo que no es carpeta no cuenta.
         assert!(!path_within(r"C:\Docs viejos\x.pdf", r"C:\Docs"));
-        assert!(!path_within(r"C:\Bóveda\02 Salud\x.pdf", r"C:\Bóveda\01 Identidad"));
+        assert!(!path_within(
+            r"C:\Bóveda\02 Salud\x.pdf",
+            r"C:\Bóveda\01 Identidad"
+        ));
     }
 
     #[test]
     fn dentro_no_distingue_mayusculas() {
-        assert!(path_within(r"c:\bóveda\01 identidad\tie.jpg", r"C:\Bóveda\01 Identidad"));
+        assert!(path_within(
+            r"c:\bóveda\01 identidad\tie.jpg",
+            r"C:\Bóveda\01 Identidad"
+        ));
         assert!(path_within(r"C:\BÓVEDA\x.pdf", r"C:\bóveda"));
     }
 
@@ -336,7 +384,11 @@ mod tests {
         marcar(&s, &identidad, "sensitive", T + 1);
         assert_eq!(nivel(&s, &tie, T + 2), Sensitivity::Sensitive);
         assert_eq!(nivel(&s, &hondo, T + 2), Sensitivity::Sensitive);
-        assert_eq!(nivel(&s, &identidad, T + 2), Sensitivity::Sensitive, "y la carpeta misma");
+        assert_eq!(
+            nivel(&s, &identidad, T + 2),
+            Sensitivity::Sensitive,
+            "y la carpeta misma"
+        );
         assert_eq!(nivel(&s, &fuera, T + 2), Sensitivity::Normal);
     }
 
@@ -378,7 +430,10 @@ mod tests {
         marcar(&s, &fuera, "vault", T);
         marcar(&s, &dentro, "sensitive", T + 1);
         match resolver(&s, &f, T + 2) {
-            Resolution { level: Sensitivity::Vault, origin: Origin::Folder(m) } => {
+            Resolution {
+                level: Sensitivity::Vault,
+                origin: Origin::Folder(m),
+            } => {
                 assert_eq!(m.folder, fuera)
             }
             otro => panic!("esperaba bóveda por la carpeta de fuera, salió {otro:?}"),
@@ -401,7 +456,10 @@ mod tests {
 
         assert_eq!(nivel(&s, &antes, T + 30), Sensitivity::Sensitive);
         assert_eq!(nivel(&s, &despues, T + 30), Sensitivity::Normal);
-        assert!(matches!(resolver(&s, &despues, T + 30).origin, Origin::User));
+        assert!(matches!(
+            resolver(&s, &despues, T + 30).origin,
+            Origin::User
+        ));
     }
 
     /// Subir a mano por encima de la carpeta siempre vale, sea antes o después.
@@ -427,14 +485,34 @@ mod tests {
         assert_eq!(nivel(&s, &f, T + 1), Sensitivity::Normal);
 
         let entra = r"C:\Bóveda\01 Identidad\scan.jpg";
-        s.assert(NewAssertion::new(f.clone(), "path_observed_at", entra, Method::Deterministic, T + 2))
-            .unwrap();
-        assert_eq!(nivel(&s, &f, T + 3), Sensitivity::Sensitive, "entra y hereda");
+        s.assert(NewAssertion::new(
+            f.clone(),
+            "path_observed_at",
+            entra,
+            Method::Deterministic,
+            T + 2,
+        ))
+        .unwrap();
+        assert_eq!(
+            nivel(&s, &f, T + 3),
+            Sensitivity::Sensitive,
+            "entra y hereda"
+        );
 
         let sale = r"C:\Bóveda\Descargas\scan.jpg";
-        s.assert(NewAssertion::new(f.clone(), "path_observed_at", sale, Method::Deterministic, T + 4))
-            .unwrap();
-        assert_eq!(nivel(&s, &f, T + 5), Sensitivity::Normal, "sale y deja de heredar");
+        s.assert(NewAssertion::new(
+            f.clone(),
+            "path_observed_at",
+            sale,
+            Method::Deterministic,
+            T + 4,
+        ))
+        .unwrap();
+        assert_eq!(
+            nivel(&s, &f, T + 5),
+            Sensitivity::Normal,
+            "sale y deja de heredar"
+        );
     }
 
     /// Sólo el usuario marca carpetas. Una marca inferida —que nadie escribe
@@ -444,8 +522,14 @@ mod tests {
         let s = Store::open_in_memory().unwrap();
         let c = carpeta(&s, r"C:\Bóveda\Contratos");
         let f = archivo(&s, r"C:\Bóveda\Contratos\alquiler.pdf");
-        s.assert(NewAssertion::new(c.clone(), CONTENTS_SENSITIVITY, "vault", Method::Inferred, T))
-            .unwrap();
+        s.assert(NewAssertion::new(
+            c.clone(),
+            CONTENTS_SENSITIVITY,
+            "vault",
+            Method::Inferred,
+            T,
+        ))
+        .unwrap();
         assert_eq!(nivel(&s, &f, T + 1), Sensitivity::Normal);
         assert!(s.folder_marks(TimePoint::at(T + 1)).unwrap().is_empty());
     }
@@ -457,10 +541,21 @@ mod tests {
         let s = Store::open_in_memory().unwrap();
         let c = carpeta(&s, r"C:\Bóveda\01 Identidad");
         marcar(&s, &c, "sensitive", T);
-        let id = s.folder_marks(TimePoint::at(T + 1)).unwrap().of(&c).unwrap().assertion.clone();
+        let id = s
+            .folder_marks(TimePoint::at(T + 1))
+            .unwrap()
+            .of(&c)
+            .unwrap()
+            .assertion
+            .clone();
         s.retract(&id, T + 5).unwrap();
 
         assert!(s.folder_marks(TimePoint::at(T + 6)).unwrap().is_empty());
-        assert!(s.folder_marks(TimePoint::at(T + 1)).unwrap().of(&c).is_some());
+        assert!(
+            s.folder_marks(TimePoint::at(T + 1))
+                .unwrap()
+                .of(&c)
+                .is_some()
+        );
     }
 }

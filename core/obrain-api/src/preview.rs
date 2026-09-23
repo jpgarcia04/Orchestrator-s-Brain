@@ -197,7 +197,11 @@ pub fn of(
         }
     }
 
-    p.reason = Some(reason(disponibilidad, p.availability.is_some(), status.as_deref()));
+    p.reason = Some(reason(
+        disponibilidad,
+        p.availability.is_some(),
+        status.as_deref(),
+    ));
     Ok(p)
 }
 
@@ -290,7 +294,11 @@ fn ceil(s: &str, mut i: usize) -> usize {
 /// exigiría abrir el archivo, y abrirlo es exactamente lo que la guarda decide
 /// si se puede hacer. La comprobación barata va antes que la cara.
 fn is_image(path: &str) -> bool {
-    let ext = path.rsplit('.').next().unwrap_or_default().to_ascii_lowercase();
+    let ext = path
+        .rsplit('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     IMAGE_EXT.contains(&ext.as_str())
 }
 
@@ -346,7 +354,11 @@ fn thumbnail(path: &Path) -> Option<(String, u32, u32)> {
     let mut buf = std::io::Cursor::new(Vec::new());
     img.write_to(&mut buf, formato).ok()?;
     let datos = base64::engine::general_purpose::STANDARD.encode(buf.into_inner());
-    Some((format!("data:{mime};base64,{datos}"), img.width(), img.height()))
+    Some((
+        format!("data:{mime};base64,{datos}"),
+        img.width(),
+        img.height(),
+    ))
 }
 
 /// ¿Hay algún píxel que no sea opaco?
@@ -394,7 +406,11 @@ mod tests {
         let (s, e) = marca.expect("hay tramo marcado");
         let visto = &doc[i..f];
         assert!(visto.contains("aguacate"));
-        assert!(visto[s..e].contains("aguacate"), "la marca apunta a otro sitio: {:?}", &visto[s..e]);
+        assert!(
+            visto[s..e].contains("aguacate"),
+            "la marca apunta a otro sitio: {:?}",
+            &visto[s..e]
+        );
     }
 
     /// Mientras la prueba quepa dentro del presupuesto, el documento se abre
@@ -423,7 +439,11 @@ mod tests {
     /// está en la máquina sugiere un fallo del programa donde no lo hay.
     #[test]
     fn la_nube_manda_sobre_el_estado_de_extraccion() {
-        let r = reason(Some(Availability::CloudDehydrated), true, Some("unsupported"));
+        let r = reason(
+            Some(Availability::CloudDehydrated),
+            true,
+            Some("unsupported"),
+        );
         assert!(r.contains("nube"), "{r}");
         assert!(r.contains("descargaría"), "{r}");
     }

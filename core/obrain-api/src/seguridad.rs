@@ -12,8 +12,8 @@
 //!
 //! [ADR-0021]: ../../../docs/adr/0021-cifrado-en-reposo-y-pin.md
 
-use obrain_core::rusqlite::{Connection, OptionalExtension, params};
 use obrain_core::Store;
+use obrain_core::rusqlite::{Connection, OptionalExtension, params};
 use obrain_keys::{KdfParams, RecoveryCode};
 use std::path::{Path, PathBuf};
 
@@ -88,7 +88,11 @@ pub fn migrate(conn: &Connection) -> obrain_core::rusqlite::Result<()> {
 
 fn leer(conn: &Connection, clave: &str) -> Result<Option<String>> {
     Ok(conn
-        .query_row("SELECT valor FROM seguridad WHERE clave = ?1", [clave], |r| r.get(0))
+        .query_row(
+            "SELECT valor FROM seguridad WHERE clave = ?1",
+            [clave],
+            |r| r.get(0),
+        )
         .optional()?)
 }
 
@@ -183,7 +187,9 @@ fn cifrar(db: &Path, kdf: KdfParams) -> Result<Store> {
         let despues = cuenta(s.conn())?;
         if antes != despues {
             let _ = std::fs::remove_file(&cifrando);
-            return Err(Error::MigracionIncompleta(format!("{antes:?} → {despues:?}")));
+            return Err(Error::MigracionIncompleta(format!(
+                "{antes:?} → {despues:?}"
+            )));
         }
         guardar_recuperacion(s.conn(), llave.recovery())?;
     }
@@ -202,7 +208,8 @@ fn reanudar(db: &Path, cifrando: &Path) -> Result<()> {
     {
         let s = Store::open_with(cifrando, Some(&obrain_keys::unlock(db)?))?;
         // Todo dentro del archivo principal: lo que se mueve es sólo ése.
-        s.conn().query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
+        s.conn()
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
     }
     for resto in ["-wal", "-shm"] {
         let _ = std::fs::remove_file(con_sufijo(cifrando, resto));
@@ -249,7 +256,11 @@ pub fn confirmar_recuperacion(conn: &Connection) -> Result<()> {
 
 /// ¿Es ésta la clave de recuperación de la base abierta en `conn`?
 pub fn comprobar_recuperacion(conn: &Connection, codigo: &str) -> Result<()> {
-    let db = conn.path().filter(|p| !p.is_empty()).map(PathBuf::from).ok_or(Error::SinCifrar)?;
+    let db = conn
+        .path()
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from)
+        .ok_or(Error::SinCifrar)?;
     if !obrain_keys::exists(&db) {
         return Err(Error::SinCifrar);
     }
@@ -309,7 +320,8 @@ pub fn poner_pin(conn: &Connection, pin: &str) -> Result<()> {
     validar(pin)?;
     let mut sal = [0u8; 16];
     getrandom::fill(&mut sal).map_err(|e| Error::MigracionIncompleta(e.to_string()))?;
-    let sal = SaltString::encode_b64(&sal).map_err(|e| Error::MigracionIncompleta(e.to_string()))?;
+    let sal =
+        SaltString::encode_b64(&sal).map_err(|e| Error::MigracionIncompleta(e.to_string()))?;
     let hash = argon2::Argon2::default()
         .hash_password(pin.as_bytes(), &sal)
         .map_err(|e| Error::MigracionIncompleta(e.to_string()))?
@@ -337,14 +349,21 @@ pub fn comprobar_pin(conn: &Connection, pin: &str, ahora_ms: i64) -> Result<()> 
         }
     }
     let bueno = PasswordHash::new(&hash)
-        .map(|h| argon2::Argon2::default().verify_password(pin.as_bytes(), &h).is_ok())
+        .map(|h| {
+            argon2::Argon2::default()
+                .verify_password(pin.as_bytes(), &h)
+                .is_ok()
+        })
         .unwrap_or(false);
     if bueno {
         quitar(conn, "pin_fallos")?;
         quitar(conn, "pin_espera_hasta")?;
         return Ok(());
     }
-    let fallos = leer(conn, "pin_fallos")?.and_then(|v| v.parse::<u32>().ok()).unwrap_or(0) + 1;
+    let fallos = leer(conn, "pin_fallos")?
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(0)
+        + 1;
     poner(conn, "pin_fallos", &fallos.to_string())?;
     let espera = espera_tras(fallos);
     if espera > 0 {
