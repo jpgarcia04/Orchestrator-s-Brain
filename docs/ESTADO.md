@@ -193,7 +193,14 @@ Y nombres que se lean solos, con la fecha delante:
 | 1 | El núcleo para tu carpeta: bibliotecas, nombres, `obrain indexar`, «actualizar» | ✅ Hecha |
 | 2 | La interfaz nueva en Svelte 5: el explorador como escritorio estilo sistema operativo, la galaxia como vista «Mapa» enlazada, `Ctrl+K`, vista previa rápida | ✅ Hecha |
 | **3** | **Documentos personales**: ✅ sensibilidad por carpeta (y la marca sigue a la carpeta si la renombras) · ✅ cifrado y PIN · ✅ OCR · ✅ vencimientos · ✅ vigilar la carpeta en vivo · ✅ papelera | ✅ Hecha (falta probarla en tu Windows) |
-| 4 | La visión original: trámites reconstruidos, la pregunta de la visa | Congelada |
+| 4 | La visión original: trámites reconstruidos, la pregunta de la visa | Congelada (JP, 2026-09-23: primero usar la app en Windows) |
+
+**Decidido el 2026-09-23, por construir** (el orden, después de probar la app
+en tu Windows): **un documento dentro de otro** —obrain dirá que el PDF de la
+visa *contiene* los estados de cuenta que también tienes sueltos, detectado
+comparando fragmentos, sin IA— y **tus colecciones** —agrupar a mano, un
+documento en varias, vistas como una lente sobre el mapa—. Y **no** se indexa
+la Papelera de Windows.
 
 **Congelado** (no se borra, no se sigue): sesiones de trabajo y puentes,
 detección de versiones, el USN Change Journal, sincronización entre
@@ -255,7 +262,7 @@ git pull                                                # las siguientes
 ```
 
 Para empezar una conversación nueva, pega
-[`archivo/prompts/despues-de-la-papelera.md`](archivo/prompts/despues-de-la-papelera.md).
+[`archivo/prompts/despues-de-la-carpeta.md`](archivo/prompts/despues-de-la-carpeta.md).
 
 ## Mapa del repositorio
 
