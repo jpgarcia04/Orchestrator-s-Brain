@@ -133,6 +133,13 @@
   );
 
   /**
+   * Sin fecha, se puede añadir una a mano (ADR-0026). No con lo sensible
+   * bloqueado —no se corrige lo que no se ve, y la línea delataría que no hay
+   * fecha— ni en lo que está en la papelera.
+   */
+  const puedeAnadirFecha = $derived(!!ficha && !vence && !bloqueado && !ficha.trashed && ficha.path !== null);
+
+  /**
    * El tramo que explica la fecha de caducidad, dentro del texto que se ve,
    * cuando se pide su «¿por qué?». La evidencia dice los bytes **del
    * documento** (ADR-0023); el texto de la vista previa empieza en `offset`.
@@ -387,7 +394,7 @@
         </section>
       {/if}
 
-      {#if hechos.length > 0 || leido || ficha.protection}
+      {#if hechos.length > 0 || leido || ficha.protection || puedeAnadirFecha}
         <section aria-label="Lo que sé de este documento" class="bloque">
           <h3 class="rotulo">Lo que sé de este documento</h3>
           {#if leido}
@@ -442,6 +449,28 @@
               </span>
             </div>
           {/each}
+          {#if puedeAnadirFecha}
+            <!-- ADR-0026: donde el detector no vio ninguna fecha, se la dices tú. -->
+            <div class="hecho sin-fecha">
+              <span class="clave">Caduca el</span>
+              <span class="valor">
+                {#if cambiando === null}
+                  <span class="acciones-hecho">
+                    <span class="tenue">—</span>
+                    <button class="enlace" onclick={() => (cambiando = "")}>añadir</button>
+                  </span>
+                {:else}
+                  <span class="cambio">
+                    <input type="date" bind:value={cambiando} aria-label="Caduca el" disabled={guardando} />
+                    <span class="acciones-hecho">
+                      <button class="enlace" disabled={guardando || !cambiando} onclick={() => guardarVence(cambiando)}>guardar</button>
+                      <button class="enlace tenue" disabled={guardando} onclick={() => (cambiando = null)}>cancelar</button>
+                    </span>
+                  </span>
+                {/if}
+              </span>
+            </div>
+          {/if}
         </section>
       {/if}
 
@@ -711,6 +740,11 @@
   }
   .enlace.tenue {
     color: var(--tenue);
+  }
+  .sin-fecha .clave,
+  .sin-fecha .tenue {
+    color: var(--tenue);
+    opacity: 0.8;
   }
   .cambio {
     display: flex;

@@ -124,6 +124,9 @@ seguridad de la base sin su clave de recuperación no se abre en otro equipo.
   (con qué palabra la leyó, y el tramo marcado en el texto), **«es correcto»**
   y **«cambiar»**: otra fecha o **«no caduca»**. Lo que digas tú gana siempre,
   y un documento que ya renovaste sale de la tarjeta diciéndole «no caduca».
+  Si un documento no dice cuándo caduca (o el OCR no lo leyó), en su vista
+  previa sale en gris **«Caduca el — añadir»**: se la pones tú y entra en la
+  tarjeta como tuya.
   Con el PIN bloqueado, lo sensible sale sin fecha («fecha protegida con tu
   PIN»).
 - **Papelera:** en la barra lateral, debajo de «Sensibles» (con su cuenta si

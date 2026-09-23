@@ -298,3 +298,56 @@ fn con_el_pin_bloqueado_lo_sensible_sale_sin_fecha() {
     assert_eq!(v[3].days, Some(53));
     assert!(v.iter().all(|e| !e.locked && e.date.is_some()));
 }
+
+/// **Una fecha a mano donde el detector no vio ninguna** (ADR-0026). Los
+/// apuntes no dicen cuándo caducan; se lo dices tú, entra en la tarjeta como
+/// tuya y ningún reindexado la retracta: el detector sólo toca lo suyo.
+#[test]
+fn una_fecha_a_mano_en_un_documento_sin_fecha() {
+    let b_dir = boveda("a-mano");
+    let db = b_dir.with_file_name("brain.obrain");
+    let mut store = Store::open(&db).unwrap();
+    indexar(&mut store, &b_dir);
+    let b = Brain::from_store(store);
+    let notas = EntityId(
+        b.search("Oracle", 5)
+            .unwrap()
+            .hits
+            .into_iter()
+            .find(|h| h.label == "Notas.txt")
+            .expect("los apuntes")
+            .entity,
+    );
+
+    let antes = b.entity(&notas).unwrap();
+    assert!(
+        !antes
+            .observed
+            .iter()
+            .chain(&antes.inferred)
+            .any(|c| c.predicate == "expires_on"),
+        "el detector no vio ninguna fecha"
+    );
+
+    b.set_expiry(&notas, Some(&dentro_de(20).iso())).unwrap();
+    let fila = b
+        .expiring()
+        .unwrap()
+        .into_iter()
+        .find(|e| e.row.label == "Notas.txt")
+        .expect("sale en la tarjeta");
+    assert_eq!(fila.days, Some(20));
+    assert!(fila.by_user);
+
+    let mut otra = Store::open(&db).unwrap();
+    indexar(&mut otra, &b_dir);
+    let ficha = b.entity(&notas).unwrap();
+    let fechas: Vec<_> = ficha
+        .observed
+        .iter()
+        .chain(&ficha.inferred)
+        .filter(|c| c.predicate == "expires_on")
+        .map(|c| (c.value.clone(), c.by_user))
+        .collect();
+    assert_eq!(fechas, [(dentro_de(20).iso(), true)]);
+}
