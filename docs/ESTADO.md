@@ -250,6 +250,14 @@ sale «Texto reconocido en la imagen» y, en el «¿por qué?», *«el OCR de Wi
 (es-ES)»*. Si no sale nada, Windows no tiene el paquete de reconocimiento de tu
 idioma: Configuración › Hora e idioma › Idioma › Español › Opciones.
 
+Y para ver la carpeta fija (ADR-0029): con la app **cerrada**, trae la versión
+nueva (`git pull`) y ábrela **desde una PowerShell normal** como siempre. En la
+terminal tiene que salir `▸ obrain vive ahora en C:\Users\pacox\.obrain`, y
+abajo a la izquierda de la app, la ruta nueva. Tus documentos, tu clave de
+recuperación y tus marcas siguen igual (es la misma base, cambiada de sitio).
+Y en el buscador (`Ctrl K`), abajo a la derecha, tiene que decir que busca
+**por significado**: el modelo ya está en `C:\Users\pacox\.obrain\models`.
+
 Y para ver los vencimientos: abre la app con esta versión (se pone al día
 sola al abrirse) y pulsa tu pasaporte. En la vista previa tiene que salir
 **«Caduca el …»** con la fecha de tu pasaporte, y en su «¿por qué?»: *«No
@@ -287,7 +295,7 @@ git pull                                                # las siguientes
 ```
 
 Para empezar una conversación nueva, pega
-[`archivo/prompts/despues-de-la-carpeta.md`](archivo/prompts/despues-de-la-carpeta.md).
+[`archivo/prompts/despues-de-la-carpeta-fija.md`](archivo/prompts/despues-de-la-carpeta-fija.md).
 
 ## Mapa del repositorio
 
