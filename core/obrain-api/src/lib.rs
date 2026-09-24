@@ -778,9 +778,13 @@ impl Brain {
     /// y conservar la otra es lo que permite responder más tarde *qué creía el
     /// sistema y en qué se equivocó*. Borrar el error borraría la prueba de que
     /// la corrección sirvió de algo.
+    ///
+    /// Decir lo mismo otra vez no escribe nada ([`Store::assert_by_user`]):
+    /// un «es correcto» pulsado tres veces amontonaba tres filas en la vista
+    /// previa (JP, 2026-09-24).
     pub fn correct(&self, subject: &EntityId, predicate: &str, object: Value) -> Result<String> {
         let (now, _) = Self::now();
-        let id = self.store.assert(
+        let id = self.store.assert_by_user(
             NewAssertion::new(subject.clone(), predicate, object, Method::User, now)
                 .source("user@ui"),
         )?;

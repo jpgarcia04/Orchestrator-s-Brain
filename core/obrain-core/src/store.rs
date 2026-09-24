@@ -319,6 +319,37 @@ impl Store {
         Ok(id)
     }
 
+    /// Escribe una respuesta del usuario (I5) **sin repetirla**.
+    ///
+    /// Si lo último que dijo sobre `(sujeto, predicado)` ya era esto, no
+    /// escribe nada y devuelve aquella aserción: pulsar «es correcto» dos veces
+    /// es una respuesta, no dos. En cardinalidad `one`, lo que dijo antes con
+    /// otro valor deja de estar vigente —se retracta, no se borra (I4)—: cambió
+    /// de opinión, y el log lo cuenta. Lo inferido no se toca nunca: la
+    /// precedencia ya hace que mande lo suyo.
+    pub fn assert_by_user(&self, a: NewAssertion) -> Result<AssertionId> {
+        debug_assert_eq!(a.method, Method::User);
+        let suyas: Vec<Assertion> = self
+            .query(
+                Some(&a.subject),
+                Some(&a.predicate),
+                TimePoint::at(a.asserted_at),
+            )?
+            .into_iter()
+            .filter(|x| x.method == Method::User)
+            .collect();
+        // `query` ordena por precedencia: la primera es la más reciente.
+        if let Some(ultima) = suyas.first().filter(|x| x.object == a.object) {
+            return Ok(ultima.id.clone());
+        }
+        if self.cardinality(&a.predicate)? == Cardinality::One {
+            for x in &suyas {
+                self.retract(&x.id, a.asserted_at)?;
+            }
+        }
+        self.assert(a)
+    }
+
     /// Retracta una aserción. **No la borra** (I4): la marca como no vigente
     /// a partir de `at`. Consultarla con un `known` anterior sigue devolviéndola,
     /// que es lo que hace posible "¿qué creía yo en marzo de 2023?".

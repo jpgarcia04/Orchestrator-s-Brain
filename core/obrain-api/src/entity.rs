@@ -6,6 +6,8 @@
 //! clasificador no pueden leerse igual — y por eso la decide este módulo y no
 //! una hoja de estilos.
 
+use std::collections::HashMap;
+
 use obrain_core::{Assertion, EntityId, Method, Result, Store, TimePoint, Value};
 
 /// Una afirmación sobre la entidad, lista para enseñarse.
@@ -33,6 +35,8 @@ pub struct Claim {
     pub source: String,
     /// El fragmento exacto del origen. Es la respuesta literal a "¿por qué
     /// crees eso?" y la razón de que `evidence` esté en el modelo desde M0.
+    /// En una respuesta tuya que confirma lo que se leyó, la de esa lectura:
+    /// la fila es una, y su «¿por qué?» sigue ahí.
     pub evidence: Option<String>,
     /// La afirmó el usuario. Precedencia permanente (I5) y no vuelve a cambiar.
     pub by_user: bool,
@@ -138,11 +142,37 @@ fn tamano(bytes: f64) -> String {
 pub fn view(store: &Store, id: &EntityId, at: TimePoint) -> Result<EntityView> {
     let all = store.query(Some(id), None, at)?;
 
+    // Lo que ya contestaste (I5): de cada dato —la fecha de caducidad, la
+    // sensibilidad; no las relaciones— manda tu última respuesta, y es la
+    // única fila que se enseña. `query` ordena por precedencia: es la primera
+    // `user` de su predicado. Sin esto, cada «es correcto» era una fila más y
+    // la inferencia confirmada seguía debajo pidiendo que la confirmaras.
+    let mut respuestas: HashMap<&str, &Assertion> = HashMap::new();
+    for a in &all {
+        if a.method == Method::User && !matches!(a.object, Value::Entity(_)) {
+            respuestas.entry(a.predicate.as_str()).or_insert(a);
+        }
+    }
+
     let mut observed = Vec::new();
     let mut inferred = Vec::new();
     for a in &all {
         if PLUMBING.contains(&a.predicate.as_str()) {
             continue;
+        }
+        // Lo que explica la fila. La tuya, si confirmaste lo que leí, se
+        // queda con el «¿por qué?» de la lectura: decir que sí no cambia la
+        // razón.
+        let mut porque = a;
+        if let Some(u) = respuestas.get(a.predicate.as_str()) {
+            if u.id != a.id {
+                continue;
+            }
+            if let Some(leido) = all.iter().find(|x| {
+                x.method != Method::User && x.predicate == a.predicate && x.object == a.object
+            }) {
+                porque = leido;
+            }
         }
         let (value, value_entity, value_time) = render(store, a, at);
         let claim = Claim {
@@ -157,9 +187,9 @@ pub fn view(store: &Store, id: &EntityId, at: TimePoint) -> Result<EntityView> {
             method: a.method.as_str(),
             confidence: a.confidence,
             source: a.source.clone(),
-            evidence: a.evidence.clone(),
+            evidence: porque.evidence.clone(),
             by_user: a.method == Method::User,
-            span: span(store, id, a),
+            span: span(store, id, porque),
             target_span: (a.predicate == obrain_core::PART_OF)
                 .then(|| crate::dentro::tramo(a))
                 .flatten(),

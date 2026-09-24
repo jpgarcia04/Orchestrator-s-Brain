@@ -395,6 +395,119 @@ fn una_correccion_gana_y_no_borra_lo_que_corrige() {
     assert_eq!(ganadora.object, Value::Entity(c));
 }
 
+/// Lo leído y lo tuyo sobre un **dato** (no una relación), como lo ve el panel.
+fn filas(brain: &Brain, e: &EntityId, pred: &str) -> Vec<obrain_api::Claim> {
+    let v = brain.entity(e).unwrap();
+    v.observed
+        .into_iter()
+        .chain(v.inferred)
+        .filter(|c| c.predicate == pred)
+        .collect()
+}
+
+/// JP pulsó «es correcto» en la sensibilidad de su pasaporte más de una vez
+/// (2026-09-24) y se le amontonaron las filas: una por clic, y la lectura
+/// confirmada seguía debajo pidiendo que la confirmara. Decir lo mismo otra
+/// vez no escribe nada, y lo que ya contestaste es **una** fila que conserva
+/// el «¿por qué?» de lo que se leyó.
+#[test]
+fn confirmar_dos_veces_es_una_respuesta_y_una_fila() {
+    let store = base();
+    let a = archivo(&store, "C:\\x\\Pasaporte.pdf");
+    for (regla, conf) in [
+        ("nombre:pasaporte", 0.7),
+        ("contenido:nie fragmento=0", 0.95),
+    ] {
+        store
+            .assert(
+                NewAssertion::new(
+                    a.clone(),
+                    "sensitivity_level",
+                    "sensitive",
+                    Method::Inferred,
+                    T,
+                )
+                .confidence(conf)
+                .source("classifier@v1")
+                .evidence(&format!("regla={regla}")),
+            )
+            .unwrap();
+    }
+    let brain = Brain::from_store(store);
+    let si = || brain.correct(&a, "sensitivity_level", Value::Text("sensitive".into()));
+    let primera = si().unwrap();
+    for _ in 0..2 {
+        assert_eq!(
+            si().unwrap(),
+            primera,
+            "decir lo mismo otra vez es la misma respuesta"
+        );
+    }
+
+    let suyas = brain
+        .store()
+        .query(Some(&a), Some("sensitivity_level"), ahora())
+        .unwrap();
+    assert_eq!(suyas.iter().filter(|x| x.method == Method::User).count(), 1);
+    assert_eq!(suyas.len(), 3, "lo leído sigue en el log");
+
+    let f = filas(&brain, &a, "sensitivity_level");
+    assert_eq!(f.len(), 1, "una sola fila: {f:?}");
+    assert!(f[0].by_user);
+    assert_eq!(
+        f[0].evidence.as_deref(),
+        Some("regla=contenido:nie fragmento=0"),
+        "con el «¿por qué?» de la lectura más clara"
+    );
+}
+
+/// Una fecha tuya a la vez: cambiarla retracta la de antes (sin borrarla, I4)
+/// y la fila ya no lleva el «¿por qué?» de la lectura, que decía otra cosa.
+#[test]
+fn cambiar_la_fecha_deja_solo_la_ultima() {
+    let store = base();
+    let a = archivo(&store, "C:\\x\\Pasaporte.pdf");
+    store
+        .assert(
+            NewAssertion::new(a.clone(), "expires_on", "2036-07-28", Method::Inferred, T)
+                .confidence(0.7)
+                .source("expiry@v2")
+                .evidence("regla=plazo anios=10 bytes=10..20"),
+        )
+        .unwrap();
+    let brain = Brain::from_store(store);
+
+    brain.set_expiry(&a, Some("2036-07-28")).unwrap();
+    brain.set_expiry(&a, Some("2036-07-28")).unwrap();
+    let f = filas(&brain, &a, "expires_on");
+    assert_eq!(f.len(), 1, "confirmada, una fila: {f:?}");
+    assert!(f[0].by_user);
+    assert!(f[0].evidence.is_some());
+    assert_eq!(f[0].span, Some([10, 20]), "y el tramo que la explica");
+
+    brain.set_expiry(&a, Some("2031-01-15")).unwrap();
+    let f = filas(&brain, &a, "expires_on");
+    assert_eq!(f.len(), 1, "cambiada, una fila: {f:?}");
+    assert_eq!(f[0].value, "2031-01-15");
+    assert!(f[0].evidence.is_none());
+
+    let (escritas, retractadas): (i64, i64) = brain
+        .store()
+        .conn()
+        .query_row(
+            "SELECT COUNT(*), COUNT(retracted_at) FROM assertions
+             WHERE subject = ?1 AND predicate = 'expires_on' AND method = 'user'",
+            [a.as_str()],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        (escritas, retractadas),
+        (2, 1),
+        "la de antes, retractada y no borrada"
+    );
+}
+
 /// La contabilidad interna del pipeline no es información sobre el archivo.
 /// Enseñarla llenaría de ruido justo el sitio donde hay que confiar de un
 /// vistazo.

@@ -610,8 +610,12 @@
               <span class="valor" title={c.predicate === "downloaded_from" ? c.value : undefined}>
                 {valor(c)}
                 {#if c.by_user}
+                  <!-- Si confirmaste lo que leí, su «¿por qué?» sigue aquí: el núcleo te da una sola fila. -->
                   <span class="acciones-hecho">
                     <span class="tuyo"><Check size={13} /> lo dijiste tú</span>
+                    {#if c.evidence}
+                      <button class="enlace" onclick={() => alternarPorque(c)}>¿por qué?</button>
+                    {/if}
                     {#if c.predicate === "expires_on" && cambiando === null}
                       <button class="enlace" onclick={() => empezarCambio(c)}>cambiar</button>
                     {/if}
@@ -624,9 +628,9 @@
                       <button class="enlace" onclick={() => empezarCambio(c)}>cambiar</button>
                     {/if}
                   </span>
-                  {#if porques.has(c.assertion)}
-                    <span class="porque">{c.predicate === "expires_on" ? porqueVence(c) : c.predicate === "sensitivity_level" ? porqueSensible(c) : (c.evidence ?? c.source)}</span>
-                  {/if}
+                {/if}
+                {#if porques.has(c.assertion)}
+                  <span class="porque">{c.predicate === "expires_on" ? porqueVence(c) : c.predicate === "sensitivity_level" ? porqueSensible(c) : (c.evidence ?? c.source)}</span>
                 {/if}
                 {#if c.predicate === "expires_on" && cambiando !== null}
                   <span class="cambio">

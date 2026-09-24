@@ -358,7 +358,9 @@ pub fn set_by_user(
     at: i64,
 ) -> Result<AssertionId> {
     let valor = fecha.map_or_else(|| NUNCA.to_string(), |f| f.iso());
-    store.assert(
+    // Una sola fecha tuya: la de antes se retracta, y la misma otra vez no
+    // escribe nada.
+    store.assert_by_user(
         NewAssertion::new(
             entity.clone(),
             PREDICATE,
