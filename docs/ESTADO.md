@@ -336,8 +336,12 @@ git checkout claude/orchestrators-brain-fase-3-wdiheq   # la primera vez
 git pull                                                # las siguientes
 ```
 
-Para empezar una conversación nueva, pega
-[`archivo/prompts/despues-de-un-documento-dentro-de-otro.md`](archivo/prompts/despues-de-un-documento-dentro-de-otro.md).
+Para empezar una conversación nueva, pega:
+
+- **En tu laptop:** [`archivo/prompts/despues-de-un-documento-dentro-de-otro.md`](archivo/prompts/despues-de-un-documento-dentro-de-otro.md)
+  (empieza por comprobar en tu app lo de estos días).
+- **En la nube, sin tu laptop:** [`archivo/prompts/desde-la-nube-colecciones.md`](archivo/prompts/desde-la-nube-colecciones.md)
+  (las colecciones y pendientes pequeños, sin pedirte nada en Windows).
 
 ## Mapa del repositorio
 
