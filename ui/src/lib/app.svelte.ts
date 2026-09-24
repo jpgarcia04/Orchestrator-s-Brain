@@ -11,16 +11,24 @@ import {
   alEmpezarIndexado,
   alIndexar,
   anadirBiblioteca,
+  borrarColeccion as pedirBorrarColeccion,
+  coleccion as pedirColeccion,
+  colecciones as pedirColecciones,
+  crearColeccion as pedirCrearColeccion,
   entidad,
   estado as pedirEstado,
   explorar,
   marcarCarpeta as pedirMarca,
+  meterEnColeccion,
   pinBloquear,
+  renombrarColeccion as pedirRenombrar,
+  sacarDeColeccion,
   seguridad as pedirSeguridad,
 } from "./nucleo";
-import type { Estado, Indexado, Listado, Seguridad } from "./nucleo";
+import type { Abierta, Coleccion, Estado, Indexado, Listado, Seguridad } from "./nucleo";
+import { tituloDe } from "./nombres";
 
-export type Vista = "inicio" | "carpeta" | "mapa" | "sensibles" | "papelera";
+export type Vista = "inicio" | "carpeta" | "mapa" | "sensibles" | "papelera" | "colecciones" | "coleccion";
 export type Tema = "noche" | "dia";
 export type Modo = "cuadricula" | "lista";
 
@@ -79,6 +87,24 @@ class App {
   ultimo = $state<Indexado | null>(null);
   /** En el mapa: de quién es la lente, o `null` para el cielo entero. */
   lente = $state<string | null>(null);
+  /**
+   * En el mapa: la colección cuyas estrellas se encienden (ADR-0031). El cielo
+   * es el de siempre; no se mueve ninguna.
+   */
+  lenteColeccion = $state<string | null>(null);
+  /** Tus colecciones, por nombre (ADR-0031). */
+  colecciones = $state<Coleccion[]>([]);
+  /** La colección abierta. */
+  abierta = $state<Abierta | null>(null);
+  /**
+   * Los documentos elegidos a la vez (Ctrl+clic, Mayús+clic, Ctrl+A), en el
+   * explorador o en una colección. Un clic normal sigue siendo la vista previa.
+   */
+  elegidos = $state<string[]>([]);
+  /** Con el buscador abierto desde una colección: buscar sólo dentro. */
+  buscarEn = $state<string | null>(null);
+  /** Hay un menú abierto (el de las colecciones): sus teclas son suyas. */
+  menu = $state(false);
   aviso = $state("");
   /** Sube cada vez que termina un reindexado: lo que se pinta con datos vuelve a pedirlos. */
   version = $state(0);
@@ -99,6 +125,8 @@ class App {
   apartados = $state<Record<string, boolean>>(leerApartados());
 
   private temporizador: number | undefined;
+  /** Desde dónde cuenta un Mayús+clic: el último documento pulsado. */
+  private ancla: string | null = null;
   private resolverPin: ((ok: boolean) => void) | null = null;
 
   /** ¿Hay que enseñar la clave de recuperación? Hasta que digas que la guardaste. */
@@ -136,6 +164,7 @@ class App {
       }
       await this.recargarSeguridad();
       this.raiz = await explorar(null);
+      await this.recargarColecciones();
       if (this.vista === "carpeta" && this.listado) {
         try {
           this.listado = await explorar(this.listado.focus);
@@ -184,7 +213,11 @@ class App {
   irVista(v: Vista): void {
     this.vista = v;
     this.seleccion = null;
-    if (v === "mapa") this.lente = null;
+    this.elegidos = [];
+    if (v === "mapa") {
+      this.lente = null;
+      this.lenteColeccion = null;
+    }
   }
 
   /** Abre una carpeta en el explorador; `null` es la raíz de la bóveda. */
@@ -199,6 +232,7 @@ class App {
     this.seleccion = seleccionar;
     this.consulta = consulta;
     this.tramo = null;
+    this.elegidos = [];
   }
 
   /**
@@ -295,14 +329,196 @@ class App {
     this.seleccion = null;
   }
 
+  /** ¿Hay una lista donde elegir varios? El explorador o una colección. */
+  get enLista(): boolean {
+    return this.vista === "carpeta" || this.vista === "coleccion";
+  }
+
+  /** Los documentos de la lista abierta, en el orden en que se ven. */
+  get ordenLista(): string[] {
+    if (this.vista === "carpeta") return (this.listado?.rows ?? []).filter((r) => r.kind === "file").map((r) => r.id);
+    if (this.vista === "coleccion") return (this.abierta?.rows ?? []).map((r) => r.id);
+    return [];
+  }
+
   /** Del documento al mapa: su vecindario, con él en el centro. */
   verEnMapa(id: string): void {
     this.lente = id;
+    this.lenteColeccion = null;
     this.vista = "mapa";
   }
 
+  // ─────────────────────────────────────────── tus colecciones (ADR-0031)
+
+  async recargarColecciones(): Promise<void> {
+    try {
+      this.colecciones = await pedirColecciones();
+      if (this.vista === "coleccion" && this.abierta) {
+        try {
+          this.abierta = await pedirColeccion(this.abierta.id);
+        } catch {
+          // La borraste (quizá desde la terminal): a la lista.
+          this.abierta = null;
+          this.vista = "colecciones";
+        }
+      }
+    } catch {
+      this.colecciones = [];
+    }
+  }
+
+  /** Abre una colección: se ve como una carpeta. */
+  async abrirColeccion(id: string, seleccionar: string | null = null): Promise<void> {
+    try {
+      this.abierta = await pedirColeccion(id);
+    } catch (e) {
+      this.avisar(`No se pudo abrir la colección — ${e}`);
+      return;
+    }
+    this.vista = "coleccion";
+    this.seleccion = seleccionar;
+    this.consulta = "";
+    this.tramo = null;
+    this.elegidos = [];
+  }
+
+  /** Crea una colección y, si se dan, mete esos documentos. Devuelve su id. */
+  async crearColeccion(nombre: string, docs: string[] = []): Promise<string | null> {
+    try {
+      const id = await pedirCrearColeccion(nombre);
+      if (docs.length) await meterEnColeccion(id, docs);
+      await this.recargarColecciones();
+      const cuantos = docs.length === 0 ? "" : docs.length === 1 ? " con 1 documento" : ` con ${docs.length} documentos`;
+      this.avisar(`Colección «${nombre.trim()}» creada${cuantos}.`);
+      this.version++;
+      return id;
+    } catch (e) {
+      this.avisar(`No se pudo crear la colección — ${e}`);
+      return null;
+    }
+  }
+
+  /** Mete documentos en una colección. Nada se mueve de su carpeta. */
+  async meter(id: string, docs: string[]): Promise<void> {
+    const nombre = this.colecciones.find((c) => c.id === id)?.name ?? "la colección";
+    try {
+      const n = await meterEnColeccion(id, docs);
+      // Hecho lo que se quería con lo elegido: se suelta, y el aviso no queda
+      // debajo de la barra.
+      if (docs.length > 1) this.elegidos = [];
+      await this.recargarColecciones();
+      this.version++;
+      const ya = docs.length - n;
+      if (n === 0) this.avisar(docs.length === 1 ? `Ya estaba en «${nombre}».` : `Ya estaban en «${nombre}».`);
+      else if (docs.length === 1) this.avisar(`Añadido a «${nombre}».`);
+      else
+        this.avisar(
+          `${n === 1 ? "1 documento añadido" : `${n} documentos añadidos`} a «${nombre}»${ya === 0 ? "" : ya === 1 ? "; el otro ya estaba" : `; ${ya} ya estaban`}.`,
+        );
+    } catch (e) {
+      this.avisar(`No se pudo añadir — ${e}`);
+    }
+  }
+
+  /** Saca documentos de una colección. Siguen en sus carpetas. */
+  async sacar(id: string, docs: string[], etiqueta = ""): Promise<void> {
+    const nombre = this.colecciones.find((c) => c.id === id)?.name ?? "la colección";
+    try {
+      const n = await sacarDeColeccion(id, docs);
+      if (this.seleccion && docs.includes(this.seleccion) && this.vista === "coleccion") this.seleccion = null;
+      this.elegidos = this.elegidos.filter((e) => !docs.includes(e));
+      await this.recargarColecciones();
+      this.version++;
+      const quien = n === 1 && etiqueta ? `«${tituloDe(etiqueta).titulo}»` : n === 1 ? "1 documento" : `${n} documentos`;
+      this.avisar(`${quien} fuera de «${nombre}». ${n === 1 ? "Sigue en su carpeta." : "Siguen en sus carpetas."}`);
+    } catch (e) {
+      this.avisar(`No se pudo sacar — ${e}`);
+    }
+  }
+
+  async renombrarColeccion(id: string, nombre: string): Promise<boolean> {
+    try {
+      await pedirRenombrar(id, nombre);
+      await this.recargarColecciones();
+      this.version++;
+      return true;
+    } catch (e) {
+      this.avisar(`No se pudo renombrar — ${e}`);
+      return false;
+    }
+  }
+
+  /** Borra una colección. Tus documentos no se tocan. */
+  async borrarColeccion(id: string): Promise<void> {
+    const nombre = this.colecciones.find((c) => c.id === id)?.name ?? "";
+    try {
+      await pedirBorrarColeccion(id);
+      if (this.abierta?.id === id) {
+        this.abierta = null;
+        this.vista = "colecciones";
+        this.seleccion = null;
+      }
+      if (this.lenteColeccion === id) this.lenteColeccion = null;
+      await this.recargarColecciones();
+      this.version++;
+      this.avisar(`Colección «${nombre}» borrada. Tus documentos siguen en sus carpetas.`);
+    } catch (e) {
+      this.avisar(`No se pudo borrar — ${e}`);
+    }
+  }
+
+  /** De una colección al mapa: el cielo de siempre con sus estrellas encendidas. */
+  verColeccionEnMapa(id: string): void {
+    this.lente = null;
+    this.lenteColeccion = id;
+    this.vista = "mapa";
+    this.seleccion = null;
+  }
+
+  // ─────────────────────────────────────────── elegir varios a la vez
+
+  /**
+   * Un clic sobre un documento de una lista. Sin teclas, la vista previa (y
+   * se suelta lo elegido); con Ctrl, suma o quita ése; con Mayús, suma el
+   * tramo desde el último elegido. `orden` es la lista tal como se ve.
+   */
+  pulsar(id: string, e: MouseEvent, orden: string[]): void {
+    if (e.ctrlKey || e.metaKey) {
+      if (this.elegidos.length === 0 && this.seleccion && this.seleccion !== id) this.elegidos = [this.seleccion];
+      this.elegidos = this.elegidos.includes(id) ? this.elegidos.filter((x) => x !== id) : [...this.elegidos, id];
+      this.ancla = id;
+      return;
+    }
+    if (e.shiftKey) {
+      const desde = this.ancla ?? this.seleccion ?? id;
+      const a = orden.indexOf(desde);
+      const b = orden.indexOf(id);
+      if (a >= 0 && b >= 0) {
+        const tramo = orden.slice(Math.min(a, b), Math.max(a, b) + 1);
+        this.elegidos = [...new Set([...this.elegidos, ...tramo])];
+        return;
+      }
+    }
+    this.elegidos = [];
+    this.ancla = id;
+    this.ver(id);
+  }
+
+  /** Todos los de la lista (Ctrl+A). */
+  elegirTodos(orden: string[]): void {
+    this.elegidos = [...orden];
+  }
+
+  soltarElegidos(): void {
+    this.elegidos = [];
+  }
+
+
   abrirBuscador(semilla = ""): void {
     this.semilla = semilla;
+    // Desde una colección abierta, se busca dentro de ella (ADR-0031); la ✕ del
+    // buscador lo quita.
+    this.buscarEn = this.vista === "coleccion" ? (this.abierta?.id ?? null) : null;
     this.buscando = true;
   }
 

@@ -199,6 +199,49 @@ export interface VistaEntidad {
   inferred: Claim[];
   /** Está en la papelera: ya no está en tu bóveda (ADR-0025). */
   trashed: EnPapelera | null;
+  /** Las colecciones donde lo metiste (ADR-0031). */
+  collections: Pertenece[];
+}
+
+/** Una colección tuya (ADR-0031), para la barra lateral y su vista. */
+export interface Coleccion {
+  id: string;
+  name: string;
+  /** Documentos que tiene en tu bóveda (sin contar la papelera). */
+  documents: number;
+  /** De los suyos, cuántos están en la papelera. */
+  in_trash: number;
+  /** Desde cuándo existe, epoch ms. */
+  since: number;
+}
+
+/** Una colección a la que pertenece un documento. */
+export interface Pertenece {
+  id: string;
+  name: string;
+}
+
+/** Un documento de una colección abierta: una {@link Fila} y su carpeta. */
+export interface Miembro extends Fila {
+  /** Su carpeta de verdad: en una colección cada uno viene de un sitio. */
+  folder: string;
+  folder_label: string;
+  /** El paquete de la colección bajo el que va (ADR-0030). */
+  inside: string | null;
+  /** Las carpetas por encima, de dentro hacia fuera: qué estrella encender. */
+  ancestors: string[];
+}
+
+/** Una colección abierta. */
+export interface Abierta {
+  id: string;
+  name: string;
+  since: number;
+  rows: Miembro[];
+  /** En cuántas carpetas distintas están sus documentos. */
+  folders: number;
+  /** Los suyos que están en la papelera. */
+  in_trash: EnPapelera[];
 }
 
 /** Un documento de la papelera: lo que ya no está en tu bóveda (ADR-0025). */
@@ -445,8 +488,31 @@ export interface Vistazo {
  * Una sola llamada y no dos: pedir la lista y el sustrato por separado
  * ejecutaría la búsqueda dos veces por tecla.
  */
-export const vistazo = (query: string, limit = 12) =>
-  invoke<Vistazo>("vistazo", { query, limit });
+export const vistazo = (query: string, limit = 12, coleccion: string | null = null) =>
+  invoke<Vistazo>("vistazo", { query, limit, coleccion });
+
+// ── tus colecciones (ADR-0031): identificadores, nunca rutas; ningún archivo se toca ──
+
+export const colecciones = () => invoke<Coleccion[]>("colecciones");
+
+export const coleccion = (id: string) => invoke<Abierta>("coleccion", { id });
+
+/** Crea una colección vacía; devuelve su identificador. */
+export const crearColeccion = (nombre: string) => invoke<string>("crear_coleccion", { nombre });
+
+export const renombrarColeccion = (id: string, nombre: string) =>
+  invoke<void>("renombrar_coleccion", { id, nombre });
+
+/** Borra la colección; tus documentos no se tocan. Devuelve cuántos tenía. */
+export const borrarColeccion = (id: string) => invoke<number>("borrar_coleccion", { id });
+
+/** Mete documentos; devuelve cuántos entraron (los que ya estaban no cuentan). */
+export const meterEnColeccion = (id: string, docs: string[]) =>
+  invoke<number>("meter_en_coleccion", { id, docs });
+
+/** Saca documentos; siguen en sus carpetas. Devuelve cuántos salieron. */
+export const sacarDeColeccion = (id: string, docs: string[]) =>
+  invoke<number>("sacar_de_coleccion", { id, docs });
 
 export const lente = (focus: string[], radius = 2, budget = 300) =>
   invoke<Lente>("lente", { focus, radius, budget });

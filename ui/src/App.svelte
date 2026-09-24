@@ -7,10 +7,14 @@
   Las teclas de siempre:
 
   - `Ctrl K`, o escribir en cualquier sitio: buscar (ADR-0017: escribir abre).
-  - `Esc`: deshace un escalón — el buscador, la vista previa, la lente del mapa.
+  - `Esc`: deshace un escalón — el buscador, lo elegido, la vista previa, la
+    lente del mapa.
+  - `Ctrl A`, en una carpeta o una colección: elegir todos sus documentos
+    (ADR-0031).
 -->
 <script lang="ts">
   import { onMount } from "svelte";
+  import BarraElegidos from "./componentes/BarraElegidos.svelte";
   import BarraLateral from "./componentes/BarraLateral.svelte";
   import Buscador from "./componentes/Buscador.svelte";
   import Cabecera from "./componentes/Cabecera.svelte";
@@ -20,6 +24,8 @@
   import VistaPrevia from "./componentes/VistaPrevia.svelte";
   import { app } from "./lib/app.svelte";
   import Carpeta from "./vistas/Carpeta.svelte";
+  import Coleccion from "./vistas/Coleccion.svelte";
+  import Colecciones from "./vistas/Colecciones.svelte";
   import Cerrada from "./vistas/Cerrada.svelte";
   import Inicio from "./vistas/Inicio.svelte";
   import Mapa from "./vistas/Mapa.svelte";
@@ -48,10 +54,19 @@
       app.abrirBuscador();
       return;
     }
-    if (app.buscando || app.enModal || app.info?.cerrada || escribiendo(e.target)) return; // tienen sus teclas
+    if (app.buscando || app.enModal || app.menu || app.info?.cerrada || escribiendo(e.target)) return; // tienen sus teclas
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a" && app.enLista) {
+      e.preventDefault();
+      app.elegirTodos(app.ordenLista);
+      return;
+    }
     if (e.key === "Escape") {
-      if (app.seleccion) app.cerrarPanel();
-      else if (app.vista === "mapa" && app.lente) app.lente = null;
+      if (app.elegidos.length) app.soltarElegidos();
+      else if (app.seleccion) app.cerrarPanel();
+      else if (app.vista === "mapa" && (app.lente || app.lenteColeccion)) {
+        app.lente = null;
+        app.lenteColeccion = null;
+      }
       return;
     }
     // Escribir abre el buscador, y la letra no se pierde.
@@ -73,22 +88,31 @@
   <div class="centro">
     <Cabecera />
     <div class="cuerpo">
-      <main>
-        {#if app.error}
-          <p class="error">{app.error}</p>
+      <div class="zona">
+        <main>
+          {#if app.error}
+            <p class="error">{app.error}</p>
+          {/if}
+          {#if app.vista === "inicio"}
+            <Inicio />
+          {:else if app.vista === "carpeta"}
+            <Carpeta />
+          {:else if app.vista === "mapa"}
+            <Mapa />
+          {:else if app.vista === "papelera"}
+            <Papelera />
+          {:else if app.vista === "colecciones"}
+            <Colecciones />
+          {:else if app.vista === "coleccion"}
+            <Coleccion />
+          {:else}
+            <Sensibles />
+          {/if}
+        </main>
+        {#if app.elegidos.length > 0 && app.enLista}
+          <BarraElegidos />
         {/if}
-        {#if app.vista === "inicio"}
-          <Inicio />
-        {:else if app.vista === "carpeta"}
-          <Carpeta />
-        {:else if app.vista === "mapa"}
-          <Mapa />
-        {:else if app.vista === "papelera"}
-          <Papelera />
-        {:else}
-          <Sensibles />
-        {/if}
-      </main>
+      </div>
 
       {#if app.seleccion}
         {#key app.seleccion}
@@ -137,6 +161,15 @@
   .cuerpo {
     flex-grow: 1;
     min-height: 0;
+    display: flex;
+  }
+
+  /* La vista y, encima de ella abajo, la barra de lo elegido: la barra no se
+     desplaza con la lista. */
+  .zona {
+    position: relative;
+    flex-grow: 1;
+    min-width: 0;
     display: flex;
   }
 

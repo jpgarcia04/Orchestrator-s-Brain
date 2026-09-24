@@ -5,6 +5,9 @@
   Un clic enseña el documento en la vista previa; dos clics lo abren con su
   programa, igual que en el explorador de Windows. Se entra en una carpeta con
   un clic, porque en una carpeta no hay nada que previsualizar.
+
+  Ctrl+clic y Mayús+clic eligen varios, y Ctrl+A todos: abajo sale la barra
+  para meterlos de golpe en una colección (ADR-0031).
 -->
 <script lang="ts">
   import Cloud from "@lucide/svelte/icons/cloud";
@@ -20,6 +23,8 @@
   const listado = $derived(app.listado);
   const carpetas = $derived((listado?.rows ?? []).filter((r) => r.kind === "folder"));
   const archivos = $derived((listado?.rows ?? []).filter((r) => r.kind === "file"));
+  const orden = $derived(archivos.map((f) => f.id));
+  const elegida = (id: string) => app.seleccion === id || app.elegidos.includes(id);
 
   const resumen = $derived.by(() => {
     const partes: string[] = [];
@@ -77,9 +82,9 @@
           {@const d = ficha(f)}
           <button
             class="tarjeta hov"
-            class:elegida={app.seleccion === f.id}
-            aria-pressed={app.seleccion === f.id}
-            onclick={() => app.ver(f.id)}
+            class:elegida={elegida(f.id)}
+            aria-pressed={elegida(f.id)}
+            onclick={(e) => app.pulsar(f.id, e, orden)}
             ondblclick={() => abrirArchivo(f)}
             title={f.label}
           >
@@ -106,9 +111,9 @@
           {@const d = ficha(f)}
           <button
             class="fila hov-fondo"
-            class:elegida={app.seleccion === f.id}
-            aria-pressed={app.seleccion === f.id}
-            onclick={() => app.ver(f.id)}
+            class:elegida={elegida(f.id)}
+            aria-pressed={elegida(f.id)}
+            onclick={(e) => app.pulsar(f.id, e, orden)}
             ondblclick={() => abrirArchivo(f)}
             title={f.label}
           >
@@ -134,7 +139,7 @@
     display: flex;
     flex-direction: column;
     gap: 24px;
-    padding: 32px 36px 44px;
+    padding: 32px 36px 90px;
   }
 
   .titulo {

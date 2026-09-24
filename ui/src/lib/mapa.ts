@@ -421,6 +421,12 @@ interface Picable {
   peso: number;
   /** Encendido (§1: luminosidad = relevancia). Atenúa también su nombre. */
   vivo: boolean;
+  /**
+   * Su nombre sale aunque el punto sea pequeño: una colección lleva el nombre
+   * que le pusiste tú (ADR-0031), y ese nombre es justo lo que dice por qué
+   * está en la lente. Sigue cediendo el sitio si choca con otro.
+   */
+  nombrar?: boolean;
   /** El dato del núcleo, para devolverlo entero sin volver a buscarlo. */
   fuente: Diana;
 }
@@ -1104,7 +1110,7 @@ export class Mapa {
       const [x, y] = this.aPantalla(c.x, c.y);
       if (x < -180 || x > w + 180 || y < -40 || y > h + 40) continue;
       const rp = Math.max(3, this.radioVisual(c.radio));
-      if (!obligado && (rp < RADIO_ROTULO || puestos.size >= ROTULOS_MAX)) continue;
+      if (!obligado && !c.nombrar && (rp < RADIO_ROTULO || puestos.size >= ROTULOS_MAX)) continue;
 
       const r = this.etiqueta(c);
       const cy = y + rp + 7;
@@ -1396,7 +1402,8 @@ export class Mapa {
         texto: n.facets.includes("container") ? nombreBonito(n.label) : tituloDe(n.label).titulo,
         // El foco por delante de todo: es de lo que cuelga el resto de la
         // lente, y su nombre es el que contesta «¿dónde estoy?».
-        peso: n.distance === 0 ? Infinity : n.degree,
+        peso: n.distance === 0 ? Infinity : n.facets.includes("region") ? Number.MAX_VALUE : n.degree,
+        nombrar: n.facets.includes("region"),
         vivo: true,
         fuente: { tipo: "nodo", nodo: n },
       });

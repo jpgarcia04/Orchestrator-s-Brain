@@ -23,6 +23,8 @@
   import Check from "@lucide/svelte/icons/check";
   import ExternalLink from "@lucide/svelte/icons/external-link";
   import Eye from "@lucide/svelte/icons/eye";
+  import Layers from "@lucide/svelte/icons/layers";
+  import LayersPlus from "@lucide/svelte/icons/layers-plus";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import Lock from "@lucide/svelte/icons/lock";
   import LockOpen from "@lucide/svelte/icons/lock-open";
@@ -31,6 +33,7 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
   import Apartado from "./Apartado.svelte";
+  import ElegirColeccion from "./ElegirColeccion.svelte";
   import Tipo from "./Tipo.svelte";
   import { app } from "../lib/app.svelte";
   import {
@@ -56,6 +59,8 @@
   let vista = $state<Vista | null>(null);
   let error = $state("");
   let recarga = $state(0);
+  /** El menú de «Colecciones», abierto (ADR-0031). */
+  let menuColecciones = $state(false);
   let porques = new SvelteSet<string>();
   /** «cambiar» abierto sobre la fecha de caducidad, con la fecha que se edita. */
   let cambiando = $state<string | null>(null);
@@ -558,6 +563,38 @@
         {#if enLaNube}<span class="chip"><Cloud size={13} /> En tu nube</span>{/if}
       </div>
 
+      {#if ficha.collections.length > 0 || !ficha.trashed}
+        <!-- ADR-0031: en qué colecciones lo metiste, y el botón para meterlo o sacarlo. -->
+        <div class="chips en-colecciones">
+          {#each ficha.collections as c (c.id)}
+            {@const cid = c.id}
+            <button class="chip coleccion hov" onclick={() => app.abrirColeccion(cid, id)} title="Abrir la colección «{c.name}»">
+              <Layers size={13} /> {c.name}
+            </button>
+          {/each}
+          {#if !ficha.trashed}
+            <div>
+              <button
+                class="chip anadir hov-fondo"
+                onclick={() => (menuColecciones = !menuColecciones)}
+                aria-haspopup="menu"
+                aria-expanded={menuColecciones}
+                title="Meterlo en una colección o sacarlo. No se mueve de su carpeta."
+              >
+                <LayersPlus size={13} /> {ficha.collections.length ? "Colecciones" : "Añadir a una colección"}
+              </button>
+              {#if menuColecciones}
+                <ElegirColeccion
+                  docs={[id]}
+                  dentro={ficha.collections.map((c) => c.id)}
+                  oncerrar={() => (menuColecciones = false)}
+                />
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
+
       {#if ficha.trashed}
         {@const p = ficha.trashed}
         <section class="fuera" aria-label="En la papelera">
@@ -921,6 +958,24 @@
   button.chip {
     color: var(--tinta);
   }
+  /* El menú se abre desde la fila entera, no desde el botón: así cabe en el
+     panel esté donde esté el botón. */
+  .en-colecciones {
+    position: relative;
+    margin-top: -8px;
+  }
+  .chip.coleccion {
+    background: var(--sel);
+  }
+  .chip.coleccion :global(svg) {
+    color: var(--acento);
+  }
+  .chip.anadir {
+    background: transparent;
+    border: 1px dashed var(--linea);
+    color: var(--acento);
+  }
+
 
   .hecho {
     display: grid;

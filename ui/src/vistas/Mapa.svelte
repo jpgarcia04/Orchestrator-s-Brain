@@ -7,6 +7,10 @@
   desde un documento), su vecindario: lo que se relaciona con él, y pulsar un
   documento lo enseña en la vista previa sin salir del mapa.
 
+  Desde una colección (ADR-0031), el mismo cielo con **sus estrellas
+  encendidas** —las carpetas donde están sus documentos— y las demás
+  atenuadas. No se mueve ninguna: es una lente encima, no otro mapa.
+
   El dibujo es el de siempre (`lib/mapa.ts`, PixiJS); esto sólo le da sitio,
   le dice qué pintar y le quita el lienzo al salir.
 -->
@@ -16,7 +20,8 @@
   import { onMount, tick } from "svelte";
   import { app } from "../lib/app.svelte";
   import { Mapa } from "../lib/mapa";
-  import { cielo, lente } from "../lib/nucleo";
+  import { cielo, coleccion, lente } from "../lib/nucleo";
+  import type { Abierta, Cielo } from "../lib/nucleo";
   import { nombreBonito, tituloDe } from "../lib/nombres";
 
   let lienzo: HTMLCanvasElement;
@@ -25,6 +30,8 @@
   let mapa = $state<Mapa | null>(null);
   let movida = $state(false);
   let foco = $state("");
+  /** Se está viendo la lente de una colección, no la de un documento. */
+  let coleccionando = $state(false);
   let resumen = $state("");
   let error = $state("");
 
@@ -35,6 +42,9 @@
       if (!p) return;
       if (p.tipo === "region") {
         void app.abrirCarpeta(p.region.id);
+      } else if (p.nodo.facets.includes("region")) {
+        // Una colección tuya en la lente de un documento (ADR-0031).
+        void app.abrirColeccion(p.nodo.id);
       } else if (p.nodo.facets.includes("container")) {
         void app.abrirCarpeta(p.nodo.id);
       } else {
@@ -61,13 +71,47 @@
   $effect(() => {
     const m = mapa;
     const quien = app.lente;
+    const col = app.lenteColeccion;
     void app.version;
-    if (m) void pintar(m, quien, ++pedido);
+    if (m) void pintar(m, quien, col, ++pedido);
   });
 
-  async function pintar(m: Mapa, quien: string | null, mio: number): Promise<void> {
+  /**
+   * Las estrellas que enciende una colección: por cada documento, la primera
+   * carpeta por encima de él que el cielo tenga abierta (la más cercana).
+   */
+  function estrellas(c: Cielo, a: Abierta): { ids: Set<string>; docs: number } {
+    const abiertas = new Set(c.regions.map((r) => r.id));
+    const ids = new Set<string>();
+    let docs = 0;
+    for (const m of a.rows) {
+      const r = m.ancestors.find((x) => abiertas.has(x));
+      if (r) {
+        ids.add(r);
+        docs++;
+      }
+    }
+    return { ids, docs };
+  }
+
+  async function pintar(m: Mapa, quien: string | null, col: string | null, mio: number): Promise<void> {
     try {
-      if (quien) {
+      if (col && !quien) {
+        const [c, a] = await Promise.all([cielo(30), coleccion(col)]);
+        if (mio !== pedido) return;
+        const e = estrellas(c, a);
+        foco = a.name;
+        coleccionando = true;
+        const n = a.rows.length;
+        resumen =
+          n === 0
+            ? "Todavía no tiene documentos en tu bóveda"
+            : `${n === 1 ? "1 documento" : `${n} documentos`} en ${e.ids.size === 1 ? "1 estrella" : `${e.ids.size} estrellas`}`;
+        await encajar(m);
+        m.cielo(c);
+        m.encender(e.ids);
+      } else if (quien) {
+        coleccionando = false;
         const l = await lente([quien], 2, 300);
         if (mio !== pedido) return; // llegó tarde
         const n = l.nodes.find((x) => x.id === quien);
@@ -80,6 +124,7 @@
         const c = await cielo(30);
         if (mio !== pedido) return;
         foco = "";
+        coleccionando = false;
         resumen = `${c.regions.length === 1 ? "1 región" : `${c.regions.length} regiones`} · ${c.files === 1 ? "1 documento" : `${c.files.toLocaleString("es")} documentos`}`;
         await encajar(m);
         m.cielo(c);
@@ -105,12 +150,19 @@
 
   <div class="encima">
     <div class="titulo" bind:this={titulo}>
-      {#if foco}
+      {#if foco && coleccionando}
+        {@const col = app.lenteColeccion}
+        <button class="volver hov" onclick={() => col && app.abrirColeccion(col)}>
+          <ArrowLeft size={15} /> Volver a la colección
+        </button>
+        <h1 class="titular">«{foco}» en tu bóveda</h1>
+        <p>Las estrellas encendidas son las carpetas donde están sus documentos; no se ha movido ninguna. Pulsa una para abrirla.</p>
+      {:else if foco}
         <button class="volver hov" onclick={() => (app.lente = null)}>
           <ArrowLeft size={15} /> El mapa completo
         </button>
         <h1 class="titular">Alrededor de «{foco}»</h1>
-        <p>Lo que se relaciona con esto: su carpeta, los duplicados, lo que lleva dentro o dónde está, lo que se tocó a la vez. Pulsa un documento para verlo.</p>
+        <p>Lo que se relaciona con esto: su carpeta, los duplicados, lo que lleva dentro o dónde está, tus colecciones, lo que se tocó a la vez. Pulsa un documento para verlo.</p>
       {:else}
         <h1 class="titular">Tu bóveda, vista desde arriba</h1>
         <p>Cada estrella es una carpeta: su tamaño es cuántos documentos tiene y su color, cuándo tocaste algo ahí. Pulsa una para abrirla.</p>
@@ -122,7 +174,7 @@
       <span class="resumen">{resumen}</span>
       <span><i class="punto calido"></i>tocado hace poco</span>
       <span><i class="punto frio"></i>hace meses</span>
-      {#if foco}<span><i class="trazo"></i>seguro · <i class="trazo punteado"></i>inferido</span>{/if}
+      {#if foco && !coleccionando}<span><i class="trazo"></i>seguro · <i class="trazo punteado"></i>inferido</span>{/if}
     </div>
 
     {#if movida}

@@ -1,8 +1,9 @@
 <!--
   La barra lateral: por dónde se entra a todo.
 
-  Arriba, buscar. Después las vistas —el inicio, el mapa, lo sensible— y tu
-  bóveda carpeta por carpeta, con su nombre limpio y cuántos documentos tiene.
+  Arriba, buscar. Después las vistas —el inicio, el mapa, tus colecciones, lo
+  sensible— y tu bóveda carpeta por carpeta, con su nombre limpio y cuántos
+  documentos tiene; debajo, cada una de tus colecciones (ADR-0031).
   Abajo, el estado: si está al día, actualizar, añadir otra carpeta y el
   aspecto.
 -->
@@ -10,6 +11,7 @@
   import Folder from "@lucide/svelte/icons/folder";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
   import House from "@lucide/svelte/icons/house";
+  import Layers from "@lucide/svelte/icons/layers";
   import Lock from "@lucide/svelte/icons/lock";
   import Moon from "@lucide/svelte/icons/moon";
   import Orbit from "@lucide/svelte/icons/orbit";
@@ -36,6 +38,8 @@
   });
 
   const carpetas = $derived((app.raiz?.rows ?? []).filter((r) => r.kind === "folder"));
+
+  const colecciones = $derived(app.colecciones);
 
   /** La carpeta abierta y todo su camino: la de la barra se marca si estás dentro. */
   const abiertas = $derived.by(() => {
@@ -77,6 +81,11 @@
       <Orbit size={17} />
       <span>Mapa</span>
     </button>
+    <button class="item hov-fondo" class:activo={app.vista === "colecciones"} onclick={() => app.irVista("colecciones")}>
+      <Layers size={17} />
+      <span>Colecciones</span>
+      {#if colecciones.length > 0}<span class="cuenta">{colecciones.length}</span>{/if}
+    </button>
     <button class="item hov-fondo" class:activo={app.vista === "sensibles"} onclick={() => app.irVista("sensibles")}>
       <Lock size={17} />
       <span>Sensibles</span>
@@ -102,6 +111,24 @@
           <Folder size={17} />
           <span class="nombre">{nombreBonito(c.label)}</span>
           <span class="cuenta">{c.weight}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
+
+  {#if colecciones.length > 0}
+    <div class="grupo carpetas">
+      <div class="rotulo cabeza">Tus colecciones</div>
+      {#each colecciones as c (c.id)}
+        <button
+          class="item hov-fondo"
+          class:activo={app.vista === "coleccion" && app.abierta?.id === c.id}
+          onclick={() => app.abrirColeccion(c.id)}
+          title={c.name}
+        >
+          <Layers size={17} />
+          <span class="nombre">{c.name}</span>
+          <span class="cuenta">{c.documents}</span>
         </button>
       {/each}
     </div>
@@ -161,6 +188,11 @@
     background: var(--lateral);
     border-right: 1px solid var(--linea);
     overflow-y: auto;
+  }
+  /* Con muchas carpetas y colecciones, la barra se desplaza: nada se encoge
+     (sin esto, «Buscar» se aplastaba hasta la mitad). */
+  .lateral > :global(*) {
+    flex-shrink: 0;
   }
 
   .marca {

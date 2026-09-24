@@ -5,9 +5,15 @@
   veces al día sigue siendo **escribir**, sin un gesto delante. Cada resultado
   dice por qué está —la frase que coincide, y si coincidió por las palabras o
   por el significado (I9)—, y al abrirlo la vista previa empieza justo ahí.
+
+  Abierto desde una colección, busca sólo dentro de ella (ADR-0031) y lo dice
+  arriba; la ✕ del filtro busca en todo. Elegir un resultado lo enseña sin
+  salir de la colección.
 -->
 <script lang="ts">
   import Clock from "@lucide/svelte/icons/clock";
+  import Layers from "@lucide/svelte/icons/layers";
+  import X from "@lucide/svelte/icons/x";
   import Orbit from "@lucide/svelte/icons/orbit";
   import Search from "@lucide/svelte/icons/search";
   import Tipo from "./Tipo.svelte";
@@ -24,6 +30,9 @@
   let ultimos = $state<Fila[]>([]);
   let campo: HTMLInputElement | undefined = $state();
 
+  /** La colección donde se busca, o `null` para todo. */
+  const dentroDe = $derived(app.buscarEn ? (app.colecciones.find((c) => c.id === app.buscarEn) ?? null) : null);
+
   $effect(() => {
     campo?.focus();
   });
@@ -35,6 +44,7 @@
   let generacion = 0;
   $effect(() => {
     const texto = q.trim();
+    const donde = app.buscarEn;
     const mia = ++generacion;
     if (!texto) {
       resultados = [];
@@ -42,7 +52,7 @@
       return;
     }
     const t = window.setTimeout(() => {
-      vistazo(texto, 12)
+      vistazo(texto, 12, donde)
         .then((v) => {
           if (mia !== generacion) return; // llegó tarde
           resultados = v.answer.hits;
@@ -72,7 +82,14 @@
     const o = opciones[i];
     if (!o) return;
     cerrar();
-    void app.irA(o.id, o.consulta);
+    // Buscando dentro de la colección abierta, se queda en ella.
+    if (app.buscarEn && app.vista === "coleccion" && o.consulta) app.ver(o.id, o.consulta);
+    else void app.irA(o.id, o.consulta);
+  }
+
+  function buscarEnTodo(): void {
+    app.buscarEn = null;
+    campo?.focus();
   }
 
   function tecla(e: KeyboardEvent): void {
@@ -106,11 +123,18 @@
   <section class="buscador entra" aria-label="Buscar">
     <div class="entrada">
       <Search size={20} />
+      {#if dentroDe}
+        <button class="filtro hov" onclick={buscarEnTodo} title="Buscar en toda tu bóveda">
+          <Layers size={13} />
+          <span>Sólo en «{dentroDe.name}»</span>
+          <X size={13} />
+        </button>
+      {/if}
       <input
         bind:this={campo}
         bind:value={q}
         onkeydown={tecla}
-        placeholder="Busca por nombre o por lo que significa…"
+        placeholder={dentroDe ? "Busca dentro de esta colección…" : "Busca por nombre o por lo que significa…"}
         aria-label="Buscar en tu bóveda"
         spellcheck="false"
         autocomplete="off"
@@ -168,11 +192,16 @@
         {/each}
       {:else if buscado}
         <p class="nada">
+          {#if dentroDe}
+            En «{dentroDe.name}» no hay nada con «{buscado}».
+            <button class="enlace" onclick={buscarEnTodo}>Buscar en toda tu bóveda</button>
+          {:else}
           No encuentro nada con «{buscado}». Busqué en los nombres y en el texto de tus documentos{semantica
             ? ", también por significado"
             : ""}{app.info?.ocr
             ? ", y en lo que se leyó de tus fotos y escaneos."
             : "; las fotos y los PDF escaneados no tienen texto en este equipo (no hay reconocedor de texto)."}
+          {/if}
         </p>
       {/if}
     </div>
@@ -223,6 +252,28 @@
     padding: 0 18px;
     border-bottom: 1px solid var(--linea);
     color: var(--tenue);
+  }
+  .filtro {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    max-width: 260px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: var(--sel);
+    color: var(--acento);
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+  .filtro span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .enlace {
+    color: var(--acento);
+    font-weight: 500;
   }
   input {
     flex-grow: 1;

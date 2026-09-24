@@ -10,12 +10,17 @@
   dentro lo hereda, también lo que llegue después (ADR-0020). Marcar es un
   clic; quitar la marca baja la protección y por eso pide un segundo clic. Si
   la marca es de una carpeta de fuera, el botón lo dice y lleva hasta ella.
+
+  Dentro de una colección (ADR-0031): buscar sólo en ella, verla en el mapa
+  —sus estrellas encendidas— y cómo verla. Una colección no es sensible: no
+  tiene escudo.
 -->
 <script lang="ts">
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
   import List from "@lucide/svelte/icons/list";
   import Orbit from "@lucide/svelte/icons/orbit";
+  import Search from "@lucide/svelte/icons/search";
   import Shield from "@lucide/svelte/icons/shield";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import { app } from "../lib/app.svelte";
@@ -46,9 +51,22 @@
     ir: () => void;
   }
 
-  const NOMBRES = { inicio: "Inicio", mapa: "Mapa", sensibles: "Sensibles", papelera: "Papelera" } as const;
+  const NOMBRES = {
+    inicio: "Inicio",
+    mapa: "Mapa",
+    sensibles: "Sensibles",
+    papelera: "Papelera",
+    colecciones: "Colecciones",
+  } as const;
 
   const migas = $derived.by((): Miga[] => {
+    if (app.vista === "coleccion") {
+      const a = app.abierta;
+      return [
+        { texto: "Colecciones", ir: () => app.irVista("colecciones") },
+        ...(a ? [{ texto: a.name, ir: () => app.cerrarPanel() }] : []),
+      ];
+    }
     if (app.vista !== "carpeta" || !app.listado) {
       const v = app.vista === "carpeta" ? "inicio" : app.vista;
       return [{ texto: NOMBRES[v], ir: () => app.irVista(v) }];
@@ -129,7 +147,19 @@
       <Orbit size={16} />
       <span>Ver en el mapa</span>
     </button>
-    <div class="modos" role="group" aria-label="Cómo ver la carpeta">
+  {:else if app.vista === "coleccion" && app.abierta}
+    {@const cid = app.abierta.id}
+    <button class="ver-mapa hov-fondo" onclick={() => app.abrirBuscador()} title="Buscar sólo en esta colección">
+      <Search size={16} />
+      <span>Buscar aquí</span>
+    </button>
+    <button class="ver-mapa hov-fondo" onclick={() => app.verColeccionEnMapa(cid)} title="Sus estrellas encendidas, sin mover ninguna">
+      <Orbit size={16} />
+      <span>Ver en el mapa</span>
+    </button>
+  {/if}
+  {#if (app.vista === "carpeta" && app.listado?.focus) || (app.vista === "coleccion" && app.abierta)}
+    <div class="modos" role="group" aria-label="Cómo ver la lista">
       <button
         class:activo={app.modo === "cuadricula"}
         onclick={() => app.ponerModo("cuadricula")}

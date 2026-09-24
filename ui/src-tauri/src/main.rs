@@ -52,8 +52,8 @@
 use obrain_api::seguridad::{self, Estado as EstadoSeguridad};
 use obrain_api::vigilar::{self, Vigia};
 use obrain_api::{
-    Brain, Embedder, EnPapelera, EntityView, Expiring, FolderMarked, Glance, IndexReport, Lens,
-    Listing, MarkedFolder, Preview, Row, Sky, default_db_path,
+    Abierta, Brain, Coleccion, Embedder, EnPapelera, EntityView, Expiring, FolderMarked, Glance,
+    IndexReport, Lens, Listing, MarkedFolder, Preview, Row, Sky, default_db_path,
 };
 use obrain_core::{EntityId, Sensitivity, Store};
 use std::path::PathBuf;
@@ -124,9 +124,74 @@ fn con<T>(
     f(brain).map_err(texto)
 }
 
+/// Busca; con `coleccion`, sólo dentro de ella (ADR-0031).
 #[tauri::command]
-fn vistazo(query: String, limit: usize, cerebro: State<'_, Cerebro>) -> Result<Glance, String> {
-    con(&cerebro, |b| b.glance(&query, limit))
+fn vistazo(
+    query: String,
+    limit: usize,
+    coleccion: Option<String>,
+    cerebro: State<'_, Cerebro>,
+) -> Result<Glance, String> {
+    let coleccion = coleccion.map(EntityId);
+    con(&cerebro, |b| b.glance_in(&query, limit, coleccion.as_ref()))
+}
+
+// ─────────────────────────────────────────────── tus colecciones (ADR-0031)
+//
+// Todas reciben identificadores —de la colección y de los documentos—, nunca
+// rutas, como abrir y revelar. Y ninguna toca un archivo.
+
+#[tauri::command]
+fn colecciones(cerebro: State<'_, Cerebro>) -> Result<Vec<Coleccion>, String> {
+    con(&cerebro, |b| b.collections())
+}
+
+#[tauri::command]
+fn coleccion(id: String, cerebro: State<'_, Cerebro>) -> Result<Abierta, String> {
+    con(&cerebro, |b| b.collection(&EntityId(id)))
+}
+
+#[tauri::command]
+fn crear_coleccion(nombre: String, cerebro: State<'_, Cerebro>) -> Result<String, String> {
+    con(&cerebro, |b| b.create_collection(&nombre, "user@ui"))
+}
+
+#[tauri::command]
+fn renombrar_coleccion(
+    id: String,
+    nombre: String,
+    cerebro: State<'_, Cerebro>,
+) -> Result<(), String> {
+    con(&cerebro, |b| {
+        b.rename_collection(&EntityId(id), &nombre, "user@ui")
+    })
+}
+
+#[tauri::command]
+fn borrar_coleccion(id: String, cerebro: State<'_, Cerebro>) -> Result<usize, String> {
+    con(&cerebro, |b| b.delete_collection(&EntityId(id)))
+}
+
+#[tauri::command]
+fn meter_en_coleccion(
+    id: String,
+    docs: Vec<String>,
+    cerebro: State<'_, Cerebro>,
+) -> Result<usize, String> {
+    let docs: Vec<EntityId> = docs.into_iter().map(EntityId).collect();
+    con(&cerebro, |b| {
+        b.add_to_collection(&EntityId(id), &docs, "user@ui")
+    })
+}
+
+#[tauri::command]
+fn sacar_de_coleccion(
+    id: String,
+    docs: Vec<String>,
+    cerebro: State<'_, Cerebro>,
+) -> Result<usize, String> {
+    let docs: Vec<EntityId> = docs.into_iter().map(EntityId).collect();
+    con(&cerebro, |b| b.remove_from_collection(&EntityId(id), &docs))
 }
 
 #[tauri::command]
@@ -660,6 +725,13 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             vistazo,
+            colecciones,
+            coleccion,
+            crear_coleccion,
+            renombrar_coleccion,
+            borrar_coleccion,
+            meter_en_coleccion,
+            sacar_de_coleccion,
             lente,
             cielo,
             explorar,
