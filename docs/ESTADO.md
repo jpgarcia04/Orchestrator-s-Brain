@@ -264,6 +264,17 @@ vigía, la papelera y la carpeta marcada.
    cifra tus archivos originales**, y lo que hubo en claro puede seguir en el
    espacio libre del SSD hasta que se sobrescriba.
 
+### Lo que te toca comprobar en tu Windows, y para qué
+
+Cada pieza se programa y se prueba con **documentos inventados** (el «banco
+de pruebas»). Lo que sigue es para ver que también funciona con **los tuyos**,
+en tu app de verdad, que es lo único que una sesión no puede hacer por ti. No
+rompe nada ni es urgente: si no lo haces, la app sigue igual; si algo no sale
+como aquí se dice, se arregla eso antes de seguir. La sesión que te toque en
+tu laptop te guía paso a paso. Pendiente al 2026-09-24: **la carpeta fija,
+los vencimientos sin palabra y un documento dentro de otro** (los tres,
+abajo).
+
 Y para ver el OCR: dale a «actualizar» con alguna foto de un documento en tu
 biblioteca y búscala por algo que diga. En la vista previa, debajo de la foto,
 sale «Texto reconocido en la imagen» y, en el «¿por qué?», *«el OCR de Windows
