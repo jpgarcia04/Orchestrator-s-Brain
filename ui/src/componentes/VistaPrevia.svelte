@@ -47,7 +47,7 @@
     revelar,
   } from "../lib/nucleo";
   import type { Claim, Parte, PorDentro, Vista, VistaEntidad } from "../lib/nucleo";
-  import { diasHasta, fecha, fechaIso, nombreBonito, plazo, tipoDe, tipoLargo, tituloDe } from "../lib/nombres";
+  import { diasHasta, fecha, fechaIso, nombreBonito, plazo, sinCodigos, tipoDe, tipoLargo, tituloDe } from "../lib/nombres";
 
   let {
     id,
@@ -393,7 +393,7 @@
       return `Por la carpeta ${casa}: su nombre suena a documentos personales, así que lo que tiene dentro lo trato como ${nivel}.`;
     }
     if (familia === "nombre" || familia === "extension") {
-      return `Por su nombre, «${ficha?.label ?? ""}», que ${NOMBRES_SENSIBLES[cual ?? ""] ?? "suena a algo personal"}. No he tenido que leerlo.`;
+      return `Por su nombre, «${sinCodigos(ficha?.label ?? "")}», que ${NOMBRES_SENSIBLES[cual ?? ""] ?? "suena a algo personal"}. No he tenido que leerlo.`;
     }
     return c.evidence ?? c.source;
   }

@@ -37,8 +37,11 @@ const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "
  * `Pasaporte%20JP` → `Pasaporte JP`: un nombre con los espacios (o los
  * acentos) escritos como en una dirección web. Si no se puede leer así —un
  * `%` que es un porcentaje de verdad—, se queda como está.
+ *
+ * Es lo que se cita cuando una frase dice «por su nombre, «…»»: se lee como
+ * lo leería una persona, con su extensión.
  */
-function sinCodigos(nombre: string): string {
+export function sinCodigos(nombre: string): string {
   if (!/%[0-9A-Fa-f]{2}/.test(nombre)) return nombre;
   try {
     return decodeURIComponent(nombre);
