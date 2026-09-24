@@ -234,3 +234,77 @@ fn reindexar_no_repite_ni_pierde_nada() {
         "la segunda pasada no escribe"
     );
 }
+
+/// ADR-0032, el hueco que destapó el pendiente: la carátula está dos veces
+/// con el mismo texto, una copia vieja en `04 Papeles` y la tuya en una
+/// carpeta que marcas, más nueva. Antes sólo contaba la vieja (el original)
+/// y el expediente salía **sin tapar**. Ahora cuentan las dos: se tapa por la
+/// marcada, la copia dice «está dentro de», y el expediente no dice
+/// «contiene: carátula, carátula».
+#[test]
+fn una_copia_en_una_carpeta_marcada_tambien_tapa_el_paquete() {
+    let dir = boveda("copias");
+    let vieja = dir.join("04 Papeles").join("Caratula vieja.txt");
+    std::fs::write(&vieja, caratula()).unwrap();
+    // La de `01 Escaneos` es la nueva: la vieja se guardó hace un mes.
+    let mes = std::time::SystemTime::now() - std::time::Duration::from_secs(30 * 86_400);
+    std::fs::File::options()
+        .write(true)
+        .open(&vieja)
+        .unwrap()
+        .set_modified(mes)
+        .unwrap();
+
+    let mut store = Store::open_in_memory().unwrap();
+    let r = indexar(&mut store, &dir);
+    assert_eq!(r.inside, 4, "carátula (dos copias), marzo y abril: {r:?}");
+    let mut b = Brain::from_store(store);
+    let expediente = id_de(&b, "Expediente");
+
+    let at = TimePoint::at(i64::MAX / 2);
+    let escaneos =
+        obrain_api::marks::folder_at(b.store(), &dir.join("01 Escaneos").to_string_lossy(), at)
+            .unwrap()
+            .unwrap();
+    b.mark_folder(&escaneos, Some(Sensitivity::Sensitive))
+        .unwrap();
+
+    let ficha = b.entity(&expediente).unwrap();
+    assert_eq!(ficha.sensitivity, "sensitive", "la copia marcada lo tapa");
+    let porque = ficha.by_part.expect("es por lo que lleva");
+    assert_eq!(porque.label, "Caratula.txt");
+    assert_eq!(porque.folder.unwrap().label, "01 Escaneos");
+
+    // «Contiene»: una fila por texto, con la copia en ella.
+    let filas: Vec<(&str, usize)> = ficha
+        .parts
+        .iter()
+        .map(|p| (p.label.as_str(), p.copies.len()))
+        .collect();
+    assert_eq!(
+        filas,
+        [("Caratula.txt", 1), ("Marzo.txt", 0), ("Abril.txt", 0)]
+    );
+    assert_eq!(ficha.parts[0].copies[0].label, "Caratula vieja.txt");
+
+    // Y cada copia dice dónde está, con el mismo tramo.
+    for nombre in ["Caratula.txt", "Caratula vieja.txt"] {
+        let id = b
+            .search("Carátula documento de viaje", 10)
+            .unwrap()
+            .hits
+            .into_iter()
+            .find(|h| h.label == nombre)
+            .map(|h| EntityId(h.entity))
+            .unwrap_or_else(|| panic!("no sale {nombre}"));
+        let c = b
+            .entity(&id)
+            .unwrap()
+            .observed
+            .into_iter()
+            .find(|c| c.predicate == "part_of")
+            .unwrap_or_else(|| panic!("{nombre} no dice «está dentro de»"));
+        assert_eq!(c.value_entity.as_deref(), Some(expediente.as_str()));
+        assert_eq!(c.target_span, Some(ficha.parts[0].span.unwrap()));
+    }
+}

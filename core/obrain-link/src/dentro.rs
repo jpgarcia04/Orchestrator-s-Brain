@@ -301,28 +301,67 @@ pub fn link(store: &Store, at: i64, report: &mut DentroReport) -> Result<Vec<Den
         .map(|f| (f.entity, (f.modified_ms, f.path)))
         .collect();
 
-    // De cada texto, un documento: el más antiguo. Un paquete no dice
-    // «contiene: B, B, B», y una copia llega a él por su «Duplicado de».
-    let mut por_texto: HashMap<[u8; 32], Doc> = HashMap::new();
+    // De cada texto se compara un documento —el más antiguo, el criterio de
+    // `duplicate_of`—, y lo que se encuentre vale para **todas sus copias**,
+    // las de dentro y las del paquete (ADR-0032). Antes sólo contaba el más
+    // antiguo, y el paquete heredaba la sensibilidad sólo de él: si tu
+    // pasaporte de `01 Identidad` era la copia nueva, el PDF de la visa salía
+    // sin tapar. Comparar sigue siendo una vez por texto.
+    let mut por_texto: HashMap<[u8; 32], (Doc, Vec<EntityId>)> = HashMap::new();
     obrain_extract::index::each_document_text(store.conn(), |entity, texto| {
         if fuera.contains(&entity) || !archivos.contains_key(&entity) {
             return Ok(());
         }
         let clave = *blake3::hash(texto.as_bytes()).as_bytes();
-        let gana = match por_texto.get(&clave) {
-            Some(otro) => archivos[&entity] < archivos[&otro.entity],
-            None => true,
-        };
-        if gana {
-            por_texto.insert(clave, doc(entity, texto));
+        match por_texto.get_mut(&clave) {
+            Some((otro, copias)) => {
+                if archivos[&entity] < archivos[&otro.entity] {
+                    let viejo = std::mem::replace(otro, doc(entity, texto));
+                    copias.push(viejo.entity);
+                } else {
+                    copias.push(entity);
+                }
+            }
+            None => {
+                por_texto.insert(clave, (doc(entity, texto), Vec::new()));
+            }
         }
         Ok(())
     })?;
-    let mut docs: Vec<Doc> = por_texto.into_values().collect();
+    let mut copias: HashMap<EntityId, Vec<EntityId>> = HashMap::new();
+    let mut docs: Vec<Doc> = Vec::with_capacity(por_texto.len());
+    for (d, mut otras) in por_texto.into_values() {
+        if !otras.is_empty() {
+            otras.sort();
+            copias.insert(d.entity.clone(), otras);
+        }
+        docs.push(d);
+    }
     docs.sort_by(|x, y| x.entity.as_str().cmp(y.entity.as_str()));
     report.documentos = docs.len();
 
-    let hallados = buscar(&docs);
+    let hallados: Vec<Dentro> = buscar(&docs)
+        .into_iter()
+        .flat_map(|d| {
+            let partes: Vec<EntityId> = std::iter::once(d.parte.clone())
+                .chain(copias.get(&d.parte).into_iter().flatten().cloned())
+                .collect();
+            let paquetes: Vec<EntityId> = std::iter::once(d.paquete.clone())
+                .chain(copias.get(&d.paquete).into_iter().flatten().cloned())
+                .collect();
+            partes
+                .into_iter()
+                .flat_map(move |parte| {
+                    let d = d.clone();
+                    paquetes.clone().into_iter().map(move |paquete| Dentro {
+                        parte: parte.clone(),
+                        paquete,
+                        ..d.clone()
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
     report.encontrados = hallados.len();
 
     // Lo que ya estaba dicho: sigue, se retracta o se reafirma con el tramo
@@ -662,25 +701,45 @@ mod tests {
         assert_ne!(v[0].2, antes, "el tramo nuevo");
     }
 
-    /// Dos copias de marzo dentro del mismo paquete: se dice una vez, la del
-    /// original (el más antiguo).
+    /// Dos copias de marzo, y el paquete guardado dos veces: **todas** las
+    /// copias están dentro de **todas** las copias del paquete (ADR-0032), con
+    /// el mismo tramo. Antes sólo el original, y el paquete heredaba la
+    /// sensibilidad sólo de él.
     #[test]
-    fn de_los_textos_identicos_cuenta_el_original() {
+    fn de_los_textos_identicos_cuentan_todas_las_copias() {
         let s = Store::open_in_memory().unwrap();
         let marzo = texto("marzo", 6);
+        let visa = format!("{marzo}\n\n{}", texto("abril", 6));
         let copia = archivo(&s, "C:\\v\\copia\\marzo.pdf", &marzo, 50);
         let original = archivo(&s, "C:\\v\\marzo.pdf", &marzo, 10);
-        let a = archivo(
-            &s,
-            "C:\\v\\visa.pdf",
-            &format!("{marzo}\n\n{}", texto("abril", 6)),
-            60,
+        let a = archivo(&s, "C:\\v\\visa.pdf", &visa, 60);
+        let a2 = archivo(&s, "C:\\v\\descargas\\visa.pdf", &visa, 70);
+        let mut r = DentroReport::default();
+        link(&s, T + 1, &mut r).unwrap();
+        assert_eq!(r.documentos, 2, "se compara una vez por texto");
+        assert_eq!(r.encontrados, 4);
+
+        let mut v = vivas(&s, T + 2);
+        v.sort();
+        let mut esperado = vec![
+            (original.clone(), a.clone()),
+            (original, a2.clone()),
+            (copia.clone(), a),
+            (copia, a2),
+        ];
+        esperado.sort();
+        assert_eq!(
+            v.iter()
+                .map(|x| (x.0.clone(), x.1.clone()))
+                .collect::<Vec<_>>(),
+            esperado
         );
-        link(&s, T + 1, &mut DentroReport::default()).unwrap();
-        let v = vivas(&s, T + 2);
-        assert_eq!(v.len(), 1);
-        assert_eq!((&v[0].0, &v[0].1), (&original, &a));
-        let _ = copia;
+        assert!(v.iter().all(|x| x.2 == v[0].2), "el mismo tramo en todas");
+
+        // Idempotente: otra pasada no escribe nada.
+        let mut r2 = DentroReport::default();
+        link(&s, T + 3, &mut r2).unwrap();
+        assert_eq!((r2.escritas, r2.retractadas, r2.sin_cambio), (0, 0, 4));
     }
 
     /// Lo que está en la papelera no se toca: vuelve con lo que sabía.

@@ -55,7 +55,7 @@ use std::path::Path;
 use std::time::Instant;
 
 pub use colecciones::{Abierta, Coleccion, Miembro, Pertenece};
-pub use dentro::{Paquete, Parte};
+pub use dentro::{Copia, Paquete, Parte};
 pub use entity::{Claim, EntityView};
 pub use indexar::IndexReport;
 pub use lens::{Edge, Lens, Node};

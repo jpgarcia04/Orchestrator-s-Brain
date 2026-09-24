@@ -24,6 +24,21 @@ pub struct Parte {
     pub sensitivity: &'static str,
     /// Está en la papelera: se sigue diciendo que estaba dentro (ADR-0025).
     pub trashed: bool,
+    /// Otros documentos con **el mismo texto** que también están dentro
+    /// (ADR-0032): una copia en otra carpeta. Van en la misma fila, así que el
+    /// paquete no dice «contiene: marzo, marzo».
+    pub copies: Vec<Copia>,
+}
+
+/// Una copia con el mismo texto que un documento de dentro (ADR-0032).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Copia {
+    pub id: String,
+    pub label: String,
+    /// Su ruta: lo que distingue una copia de otra con el mismo nombre.
+    pub path: Option<String>,
+    pub sensitivity: &'static str,
+    pub trashed: bool,
 }
 
 /// Un paquete: un documento que lleva otros dentro.
@@ -65,15 +80,54 @@ fn parte(store: &Store, a: &Assertion, at: TimePoint) -> Result<Parte> {
             .map(|s| s.as_str())
             .unwrap_or("vault"),
         trashed: crate::papelera::of(store, &a.subject, at)?.is_some(),
+        copies: Vec::new(),
     })
 }
 
 /// Lo que lleva dentro este documento, en el orden en que aparece en su
-/// texto.
+/// texto. Las copias con el mismo texto van en una fila (ADR-0032), que
+/// encabeza la que sigue en tu bóveda y, de ésas, **la más protegida**: si una
+/// copia tapa el paquete, es la que se nombra, igual que en su «¿por qué?».
 pub fn parts(store: &Store, id: &EntityId, at: TimePoint) -> Result<Vec<Parte>> {
-    let mut out = Vec::new();
+    let mut sueltas = Vec::new();
     for a in store.pointing_at(id, Some(PART_OF), at)? {
-        out.push(parte(store, &a, at)?);
+        let texto = store
+            .resolve(&a.subject, "text_hash", at)?
+            .and_then(|t| t.object.as_text().map(str::to_string))
+            .unwrap_or_else(|| a.subject.0.clone());
+        sueltas.push((texto, parte(store, &a, at)?));
+    }
+    let nivel = |p: &Parte| match p.sensitivity {
+        "vault" => 0,
+        "sensitive" => 1,
+        _ => 2,
+    };
+    sueltas.sort_by(|(_, x), (_, y)| {
+        (x.trashed, nivel(x), x.label.to_lowercase(), &x.id).cmp(&(
+            y.trashed,
+            nivel(y),
+            y.label.to_lowercase(),
+            &y.id,
+        ))
+    });
+    let mut out: Vec<Parte> = Vec::new();
+    let mut fila: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for (texto, p) in sueltas {
+        match fila.get(&texto) {
+            Some(&i) => out[i].copies.push(Copia {
+                path: store
+                    .resolve_last(&EntityId(p.id.clone()), "path_observed_at", at.known)?
+                    .and_then(|a| a.object.as_text().map(str::to_string)),
+                id: p.id,
+                label: p.label,
+                sensitivity: p.sensitivity,
+                trashed: p.trashed,
+            }),
+            None => {
+                fila.insert(texto, out.len());
+                out.push(p);
+            }
+        }
     }
     out.sort_by(|x, y| (x.span.map(|s| s[0]), &x.label).cmp(&(y.span.map(|s| s[0]), &y.label)));
     Ok(out)

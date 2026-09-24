@@ -1,6 +1,6 @@
 # ADR-0030 — Un documento dentro de otro
 
-- **Estado:** Aceptada
+- **Estado:** Aceptada. Su §2.4 («Textos idénticos, una vez») y su último «En contra» los cambia [ADR-0032](0032-las-copias-tambien-estan-dentro.md): ahora cuentan todas las copias
 - **Fecha:** 2026-09-23
 - **Resuelve:** la pregunta abierta del maestro *«¿Cómo se representa que un documento está dentro de otro?»* (§10), aparecida al auditar la prueba ([ADR-0016](0016-la-prueba-se-elige-el-indice-no-se-filtra.md))
 - **Toca:** [ADR-0020](0020-sensibilidad-por-carpeta.md) (de dónde sale la sensibilidad), [ADR-0005](0005-donde-vive-el-texto-extraido.md) (el texto del que se lee)
@@ -219,3 +219,8 @@ confundirlas con un paquete.
   guardar las huellas (alternativa C).
 - **Una copia idéntica** de un documento que está en un paquete no dice «está
   dentro de»; lo dice su original, al que llega por «Duplicado de».
+  **Cambiado en [ADR-0032] (2026-09-24):** el paquete sólo heredaba la
+  sensibilidad del original, y una copia en una carpeta marcada lo dejaba sin
+  tapar. Ahora cada copia está dentro, y «Contiene» las junta en una fila.
+
+[ADR-0032]: 0032-las-copias-tambien-estan-dentro.md

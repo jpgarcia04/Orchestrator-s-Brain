@@ -130,6 +130,20 @@ export interface Parte {
   sensitivity: Sensibilidad;
   /** Está en la papelera: se sigue diciendo que estaba dentro. */
   trashed: boolean;
+  /**
+   * Otros documentos con el mismo texto que también están dentro (ADR-0032):
+   * una copia en otra carpeta. Van en la misma fila.
+   */
+  copies: Copia[];
+}
+
+/** Una copia con el mismo texto que un documento de dentro (ADR-0032). */
+export interface Copia {
+  id: string;
+  label: string;
+  path: string | null;
+  sensitivity: Sensibilidad;
+  trashed: boolean;
 }
 
 /**

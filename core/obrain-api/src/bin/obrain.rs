@@ -279,8 +279,13 @@ fn main() -> ExitCode {
                             } else {
                                 ""
                             };
+                            let copias = match parte.copies.len() {
+                                0 => String::new(),
+                                1 => ", y 1 copia con el mismo texto".to_string(),
+                                n => format!(", y {n} copias con el mismo texto"),
+                            };
                             println!(
-                                "    contiene {}  ({} de {} párrafos){fuera}",
+                                "    contiene {}  ({} de {} párrafos{copias}){fuera}",
                                 parte.label, parte.paragraphs, parte.of
                             );
                         }

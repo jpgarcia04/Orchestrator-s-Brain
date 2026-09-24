@@ -47,7 +47,7 @@
     revelar,
   } from "../lib/nucleo";
   import type { Claim, Parte, PorDentro, Vista, VistaEntidad } from "../lib/nucleo";
-  import { diasHasta, fecha, fechaIso, nombreBonito, plazo, sinCodigos, tipoDe, tipoLargo, tituloDe } from "../lib/nombres";
+  import { carpetaDe, diasHasta, fecha, fechaIso, nombreBonito, plazo, sinCodigos, tipoDe, tipoLargo, tituloDe } from "../lib/nombres";
 
   let {
     id,
@@ -151,13 +151,25 @@
     return p.paragraphs >= p.of ? `sus ${p.of} párrafos, seguidos` : `${p.paragraphs} de sus ${p.of} párrafos, seguidos`;
   }
 
+  /** «y 1 copia»: otros documentos con el mismo texto, en la misma fila (ADR-0032). */
+  function copiasDe(p: Parte): string {
+    const n = p.copies.length;
+    return n === 0 ? "" : n === 1 ? " · y 1 copia" : ` · y ${n} copias`;
+  }
+
   /** El «¿por qué?» de un documento de dentro (ADR-0030). */
   function porqueParte(p: Parte): string {
     const nombre = tituloDe(p.label).titulo;
-    const s =
+    let s =
       p.paragraphs >= p.of
         ? `Todo el texto de «${nombre}» está en este documento: sus ${p.of} párrafos, seguidos y en el mismo orden.`
         : `Casi todo el texto de «${nombre}» está en este documento: ${p.paragraphs} de sus ${p.of} párrafos, seguidos y en el mismo orden. Los que faltan están en la orilla, pegados al texto de al lado.`;
+    if (p.copies.length > 0) {
+      const donde = p.copies
+        .map((c) => `«${carpetaDe(c.path ?? "") || tituloDe(c.label).titulo}»`)
+        .join(", ");
+      s += ` Con el mismo texto también lo tienes en ${donde}${p.copies.length === 1 ? ", y esa copia" : ", y esas copias"} también cuenta${p.copies.length === 1 ? "" : "n"}.`;
+    }
     if (bloqueado) return s;
     if (oculto) return `${s} Pulsa «Mostrar» para verlo marcado.`;
     return vista?.highlight ? `${s} Está marcado arriba.` : s;
@@ -716,7 +728,7 @@
                 <Tipo tipo={tipoDe(p.label)} />
                 <span class="texto-rel">
                   <span class="nombre-rel">{tituloDe(p.label).titulo}</span>
-                  <span class="por">{cuantoDe(p)}{p.trashed ? " · en la papelera" : ""}</span>
+                  <span class="por">{cuantoDe(p)}{copiasDe(p)}{p.trashed ? " · en la papelera" : ""}</span>
                 </span>
               </button>
               {#if p.span}
