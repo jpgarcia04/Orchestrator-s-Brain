@@ -122,7 +122,7 @@ Antes de usar cualquier inteligencia artificial, el sistema ya puede descubrir *
 | Lo que encuentra | Cómo lo sabe |
 |------------------|--------------|
 | Archivos duplicados | Mismo contenido, aunque tengan diferente nombre |
-| Un documento dentro de otro | Sus párrafos aparecen seguidos dentro de otro: el PDF que armaste para un trámite juntando tus estados de cuenta |
+| Un documento dentro de otro | Sus párrafos aparecen seguidos dentro de otro: el PDF que armaste para un trámite juntando tus estados de cuenta (y si tienes copias con el mismo texto, cuentan todas) |
 | Versiones de un documento | Nombres similares con marcadores como "v2", "final", "rev" |
 | Sesiones de trabajo | Archivos modificados en la misma ventana de tiempo |
 | Origen web | La URL de donde descargaste un archivo (sí, Windows guarda eso) |
@@ -136,6 +136,9 @@ Con un modelo de inteligencia artificial **que corre en tu máquina** —se desc
 > Y lo que marcaste como privado **no entra** en el índice de significado. Eso no es una opción de configuración: es una comprobación que el sistema aplica y que tiene tests.
 >
 > Puedes marcar **una carpeta entera** —por ejemplo, la de tus documentos de identidad— y todo lo que tenga dentro será sensible, también lo que metas después: la foto de tu TIE no necesita tener texto ni un nombre que la delate. Si luego la renombras o la mueves a otro sitio del mismo disco, la marca va con ella.
+
+### 🗂️ Y tú también relacionas: *tus colecciones*
+Junta a mano lo que va junto aunque viva en carpetas distintas —**«Trámite de la visa»**: el pasaporte, la póliza, la matrícula y los estados de cuenta— sin mover nada de su sitio. Un documento puede estar en varias, sigue en ellas aunque lo muevas o lo renombres, y si lo borras y lo recuperas, vuelve solo. Puedes buscar sólo dentro de una colección, y en el mapa se encienden las estrellas donde están sus documentos, sin mover ninguna.
 
 ### 5. 🌌 Visualizar — *El mapa*
 Todo ese conocimiento cobra vida en una visualización interactiva — tu galaxia personal de conocimiento, donde puedes explorar, navegar y descubrir conexiones que habías olvidado.
@@ -167,7 +170,7 @@ El proyecto está en desarrollo activo. Cada hito se valida contra la pregunta d
 | **M5c** — Enterarse | Lo nuevo aparece sin lanzar nada | ✅ Completo: al abrir la app, con «actualizar» y vigilando tus carpetas en vivo |
 | **Fase 2** — La interfaz nueva | Svelte 5: escritorio tipo sistema operativo con vista previa (cada apartado se pliega desde su título y se queda como lo dejaste), buscador `Ctrl K`, la galaxia como vista «Mapa» enlazada, aspecto de noche y de día | ✅ Completo |
 | **Fase 3** — Documentos personales | Sensibilidad por carpeta ✅ · cifrado en reposo y PIN ✅ · OCR ✅ · vencimientos ✅ · vigilar la carpeta en vivo ✅ · papelera ✅ | ✅ Completo y probado en Windows (2026-09-23) |
-| **Después de la 3** — Tu bóveda, relacionada | Un documento dentro de otro ✅: el paquete dice qué lleva, cada documento suelto en qué paquete está, el paquete hereda la sensibilidad de lo que lleva y la búsqueda los agrupa · tus colecciones ⏳ | 🔨 En curso |
+| **Después de la 3** — Tu bóveda, relacionada | Un documento dentro de otro ✅: el paquete dice qué lleva, cada documento suelto en qué paquete está, el paquete hereda la sensibilidad de lo que lleva (de todas sus copias) y la búsqueda los agrupa · tus colecciones ✅: juntar a mano sin mover nada, buscar dentro, verlas en el mapa | ✅ Hecho en el banco de pruebas (2026-09-24); falta verlo en Windows |
 | **M6** — Construir conocimiento | Inferencia de procesos y enriquecimiento | ⏳ Planificado |
 | **M7** — La pregunta | Responder la pregunta de la visa | 🎯 Meta final |
 
@@ -248,7 +251,7 @@ Orchestrator's-Brain/
 │   └── obrain-api/                #   La superficie: buscar, mirar y recorrer
 ├── ui/                            # Aplicación de escritorio (Tauri + Svelte 5)
 │   ├── src/
-│   │   ├── vistas/                #   Inicio, Carpeta, Mapa y Sensibles
+│   │   ├── vistas/                #   Inicio, Carpeta, Mapa, Colecciones, Sensibles y Papelera
 │   │   ├── componentes/           #   Barra lateral, cabecera, buscador, vista previa…
 │   │   ├── lib/                   #   Estado de la app, nombres legibles, el mapa (PixiJS)
 │   │   └── estilos/               #   El tema: noche y día

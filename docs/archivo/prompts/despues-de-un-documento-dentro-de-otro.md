@@ -1,5 +1,7 @@
 # Prompt para la siguiente conversación — después de «un documento dentro de otro»
 
+> **Ya usado (2026-09-24).** El de ahora es [`despues-de-las-colecciones.md`](despues-de-las-colecciones.md).
+
 Copiar y pegar tal cual al empezar la conversación nueva.
 
 ---

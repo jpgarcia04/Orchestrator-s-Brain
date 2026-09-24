@@ -1,6 +1,6 @@
 # Estado del proyecto — empieza aquí
 
-**Última revisión:** 2026-09-23
+**Última revisión:** 2026-09-24
 
 Una página para retomar el proyecto sin leer las 2.000 líneas de agosto. El
 diseño completo está en [`PROJECT-MASTER.md`](PROJECT-MASTER.md); el porqué de
@@ -32,13 +32,16 @@ computadora.
 | **Vencimientos**: lee cuándo caduca cada documento («VALIDEZ 15 11 2026» en la foto de la TIE, «vence el 30 de septiembre» en el contrato) y el Inicio te enseña **«Caduca pronto»**: lo que vence en 90 días y lo que ya venció. Cada fecha dice por qué la leyó y se corrige en un clic. **Aunque el OCR se coma la palabra** (tu pasaporte): la saca de la zona MRZ (`P<MEX<<…`) con su dígito de control, de la expedición más N años justos en un documento de identidad, o del año solo de la INE (ADR-0028) | Tu pasaporte no daba fecha (2026-09-23): el OCR no leyó «caducidad». Arreglado y comprobado con su texto; falta verlo en tu app |
 | **Una carpeta fija para todo**: la base, su llave y el modelo viven en `C:\Users\pacox\.obrain`, abras obrain desde donde lo abras (una PowerShell, la terminal de Claude o la de Codex). La primera vez, obrain muda sola la base de `%LOCALAPPDATA%\obrain` (ADR-0029) | Tu modelo ya está ahí (2026-09-23). Falta abrir la app para que mude tu base |
 | **Un documento dentro de otro**: el PDF que armaste para un trámite juntando otros (tus estados de cuenta, una constancia) dice **«Contiene»** y qué lleva, con su «¿por qué?» marcado en el texto; cada documento suelto dice **«Está dentro de»** y te lleva al paquete por donde está. El paquete **es tan sensible como lo que lleva** (el pasaporte de `01 Identidad` dentro del PDF de la visa lo tapa), y en la búsqueda lo de dentro sale justo debajo de su paquete (ADR-0030) | Probado con tu base de agosto: 14 paquetes, ninguno falso. Falta verlo en tu app |
+| **Tus colecciones**: juntas a mano lo que va junto aunque viva en carpetas distintas —«Trámite de la visa»: el pasaporte, la póliza, la matrícula, los estados de cuenta— **sin mover nada**. Un documento puede estar en varias. Se meten desde la vista previa («Colecciones») o varios a la vez (`Ctrl`+clic, `Mayús`+clic, `Ctrl A`); se ven en la barra lateral y en su vista; se busca sólo dentro; en el mapa se encienden sus estrellas sin mover ninguna (ADR-0031) | Hecho en el banco de pruebas (2026-09-24); falta verlo en tu app |
+| **Las copias también están dentro**: si tienes el mismo documento dos veces (tu pasaporte en `01 Identidad` y otra copia en otra carpeta), las dos dicen «Está dentro de», y el paquete se tapa si **cualquiera** está protegida. Antes sólo contaba la más vieja, y el paquete podía salir sin tapar (ADR-0032) | Hecho en el banco de pruebas (2026-09-24); falta verlo en tu app |
 | La app se pone al día sola al abrirse, y tiene botón «actualizar» | |
 | **Vigila tus carpetas en vivo** mientras está abierta: guardas un documento y aparece solo, a los 3 segundos de dejar de tocar la carpeta, sin avisos (sólo el indicador de abajo a la izquierda) | ✅ Probado en tu Windows (2026-09-23) |
 | **Papelera**: lo que borras sale de Recientes, «Caduca pronto», el explorador, el mapa y la búsqueda, y se queda 30 días en la vista «Papelera»; después se olvida lo que se leyó de él (o antes, con «Olvidar ya» o «Vaciar papelera»). Mover y renombrar ya no dejan documentos ni carpetas repetidos | ✅ Probado en tu Windows (2026-09-23) |
 
-Núcleo en Rust con 452 tests, **todos en verde en tu Windows** (2026-09-23;
-hasta ese día sólo se habían corrido en Linux), interfaz en Tauri + Svelte 5,
-con el mapa en PixiJS.
+Núcleo en Rust con 467 tests, todos en verde en Linux (2026-09-24). **Los 452
+de antes, también en tu Windows** (2026-09-23); los 15 nuevos —colecciones y
+copias— se corren allí la próxima vez que abras la laptop. Interfaz en Tauri +
+Svelte 5, con el mapa en PixiJS.
 
 ## Cómo usarlo hoy (Windows)
 
@@ -105,6 +108,9 @@ cargo run --release --bin obrain -- bibliotecas   # qué carpetas tienes registr
 cargo run --release --bin obrain -- indexar       # volver a leer todas
 cargo run --release --bin obrain -- vencimientos  # lo que caduca en 90 días o ya caducó
 cargo run --release --bin obrain -- paquetes      # los documentos que llevan otros dentro
+cargo run --release --bin obrain -- colecciones   # tus colecciones, con cuántos documentos tiene cada una
+cargo run --release --bin obrain -- coleccion "Trámite de la visa"   # lo que tiene (con --crear, --meter <archivo>…,
+                                                  #   --sacar <archivo>…, --renombrar "<nuevo>" o --borrar)
 cargo run --release --bin obrain -- papelera      # lo que ya no está en tus carpetas (30 días)
 cargo run --release --bin obrain -- clave         # tu clave de recuperación
 cargo run --release --bin obrain -- recuperar XXXXX-XXXXX-XXXXX-XXXXX-XXXXX   # en otro equipo
@@ -135,15 +141,34 @@ seguridad de la base sin su clave de recuperación no se abre en otro equipo.
   «Pasaporte», que está en tu carpeta «01 Identidad»»*. En la búsqueda, lo de
   dentro sale justo debajo de su paquete, un poco metido. Sólo ve lo que se
   leyó igual: un PDF que junta PDF con texto sí; una foto dentro de un
-  escaneo, no (el OCR nunca lee dos veces igual).
+  escaneo, no (el OCR nunca lee dos veces igual). **Si tienes copias** con el
+  mismo texto (el mismo estado de cuenta en dos carpetas), cuentan todas:
+  cada una dice «Está dentro de», en «Contiene» salen en una fila («y 1
+  copia»), y el paquete se tapa si cualquiera está protegida (ADR-0032).
+- **Colecciones:** en la barra lateral, «Colecciones» abre la vista con
+  todas y **«Nueva colección»**; debajo de tu bóveda, «Tus colecciones» con
+  cada una. Una colección se ve como una carpeta, pero cada documento dice
+  **su carpeta de verdad**. Para meter un documento: en su vista previa,
+  **«Colecciones»** (marcas en cuáles está, o creas una ahí mismo). Para
+  meter varios: en una carpeta, `Ctrl`+clic o `Mayús`+clic (o `Ctrl A` para
+  todos) y, en la barra de abajo, «Añadir a una colección»; dentro de una
+  colección, esa barra también **saca**. Nada se mueve de su carpeta. Dentro
+  de una colección, **«Buscar aquí»** busca sólo en ella (la ✕ del filtro
+  busca en todo) y **«Ver en el mapa»** enciende las estrellas donde están
+  sus documentos, sin mover ninguna. Renombrar es un clic; **borrar** la
+  colección pide dos y no toca ningún documento. Si mueves o renombras un
+  documento, sigue en su colección; si lo borras, sale de ella (la colección
+  dice «En la papelera») y **vuelve solo** si lo restauras. Una colección no
+  es sensible: lo sensible sigue tapado dentro de ella como en su carpeta.
 - **Mapa:** cada estrella es una carpeta; pulsarla la abre en el explorador.
   Desde un documento, «Ver en el mapa» enseña con qué se relaciona.
-- **`Esc`** deshace un escalón: cierra el buscador, la vista previa o la lente
-  del mapa.
+- **`Esc`** deshace un escalón: cierra el buscador, suelta lo elegido, cierra
+  la vista previa o la lente del mapa.
 - **«¿Por qué?» de la sensibilidad:** en la vista previa, junto a «Sensible»,
   dice con palabras si lo leyó en el texto (*«hay un DNI o NIE, con su letra de
   control correcta»*, y el NIE sale marcado en el texto) o si fue por su
-  nombre o su carpeta. El NIE no se guarda en ningún log: el tramo se vuelve a
+  nombre —ya sin los `%20` de las descargas: *«Por su nombre, «Pasaporte
+  escaneado copia.txt»…»*— o su carpeta. El NIE no se guarda en ningún log: el tramo se vuelve a
   buscar al enseñarlo.
 - **Carpeta sensible:** dentro de una carpeta, el escudo de arriba a la derecha
   («Marcar como sensible») hace sensible todo lo que tiene dentro, también lo
@@ -225,7 +250,7 @@ Y nombres que se lean solos, con la fecha delante:
 | 1 | El núcleo para tu carpeta: bibliotecas, nombres, `obrain indexar`, «actualizar» | ✅ Hecha |
 | 2 | La interfaz nueva en Svelte 5: el explorador como escritorio estilo sistema operativo, la galaxia como vista «Mapa» enlazada, `Ctrl+K`, vista previa rápida | ✅ Hecha |
 | **3** | **Documentos personales**: ✅ sensibilidad por carpeta (y la marca sigue a la carpeta si la renombras) · ✅ cifrado y PIN · ✅ OCR · ✅ vencimientos · ✅ vigilar la carpeta en vivo · ✅ papelera | ✅ Hecha y probada en tu Windows (2026-09-23); los vencimientos, afinados con tu pasaporte (ADR-0028), falta verlos en tu app |
-| 3+ | **Tu bóveda, relacionada**: ✅ un documento dentro de otro (ADR-0030) · tus colecciones (ADR-0031) | En curso: lo de dentro, hecho (2026-09-23); falta verlo en tu app. Las colecciones, lo siguiente |
+| 3+ | **Tu bóveda, relacionada**: ✅ un documento dentro de otro (ADR-0030), con todas sus copias (ADR-0032) · ✅ tus colecciones (ADR-0031) | ✅ Hecha en el banco de pruebas (2026-09-24); falta verla en tu app |
 | 4 | La visión original: trámites reconstruidos, la pregunta de la visa | Congelada (JP, 2026-09-23: primero usar la app en Windows) |
 
 **Decidido el 2026-09-23, por construir** (el orden, después de probar la app
@@ -236,9 +261,14 @@ tu base de agosto y se cambió una cosa, que elegiste tú: **por párrafos, no
 por fragmentos** (por fragmentos salía 1 de los 14 paquetes; por párrafos,
 los 14). También elegiste que **el paquete herede la sensibilidad** de lo que
 lleva y que en la búsqueda **lo de dentro vaya debajo** de su paquete.
-Sigue **tus colecciones** —agrupar a mano, un documento en varias, vistas
-como una lente sobre el mapa— (ADR-0031). Y **no** se indexa la Papelera de
-Windows.
+~~Sigue **tus colecciones**~~ **hechas el 2026-09-24 (ADR-0031)**, con lo
+que elegiste desde el celular antes de programar: meter desde la vista previa
+y varios a la vez; verlas en la barra lateral y en su vista; buscar dentro con
+un filtro; una colección sólo agrupa (no es sensible); un paquete no mete lo
+que lleva; sólo documentos, no carpetas en vivo. Al mirar un pendiente salió
+un hueco de seguridad (una copia en una carpeta marcada no tapaba su paquete)
+y elegiste que **cuenten todas las copias** (ADR-0032). Y **no** se indexa la
+Papelera de Windows.
 
 **Congelado** (no se borra, no se sigue): sesiones de trabajo y puentes,
 detección de versiones, el USN Change Journal, sincronización entre
@@ -272,8 +302,8 @@ en tu app de verdad, que es lo único que una sesión no puede hacer por ti. No
 rompe nada ni es urgente: si no lo haces, la app sigue igual; si algo no sale
 como aquí se dice, se arregla eso antes de seguir. La siguiente sesión te
 guía paso a paso. Pendiente al 2026-09-24: **la carpeta fija,
-los vencimientos sin palabra y un documento dentro de otro** (los tres,
-abajo).
+los vencimientos sin palabra, un documento dentro de otro (con sus copias) y
+tus colecciones** (los cuatro, abajo).
 
 Y para ver el OCR: dale a «actualizar» con alguna foto de un documento en tu
 biblioteca y búscala por algo que diga. En la vista previa, debajo de la foto,
@@ -311,6 +341,32 @@ o que sean escaneos, y eso lo miramos enmascarado como el pasaporte. Y si
 alguno de lo de dentro está en una carpeta marcada, el paquete tiene que salir
 tapado, con *«porque contiene …»* en «Lo que sé».
 
+Y para ver las copias (ADR-0032): **para qué**, que tu pasaporte tape el PDF
+de la visa aunque tengas otra copia suya en otra carpeta. Si tienes el mismo
+documento dos veces (un estado de cuenta en dos carpetas, o una copia de tu
+pasaporte fuera de `01 Identidad`), abre el paquete que lo lleva: en
+«Contiene» tiene que salir **una sola fila** con «· y 1 copia», y si una de
+las copias está en una carpeta marcada, el paquete **tapado**, con *«porque
+contiene …»*. Desde la terminal, `obrain paquetes` dice «y 1 copia con el
+mismo texto». Y en la vista previa de cada copia, «Relacionado» dice «Está
+dentro de». El informe de `indexar` («dentro de otro») puede subir: ahora
+cuenta también las copias.
+
+Y para ver tus colecciones (ADR-0031): **para qué**, que puedas juntar lo de
+un trámite sin mover nada de sitio y que obrain no lo pierda. En la barra
+lateral, «Colecciones» › «Nueva colección», y llámala «Trámite de la visa».
+Abre tu pasaporte y pulsa **«Colecciones»** en su vista previa: márcala. Ve a
+una carpeta con tus estados de cuenta, elige dos con `Ctrl`+clic y, en la
+barra de abajo, «Añadir a una colección». Abre la colección: tienen que salir
+los tres, **cada uno con su carpeta de verdad**. Pulsa «Buscar aquí» y busca
+algo que diga uno de ellos: sólo tienen que salir los de la colección. Pulsa
+«Ver en el mapa»: se encienden las estrellas donde están, **sin moverse**.
+Luego **renombra** un archivo de la colección en el Explorador de Windows: a
+los pocos segundos tiene que seguir en ella, con el nombre nuevo. Lo único
+que es sólo de Windows y no se pudo probar aquí: que `Ctrl`+clic y `Ctrl A`
+no los intercepte WebView2, y que la barra de abajo no tape nada en tu
+pantalla.
+
 Y para ver la papelera: con la app abierta, **borra** un documento de prueba
 de tu bóveda (a la Papelera de Windows, como siempre). A los pocos segundos
 desaparece de Recientes y de su carpeta y aparece en «Papelera» con «se olvida
@@ -338,10 +394,10 @@ git pull                                                # las siguientes
 
 Para empezar una conversación nueva, pega:
 
-- **En tu laptop:** [`archivo/prompts/despues-de-un-documento-dentro-de-otro.md`](archivo/prompts/despues-de-un-documento-dentro-de-otro.md)
-  (empieza por comprobar en tu app lo de estos días).
-- **En la nube, sin tu laptop:** [`archivo/prompts/desde-la-nube-colecciones.md`](archivo/prompts/desde-la-nube-colecciones.md)
-  (las colecciones y pendientes pequeños, sin pedirte nada en Windows).
+- **En tu laptop:** [`archivo/prompts/despues-de-las-colecciones.md`](archivo/prompts/despues-de-las-colecciones.md)
+  (empieza por comprobar en tu app lo de estos días, colecciones incluidas).
+- **En la nube, sin tu laptop:** [`archivo/prompts/desde-la-nube-despues-de-las-colecciones.md`](archivo/prompts/desde-la-nube-despues-de-las-colecciones.md)
+  (lo que se puede hacer sin pedirte nada en Windows).
 
 ## Mapa del repositorio
 
@@ -358,7 +414,7 @@ core/            el núcleo en Rust
   obrain-embed/    búsqueda por significado con un modelo local
   obrain-api/      lo que ve la interfaz, y la orden `obrain`
 ui/              la aplicación de escritorio (Tauri + Svelte 5)
-  src/vistas/      Inicio, Carpeta, Mapa, Sensibles
+  src/vistas/      Inicio, Carpeta, Mapa, Colecciones, Sensibles, Papelera
   src/componentes/ barra lateral, cabecera, buscador, vista previa…
   src/lib/         el estado de la app, los nombres legibles, el mapa
   src-tauri/       el puente entre la interfaz y el núcleo

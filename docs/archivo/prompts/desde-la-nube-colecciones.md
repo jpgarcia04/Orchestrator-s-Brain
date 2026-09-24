@@ -1,5 +1,7 @@
 # Prompt para una sesión en la nube, sin mi laptop — las colecciones
 
+> **Ya usado (2026-09-24).** El de ahora es [`desde-la-nube-despues-de-las-colecciones.md`](desde-la-nube-despues-de-las-colecciones.md).
+
 Copiar y pegar tal cual al empezar una conversación nueva **en la nube** (Claude Code en la web, desde la PC de la escuela o el celular), cuando **no** tengo mi laptop a mano.
 
 Si estoy en mi laptop, el prompt es otro: [`despues-de-un-documento-dentro-de-otro.md`](despues-de-un-documento-dentro-de-otro.md). Ése empieza por comprobar cosas en mi app, y eso sólo se puede hacer ahí.
