@@ -84,6 +84,8 @@ pub struct EntityView {
     ///
     /// [ADR-0025]: ../../../docs/adr/0025-lo-que-ya-no-esta.md
     pub trashed: Option<crate::EnPapelera>,
+    /// Las colecciones donde lo metiste (ADR-0031).
+    pub collections: Vec<crate::Pertenece>,
 }
 
 /// Predicados que no son información sobre la entidad sino contabilidad interna
@@ -101,6 +103,9 @@ const PLUMBING: &[&str] = &[
     // La papelera se enseña aparte, como aviso y no como un hecho más.
     "missing_since",
     "forgotten_at",
+    // Las colecciones también, como chips junto a su carpeta (ADR-0031).
+    "member_of",
+    "collection_name",
 ];
 
 /// El objeto, en palabras. Un instante sale como fecha y no como
@@ -214,6 +219,7 @@ pub fn view(store: &Store, id: &EntityId, at: TimePoint) -> Result<EntityView> {
         observed,
         inferred,
         trashed: crate::papelera::of(store, id, at)?,
+        collections: crate::colecciones::de(store, id, at)?,
         id: id.0.clone(),
     })
 }

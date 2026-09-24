@@ -278,6 +278,14 @@ pub enum Facet {
     /// contención se corta aquí: el explorador empieza en la biblioteca y las
     /// migas no arrastran la ruta entera del disco.
     Library,
+    /// Una **colección** del usuario: documentos que él junta a mano —«Trámite
+    /// de la visa»— vengan de la carpeta que vengan, y un documento puede
+    /// estar en varias. No tiene archivo ni ruta; sólo la crea el usuario (I5).
+    ///
+    /// Se llama `region` porque es la palabra del modelo (§10: *regiones del
+    /// usuario*); en la interfaz es «colección». No es una región del cielo,
+    /// que es una carpeta. Ver `docs/adr/0031-tus-colecciones.md`.
+    Region,
 }
 
 impl Facet {
@@ -294,6 +302,7 @@ impl Facet {
             Facet::Container => "container",
             Facet::Project => "project",
             Facet::Library => "library",
+            Facet::Region => "region",
         }
     }
 }

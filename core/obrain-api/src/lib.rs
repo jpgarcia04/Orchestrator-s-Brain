@@ -36,6 +36,7 @@
 //!
 //! [ADR-0010]: ../../../docs/adr/0010-recorrido-lineal-frente-a-indice-ann.md
 
+pub mod colecciones;
 pub mod dentro;
 pub mod entity;
 pub mod indexar;
@@ -53,6 +54,7 @@ pub use obrain_embed::embedder::Embedder;
 use std::path::Path;
 use std::time::Instant;
 
+pub use colecciones::{Abierta, Coleccion, Miembro, Pertenece};
 pub use dentro::{Paquete, Parte};
 pub use entity::{Claim, EntityView};
 pub use indexar::IndexReport;
@@ -83,6 +85,9 @@ pub enum Error {
 
     #[error("«{0}» no es una fecha: tiene que ser AAAA-MM-DD, y existir")]
     FechaInvalida(String),
+
+    #[error(transparent)]
+    Coleccion(#[from] colecciones::Error),
 }
 
 impl Error {
@@ -328,13 +333,41 @@ impl Brain {
     /// responde hasta que un modelo de 118 M de parámetros termine de cargarse
     /// ha perdido el argumento de §2 antes de enseñar nada.
     pub fn search(&self, query: &str, limit: usize) -> Result<Answer> {
+        self.search_in(query, limit, None)
+    }
+
+    /// [`Brain::search`] **dentro de una colección** (ADR-0031), o en todo con
+    /// `None`. El filtro se aplica en las dos ramas antes de cortar la lista:
+    /// lo de la colección que estaba en el puesto 60 sale igual.
+    pub fn search_in(
+        &self,
+        query: &str,
+        limit: usize,
+        coleccion: Option<&EntityId>,
+    ) -> Result<Answer> {
         let t0 = Instant::now();
         let (_, at) = Self::now();
+        let dentro = match coleccion {
+            Some(c) => {
+                if !colecciones::es(&self.store, c, at)? {
+                    return Err(colecciones::Error::NoExiste.into());
+                }
+                Some(colecciones::en_la_boveda(&self.store, c, at)?)
+            }
+            None => None,
+        };
+        let dentro = dentro.as_ref();
 
         let (hits, branches, semantic): (Vec<Hit>, _, _) = match &self.embedder {
             Some(e) => {
-                let (fused, _, _) =
-                    obrain_embed::search::hybrid(&self.store, e.as_ref(), query, limit, at)?;
+                let (fused, _, _) = obrain_embed::search::hybrid_within(
+                    &self.store,
+                    e.as_ref(),
+                    query,
+                    limit,
+                    at,
+                    dentro,
+                )?;
                 let hits = fused
                     .into_iter()
                     .map(|h| Hit {
@@ -347,7 +380,7 @@ impl Brain {
                 (hits, vec!["bm25", "knn"], true)
             }
             None => {
-                let lexical = obrain_extract::search(&self.store, query, limit, at)?;
+                let lexical = obrain_extract::search_within(&self.store, query, limit, at, dentro)?;
                 let hits = lexical
                     .into_iter()
                     .enumerate()
@@ -550,6 +583,77 @@ impl Brain {
         })
     }
 
+    // ───────────────────────────────────────────── tus colecciones (0031)
+
+    /// **Tus colecciones**, por nombre. Ver [`colecciones`] y [ADR-0031].
+    ///
+    /// [ADR-0031]: ../../../docs/adr/0031-tus-colecciones.md
+    pub fn collections(&self) -> Result<Vec<Coleccion>> {
+        let (_, at) = Self::now();
+        colecciones::todas(&self.store, at)
+    }
+
+    /// **Abre una colección**: lo que tiene, cada uno con su carpeta.
+    pub fn collection(&self, id: &EntityId) -> Result<Abierta> {
+        let (_, at) = Self::now();
+        colecciones::abrir(&self.store, id, at)
+    }
+
+    /// El documento con esta ruta, si está en tu bóveda. Para la terminal.
+    pub fn document_at(&self, ruta: &str) -> Result<Option<EntityId>> {
+        let (_, at) = Self::now();
+        Ok(colecciones::documento_en(&self.store, ruta, at)?)
+    }
+
+    /// La colección que se llama así, sin distinguir mayúsculas.
+    pub fn collection_named(&self, nombre: &str) -> Result<Option<EntityId>> {
+        let (_, at) = Self::now();
+        Ok(colecciones::por_nombre(&self.store, nombre, at)?)
+    }
+
+    /// **Crea una colección** vacía. Devuelve su identificador. `source` dice
+    /// desde dónde: `user@ui`, `user@cli`.
+    pub fn create_collection(&mut self, nombre: &str, source: &str) -> Result<String> {
+        let (now, _) = Self::now();
+        let id = self
+            .store
+            .transaction(|s| colecciones::crear(s, nombre, now, source))?;
+        Ok(id.0)
+    }
+
+    /// **Le cambia el nombre** a una colección.
+    pub fn rename_collection(&mut self, id: &EntityId, nombre: &str, source: &str) -> Result<()> {
+        let (now, _) = Self::now();
+        self.store
+            .transaction(|s| colecciones::renombrar(s, id, nombre, now, source))
+    }
+
+    /// **Borra una colección.** Tus documentos no se tocan. Devuelve cuántos
+    /// tenía.
+    pub fn delete_collection(&mut self, id: &EntityId) -> Result<usize> {
+        let (now, _) = Self::now();
+        self.store.transaction(|s| colecciones::borrar(s, id, now))
+    }
+
+    /// **Mete documentos** en una colección; devuelve cuántos entraron.
+    pub fn add_to_collection(
+        &mut self,
+        id: &EntityId,
+        docs: &[EntityId],
+        source: &str,
+    ) -> Result<usize> {
+        let (now, _) = Self::now();
+        self.store
+            .transaction(|s| colecciones::meter(s, id, docs, now, source))
+    }
+
+    /// **Saca documentos** de una colección; devuelve cuántos salieron.
+    pub fn remove_from_collection(&mut self, id: &EntityId, docs: &[EntityId]) -> Result<usize> {
+        let (now, _) = Self::now();
+        self.store
+            .transaction(|s| colecciones::sacar(s, id, docs, now))
+    }
+
     /// Los documentos que llevan otros dentro, con lo que llevan (ADR-0030).
     /// Es `obrain paquetes`.
     pub fn packages(&self) -> Result<Vec<Paquete>> {
@@ -578,7 +682,17 @@ impl Brain {
     /// bajo que el del modo Foco por el mismo motivo — y porque el layout del
     /// cliente es cuadrático y esto se redibuja en cada pulsación.
     pub fn glance(&self, query: &str, limit: usize) -> Result<Glance> {
-        let answer = self.search(query, limit)?;
+        self.glance_in(query, limit, None)
+    }
+
+    /// [`Brain::glance`] dentro de una colección, o en todo con `None`.
+    pub fn glance_in(
+        &self,
+        query: &str,
+        limit: usize,
+        coleccion: Option<&EntityId>,
+    ) -> Result<Glance> {
+        let answer = self.search_in(query, limit, coleccion)?;
         let focus: Vec<EntityId> = answer
             .hits
             .iter()

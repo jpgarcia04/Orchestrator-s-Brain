@@ -6,8 +6,9 @@
 //! pero es el primer eslabón de la cadena de §6 del maestro: BM25 es una de
 //! las cuatro ramas de recuperación paralela, y aquí ya funciona.
 
-use obrain_core::rusqlite::params;
+use obrain_core::rusqlite::{ToSql, params_from_iter};
 use obrain_core::{EntityId, Result, Store, TimePoint};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
 pub struct Hit {
@@ -73,21 +74,53 @@ fn guard(fts: String, text: &str, raw_query: &str) -> String {
 /// Sin la deduplicación, un documento largo que menciona el término diez veces
 /// ocuparía los diez primeros puestos y taparía a los demás.
 pub fn search(store: &Store, raw_query: &str, limit: usize, at: TimePoint) -> Result<Vec<Hit>> {
+    search_within(store, raw_query, limit, at, None)
+}
+
+/// [`search`] **sólo entre estos documentos**: los de una colección
+/// (ADR-0031).
+///
+/// El filtro va dentro de la consulta, antes del `LIMIT`, y no después: si
+/// se buscara como siempre y luego se quitara lo de fuera, los documentos de
+/// la colección que estaban en el puesto 60 no saldrían nunca y la lista
+/// podría quedarse vacía teniendo respuesta. `None` es buscar en todo.
+pub fn search_within(
+    store: &Store,
+    raw_query: &str,
+    limit: usize,
+    at: TimePoint,
+    within: Option<&HashSet<EntityId>>,
+) -> Result<Vec<Hit>> {
     let Some(query) = prepare(raw_query) else {
         return Ok(Vec::new());
     };
+    let dentro: Vec<&str> = within
+        .map(|w| w.iter().map(EntityId::as_str).collect())
+        .unwrap_or_default();
+    if within.is_some() && dentro.is_empty() {
+        return Ok(Vec::new());
+    }
+    let filtro = if within.is_some() {
+        let huecos: Vec<String> = (0..dentro.len()).map(|i| format!("?{}", i + 3)).collect();
+        format!("AND c.entity IN ({})", huecos.join(", "))
+    } else {
+        String::new()
+    };
 
-    let mut stmt = store.conn().prepare(
+    let mut stmt = store.conn().prepare(&format!(
         "SELECT c.entity, c.ordinal, bm25(chunks_fts) AS score,
                 snippet(chunks_fts, 0, '«', '»', ' … ', 14), c.text
          FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid
-         WHERE chunks_fts MATCH ?1
+         WHERE chunks_fts MATCH ?1 {filtro}
          ORDER BY score
-         LIMIT ?2",
-    )?;
+         LIMIT ?2"
+    ))?;
     // Se piden de sobra porque varios fragmentos del mismo archivo colapsan
     // en un solo resultado.
-    let rows = stmt.query_map(params![query, (limit * 10).max(50) as i64], |r| {
+    let tope = (limit * 10).max(50) as i64;
+    let mut valores: Vec<&dyn ToSql> = vec![&query, &tope];
+    valores.extend(dentro.iter().map(|e| e as &dyn ToSql));
+    let rows = stmt.query_map(params_from_iter(valores), |r| {
         let fts: String = r.get(3)?;
         let text: String = r.get(4)?;
         Ok(Hit {

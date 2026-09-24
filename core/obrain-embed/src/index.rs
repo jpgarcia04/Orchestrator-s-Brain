@@ -33,7 +33,8 @@
 use crate::embedder::{ModelId, cosine};
 use crate::{Error, Result};
 use obrain_core::EntityId;
-use obrain_core::rusqlite::{Connection, params};
+use obrain_core::rusqlite::{Connection, ToSql, params, params_from_iter};
+use std::collections::HashSet;
 
 pub const DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS vectors (
@@ -211,11 +212,39 @@ pub fn knn(
     model: ModelId,
     limit: usize,
 ) -> Result<Vec<Neighbour>> {
-    let mut stmt = conn.prepare(
+    knn_within(conn, query, model, limit, None)
+}
+
+/// [`knn`] **sólo entre estos documentos** (los de una colección, ADR-0031).
+/// El filtro va en la consulta, antes de ordenar y cortar, así que no se
+/// pierde nadie que estuviera más abajo. `None` es todo el índice.
+pub fn knn_within(
+    conn: &Connection,
+    query: &[f32],
+    model: ModelId,
+    limit: usize,
+    within: Option<&HashSet<EntityId>>,
+) -> Result<Vec<Neighbour>> {
+    let dentro: Vec<&str> = within
+        .map(|w| w.iter().map(EntityId::as_str).collect())
+        .unwrap_or_default();
+    if within.is_some() && dentro.is_empty() {
+        return Ok(Vec::new());
+    }
+    let filtro = if within.is_some() {
+        let huecos: Vec<String> = (0..dentro.len()).map(|i| format!("?{}", i + 4)).collect();
+        format!("AND entity IN ({})", huecos.join(", "))
+    } else {
+        String::new()
+    };
+    let mut stmt = conn.prepare(&format!(
         "SELECT chunk, entity, vec FROM vectors
-          WHERE model_id = ?1 AND model_ver = ?2 AND dim = ?3",
-    )?;
-    let rows = stmt.query_map(params![model.id, model.version, model.dim as i64], |r| {
+          WHERE model_id = ?1 AND model_ver = ?2 AND dim = ?3 {filtro}"
+    ))?;
+    let dim = model.dim as i64;
+    let mut valores: Vec<&dyn ToSql> = vec![&model.id, &model.version, &dim];
+    valores.extend(dentro.iter().map(|e| e as &dyn ToSql));
+    let rows = stmt.query_map(params_from_iter(valores), |r| {
         Ok((
             r.get::<_, i64>(0)?,
             r.get::<_, String>(1)?,
@@ -326,6 +355,33 @@ mod tests {
         let vecinos = knn(store.conn(), &[1.0, 0.0, 0.0], M, 5).unwrap();
         assert_eq!(vecinos.len(), 1);
         assert!((vecinos[0].score - 1.0).abs() < 1e-6);
+    }
+
+    /// Buscar dentro de una colección (ADR-0031): el filtro va antes de
+    /// cortar, así que el mejor de dentro sale aunque fuera el último de todos.
+    #[test]
+    fn el_knn_filtrado_no_pierde_lo_que_estaba_mas_abajo() {
+        let store = base();
+        let cerca = fragmento(&store, 1, "cerca");
+        let lejos = fragmento(&store, 2, "lejos");
+        insert(store.conn(), &cerca, M, &[1.0, 0.0, 0.0]).unwrap();
+        insert(store.conn(), &lejos, M, &[0.0, 1.0, 0.0]).unwrap();
+
+        let todos = knn(store.conn(), &[1.0, 0.0, 0.0], M, 1).unwrap();
+        assert_eq!(todos[0].entity, cerca.entity);
+
+        let dentro: HashSet<EntityId> = [lejos.entity.clone()].into();
+        let v = knn_within(store.conn(), &[1.0, 0.0, 0.0], M, 1, Some(&dentro)).unwrap();
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].entity, lejos.entity);
+
+        let vacia = HashSet::new();
+        assert!(
+            knn_within(store.conn(), &[1.0, 0.0, 0.0], M, 5, Some(&vacia))
+                .unwrap()
+                .is_empty(),
+            "una colección vacía no encuentra nada, no todo"
+        );
     }
 
     /// Un vector sin normalizar rompe el kNN en silencio: las puntuaciones

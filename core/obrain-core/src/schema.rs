@@ -336,6 +336,22 @@ pub const SEED_PREDICATES: &[(&str, &str, &str, &str, Option<&str>)] = &[
         None,
     ),
     ("forgotten_at", "olvidado el", "one", "deterministic", None),
+    // ── tus colecciones ──
+    // Lo que el usuario junta a mano: «Trámite de la visa». Una colección es
+    // una entidad con faceta `region`, un nombre y sus documentos; las tres
+    // cosas las escribe sólo el usuario (I5). `member_of` va del documento a
+    // la colección y no es `contained_by`: ése es el árbol del disco, y el
+    // mapa movería estrellas. Sólo se almacena `member_of`; `has_member` es su
+    // nombre al revés. Ver `docs/adr/0031-tus-colecciones.md`.
+    ("collection_name", "se llama", "one", "user", None),
+    (
+        "member_of",
+        "está en la colección",
+        "many",
+        "user",
+        Some("has_member"),
+    ),
+    ("has_member", "reúne", "many", "user", Some("member_of")),
     // ── temporal · determinista ──
     (
         "occurred_during",

@@ -281,6 +281,21 @@ pub fn label(store: &Store, e: &EntityId, at: TimePoint) -> String {
             return de_carpeta(t);
         }
     }
+    // Una colección no tiene ruta: se llama como la llamaste (ADR-0031). Si
+    // la borraste, como se llamaba.
+    let coleccion = store
+        .resolve(e, "collection_name", at)
+        .ok()
+        .flatten()
+        .or_else(|| {
+            store
+                .resolve_last(e, "collection_name", at.known)
+                .ok()
+                .flatten()
+        });
+    if let Some(t) = coleccion.as_ref().and_then(|a| a.object.as_text()) {
+        return t.to_string();
+    }
     // Un documento de la papelera ya no vive en ninguna ruta, pero se sigue
     // llamando como se llamaba (ADR-0025).
     if let Ok(Some(a)) = store.resolve_last(e, "path_observed_at", at.known) {

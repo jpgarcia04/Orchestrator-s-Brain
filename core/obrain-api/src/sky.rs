@@ -1162,6 +1162,51 @@ pub fn recent(store: &Store, limit: usize, at: TimePoint) -> Result<Vec<Row>> {
         .collect())
 }
 
+/// Un documento suelto con **dónde vive**: su fila, su carpeta y la cadena
+/// de carpetas por encima. Es lo que enseña una colección (ADR-0031), cuyos
+/// documentos vienen cada uno de un sitio.
+pub(crate) struct Suelto {
+    pub row: Row,
+    /// La carpeta donde está: `(id, nombre)`.
+    pub folder: (String, String),
+    /// Las carpetas por encima, de dentro hacia fuera: la estrella del mapa
+    /// que lo contiene es la primera de éstas que el cielo tenga abierta.
+    pub ancestors: Vec<String>,
+}
+
+/// Las filas de estos documentos, en el mismo orden, leyendo el árbol **una
+/// vez**. Lo que no está en el árbol (en la papelera, o no es un documento)
+/// no sale.
+pub(crate) fn loose(store: &Store, ids: &[EntityId], at: TimePoint) -> Result<Vec<Suelto>> {
+    let f = Filas::cargar(store, at)?;
+    let mut out = Vec::with_capacity(ids.len());
+    for e in ids {
+        let Some(casa) = f.tree.home.get(e) else {
+            continue;
+        };
+        let mut ancestors = vec![casa.0.clone()];
+        let mut cur = casa.clone();
+        while ancestors.len() < 32 {
+            let Some(up) = f.tree.parent.get(&cur) else {
+                break;
+            };
+            ancestors.push(up.0.clone());
+            cur = up.clone();
+        }
+        out.push(Suelto {
+            row: f.fila(e, false),
+            folder: (
+                casa.0.clone(),
+                f.nombres
+                    .get(casa)
+                    .map_or_else(|| obrain_link::label(store, casa, at), str::to_string),
+            ),
+            ancestors,
+        });
+    }
+    Ok(out)
+}
+
 /// **Lo sensible**: los archivos que la puerta de egreso retiene (`sensitive` o
 /// `vault`), por nombre. Es la vista «Sensibles» de la barra lateral.
 pub fn sensitive(store: &Store, at: TimePoint) -> Result<Vec<Row>> {

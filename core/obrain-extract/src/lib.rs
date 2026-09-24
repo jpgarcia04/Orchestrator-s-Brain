@@ -46,7 +46,7 @@ use obrain_scan::Availability;
 use std::collections::{BTreeMap, HashMap};
 
 pub use format::Format;
-pub use search::{Hit, search};
+pub use search::{Hit, search, search_within};
 
 /// Techo de tamaño para abrir un archivo. Se decide **con el tamaño que ya
 /// está en el log**, sin tocar el disco.

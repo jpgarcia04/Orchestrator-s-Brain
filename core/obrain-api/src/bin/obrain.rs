@@ -29,6 +29,15 @@ USO:
   obrain sensibles                           lista las carpetas marcadas
   obrain vencimientos                        lo que caduca en 90 días o ya caducó
   obrain paquetes                            los documentos que llevan otros dentro, y cuáles
+  obrain colecciones                         tus colecciones, con cuántos documentos tiene cada una
+  obrain coleccion \"<nombre>\"                lo que tiene esa colección
+  obrain coleccion \"<nombre>\" --crear        crea una colección vacía
+  obrain coleccion \"<nombre>\" --meter <archivo> [<archivo>...]
+                                             mete esos documentos (no se mueven de su carpeta)
+  obrain coleccion \"<nombre>\" --sacar <archivo> [<archivo>...]
+                                             los saca de la colección (no se borran)
+  obrain coleccion \"<nombre>\" --renombrar \"<nuevo>\"
+  obrain coleccion \"<nombre>\" --borrar       borra la colección; tus documentos no se tocan
   obrain papelera                            lo que ya no está en tus carpetas (30 días)
   obrain papelera --vaciar                   olvida ya lo que obrain leyó de ello (tus
                                              archivos no se tocan)
@@ -58,6 +67,7 @@ fn main() -> ExitCode {
     let mut quitar = false;
     let mut guardada = false;
     let mut vaciar = false;
+    let mut coleccion = Coleccion::Ver;
     let mut sueltos: Vec<&str> = Vec::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -68,6 +78,17 @@ fn main() -> ExitCode {
             "--quitar" => quitar = true,
             "--guardada" => guardada = true,
             "--vaciar" => vaciar = true,
+            "--crear" => coleccion = Coleccion::Crear,
+            "--meter" => coleccion = Coleccion::Meter,
+            "--sacar" => coleccion = Coleccion::Sacar,
+            "--borrar" => coleccion = Coleccion::Borrar,
+            "--renombrar" => match it.next() {
+                Some(n) => coleccion = Coleccion::Renombrar(n.clone()),
+                None => {
+                    eprintln!("uso: obrain coleccion \"<nombre>\" --renombrar \"<nuevo>\"");
+                    return ExitCode::from(2);
+                }
+            },
             otro if otro.starts_with("--") => {
                 eprintln!("opción desconocida: {otro}\n\n{AYUDA}");
                 return ExitCode::from(2);
@@ -272,6 +293,40 @@ fn main() -> ExitCode {
                 }
             }
         }
+        "colecciones" => {
+            let b = Brain::from_store(store);
+            match b.collections() {
+                Ok(v) if v.is_empty() => {
+                    println!(
+                        "todavía no tienes colecciones. Crea una con:\n  obrain coleccion \"Trámite de la visa\" --crear"
+                    );
+                    ExitCode::SUCCESS
+                }
+                Ok(v) => {
+                    for c in v {
+                        let fuera = match c.in_trash {
+                            0 => String::new(),
+                            n => format!(", {n} en la papelera"),
+                        };
+                        println!("  {}  ({}{fuera})", c.name, documentos(c.documents));
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        "coleccion" => {
+            let Some((nombre, archivos)) = carpetas.split_first() else {
+                eprintln!(
+                    "uso: obrain coleccion \"<nombre>\" [--crear | --meter <archivo>… | --sacar <archivo>… | --renombrar \"<nuevo>\" | --borrar]"
+                );
+                return ExitCode::from(2);
+            };
+            una_coleccion(Brain::from_store(store), nombre, archivos, coleccion)
+        }
         "papelera" => {
             let mut b = Brain::from_store(store);
             if vaciar {
@@ -427,6 +482,160 @@ fn marcar(store: Store, carpeta: &str, nivel: Option<Sensitivity>) -> ExitCode {
             eprintln!("{e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// Qué hacer con `obrain coleccion "<nombre>"`.
+enum Coleccion {
+    Ver,
+    Crear,
+    Meter,
+    Sacar,
+    Renombrar(String),
+    Borrar,
+}
+
+/// `obrain coleccion`: lo mismo que la vista de una colección y sus botones.
+fn una_coleccion(mut b: Brain, nombre: &str, archivos: &[&str], que: Coleccion) -> ExitCode {
+    const DESDE: &str = "user@cli";
+    let fallo = |e: obrain_api::Error| {
+        eprintln!("{e}");
+        ExitCode::FAILURE
+    };
+    if let Coleccion::Crear = que {
+        return match b.create_collection(nombre, DESDE) {
+            Ok(_) => {
+                println!(
+                    "▸ colección «{nombre}» creada. Mete documentos con:\n  obrain coleccion \"{nombre}\" --meter <archivo>"
+                );
+                ExitCode::SUCCESS
+            }
+            Err(e) => fallo(e),
+        };
+    }
+    let id = match b.collection_named(nombre) {
+        Ok(Some(id)) => id,
+        Ok(None) => {
+            eprintln!(
+                "no tienes ninguna colección que se llame «{nombre}».\n\
+                 Créala con: obrain coleccion \"{nombre}\" --crear"
+            );
+            return ExitCode::FAILURE;
+        }
+        Err(e) => return fallo(e),
+    };
+    // Como se llama de verdad, no como se escribió en la terminal.
+    let nombre = b
+        .collection(&id)
+        .map_or_else(|_| nombre.to_string(), |c| c.name);
+    let nombre = nombre.as_str();
+    // Los archivos de la terminal, a documentos de la bóveda.
+    let mut docs = Vec::new();
+    if matches!(que, Coleccion::Meter | Coleccion::Sacar) {
+        if archivos.is_empty() {
+            eprintln!(
+                "¿qué archivos? obrain coleccion \"{nombre}\" --meter <archivo> [<archivo>...]"
+            );
+            return ExitCode::from(2);
+        }
+        for a in archivos {
+            let ruta = std::path::absolute(a)
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| a.to_string());
+            match b.document_at(&ruta) {
+                Ok(Some(d)) => docs.push(d),
+                Ok(None) => {
+                    eprintln!(
+                        "no conozco el documento {ruta}.\n\
+                         Tiene que estar dentro de una biblioteca ya indexada (obrain indexar)."
+                    );
+                    return ExitCode::FAILURE;
+                }
+                Err(e) => return fallo(e),
+            }
+        }
+    }
+    match que {
+        Coleccion::Ver | Coleccion::Crear => match b.collection(&id) {
+            Ok(c) => {
+                println!(
+                    "▸ {}  ({} en {})",
+                    c.name,
+                    documentos(c.rows.len()),
+                    carpetas_n(c.folders)
+                );
+                for m in &c.rows {
+                    let sangria = if m.inside.is_some() {
+                        "    ↳ "
+                    } else {
+                        "    "
+                    };
+                    println!("{sangria}{}  · {}", m.row.label, m.folder_label);
+                }
+                for p in &c.in_trash {
+                    println!("    {}  · en la papelera", p.label);
+                }
+                ExitCode::SUCCESS
+            }
+            Err(e) => fallo(e),
+        },
+        Coleccion::Meter => match b.add_to_collection(&id, &docs, DESDE) {
+            Ok(n) => {
+                println!(
+                    "▸ {} en «{nombre}» (los que ya estaban no cuentan)",
+                    documentos(n)
+                );
+                ExitCode::SUCCESS
+            }
+            Err(e) => fallo(e),
+        },
+        Coleccion::Sacar => match b.remove_from_collection(&id, &docs) {
+            Ok(n) => {
+                println!(
+                    "▸ {} fuera de «{nombre}». Siguen en sus carpetas.",
+                    documentos(n)
+                );
+                ExitCode::SUCCESS
+            }
+            Err(e) => fallo(e),
+        },
+        Coleccion::Renombrar(nuevo) => match b.rename_collection(&id, &nuevo, DESDE) {
+            Ok(()) => {
+                println!("▸ «{nombre}» ahora se llama «{nuevo}»");
+                ExitCode::SUCCESS
+            }
+            Err(e) => fallo(e),
+        },
+        Coleccion::Borrar => match b.delete_collection(&id) {
+            Ok(n) => {
+                let quedan = match n {
+                    0 => String::new(),
+                    1 => " Su documento sigue en su carpeta.".to_string(),
+                    n => format!(" Sus {n} documentos siguen en sus carpetas."),
+                };
+                println!("▸ colección «{nombre}» borrada.{quedan}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => fallo(e),
+        },
+    }
+}
+
+/// `1 documento`, `7 documentos`.
+fn documentos(n: usize) -> String {
+    if n == 1 {
+        "1 documento".to_string()
+    } else {
+        format!("{n} documentos")
+    }
+}
+
+/// `1 carpeta`, `3 carpetas`.
+fn carpetas_n(n: usize) -> String {
+    if n == 1 {
+        "1 carpeta".to_string()
+    } else {
+        format!("{n} carpetas")
     }
 }
 
