@@ -941,7 +941,17 @@
   }
   .acciones-hecho {
     display: flex;
-    gap: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 12px;
+  }
+  /* Cada acción entera o a la línea siguiente, nunca partida: con «lo dijiste
+     tú», «¿por qué?» y «cambiar» juntos, en el panel estrecho salía
+     «cambia / r» (JP, 2026-09-24). El `overflow-wrap: anywhere` de `.valor`
+     es para las URL, no para esto. */
+  .acciones-hecho > * {
+    flex-shrink: 0;
+    white-space: nowrap;
   }
   .enlace {
     font-size: 12px;
