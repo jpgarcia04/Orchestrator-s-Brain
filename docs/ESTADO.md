@@ -270,8 +270,8 @@ Cada pieza se programa y se prueba con **documentos inventados** (el «banco
 de pruebas»). Lo que sigue es para ver que también funciona con **los tuyos**,
 en tu app de verdad, que es lo único que una sesión no puede hacer por ti. No
 rompe nada ni es urgente: si no lo haces, la app sigue igual; si algo no sale
-como aquí se dice, se arregla eso antes de seguir. La sesión que te toque en
-tu laptop te guía paso a paso. Pendiente al 2026-09-24: **la carpeta fija,
+como aquí se dice, se arregla eso antes de seguir. La siguiente sesión te
+guía paso a paso. Pendiente al 2026-09-24: **la carpeta fija,
 los vencimientos sin palabra y un documento dentro de otro** (los tres,
 abajo).
 
