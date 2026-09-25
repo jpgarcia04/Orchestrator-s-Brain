@@ -1116,10 +1116,25 @@
     color: var(--tenue);
   }
 
+  /* Las tres salidas no caben en una fila del panel: la tercera bajaba sola.
+     «Abrir», la principal, va a lo ancho, y las otras dos se reparten la fila
+     de abajo a partes iguales. */
   .salidas {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 8px;
+  }
+  .salidas > button {
+    justify-content: center;
+    white-space: nowrap;
+  }
+  .salidas > .primario {
+    grid-column: 1 / -1;
+  }
+  /* En la papelera sólo queda «Olvidar ya»: a su tamaño, no a lo ancho. */
+  .salidas > :only-child {
+    grid-column: 1 / -1;
+    justify-self: start;
   }
   .primario,
   .boton {
