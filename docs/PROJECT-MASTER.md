@@ -2,7 +2,7 @@
 
 > Las aplicaciones actuales almacenan información. Orchestrator's Brain construye conocimiento.
 
-**Estado:** Replanteamiento — la bóveda · **Última revisión:** 2026-09-24 · **Documento vivo**
+**Estado:** Replanteamiento — la bóveda · **Última revisión:** 2026-09-25 · **Documento vivo**
 
 Este documento refleja siempre el estado *actual* del diseño. Se edita libremente.
 El *porqué* de las decisiones contestadas vive en [`adr/`](adr/) y no se edita nunca.
@@ -430,6 +430,7 @@ el USN Change Journal, sincronización, multi-tenant.
 - ¿El escaneo debería distinguir *«no lo indexé»* de *«no existe»* de cara al usuario? Hoy un archivo podado por `exclude.rs` es indistinguible de uno que nunca estuvo, y con el explorador de [ADR-0014](adr/0014-dos-vistas-un-solo-estado.md) esa diferencia pasa a ser visible: el usuario podrá bajar hasta una carpeta y ver que falta algo.
 - ~~**¿Qué es la pantalla principal: el explorador o la galaxia?**~~ **Decidido por el usuario el 2026-09-22, tras revisar las capturas de la Fase 2: el explorador.** *«Vi las capturas de la Fase 2 y me gustaron: el explorador como pantalla de inicio, la galaxia como vista «Mapa» y el aspecto de noche por defecto (el de día sigue a un clic). No le muevas al diseño.»* El explorador es el escritorio de trabajo —donde se abre la aplicación y donde se busca, se abre y se previsualiza a diario— y la galaxia es una vista propia e interactiva, enlazada en los dos sentidos (una estrella lleva a su carpeta; «ver en el mapa» lleva de un documento a la galaxia), y en pequeño en el Inicio. Noche por defecto, día a un clic. Sustituye a [ADR-0013](adr/0013-el-mapa-es-la-pantalla.md): ver [ADR-0019](adr/0019-el-explorador-es-el-escritorio.md). Queda probarlo en Windows de verdad (hasta hoy sólo se ha visto en el navegador del banco de pruebas).
 - Slug técnico: `orchestrator-brain` u `obrain`. El apóstrofo de `Orchestrator's-Brain` dará guerra en scripts, CI, rutas y URLs. **Ya no es una previsión:** M5a fijó `obrain` para paquetes e identificadores —`obrain-ui`, `obrain-app`, `dev.obrain.app`— pero la **carpeta** sigue llevando apóstrofo y ya ha costado un rodeo en `ui/src-tauri/build.rs`. Lo que queda por decidir es sólo eso: si se renombra el directorio. Ver el informe de M5a.
+- ~~**¿Se afina el mapa para las carpetas pequeñas de una colección?**~~ **Decidido por el usuario el 2026-09-25: todavía no.** En la lente de una colección ([ADR-0031](adr/0031-tus-colecciones.md)), un documento que está en una carpeta que el cielo no abre como estrella propia enciende «El resto de …», y la estrella no dice cuál es. Se le ofreció que la estrella nombrara esas carpetas (sólo en la lente, sin mover ninguna). Contestó que esos ajustes se hacen cuando la bóveda sea la definitiva, con todos sus documentos reales, y no durante el desarrollo: lo que depende de cómo quede la bóveda se afina con la bóveda delante.
 
 ---
 

@@ -11,7 +11,7 @@ Hola, soy JP. Seguimos con **Orchestrator's Brain** (`jpgarcia04/Orchestrator-s-
 ## Antes de nada: sincroniza
 
 - Ahorita **todo lo hago en mi laptop con Windows**: tú corres aquí, en la app de Claude, y mi app de obrain también está aquí.
-- **Todo vive en GitHub**, en la rama **`claude/orchestrators-brain-fase-3-wdiheq`** (todavía no está fusionada a `main`). Haz `git fetch origin` y `git pull` en esa rama, y confirma con `git log --oneline -6` que el último commit es «Prompts para retomar después de las colecciones» (o uno posterior) y `git status` limpio.
+- **Todo vive en GitHub**, en la rama **`claude/orchestrators-brain-fase-3-wdiheq`** (todavía no está fusionada a `main`). Haz `git fetch origin` y `git pull` en esa rama, y confirma con `git log --oneline -6` que el último commit es «Estado y prompts tras los botones de la vista previa» (o uno posterior) y `git status` limpio.
 - Al terminar cada pieza: commit **y push** a esa rama.
 
 ## Dónde estamos
@@ -22,6 +22,9 @@ Hola, soy JP. Seguimos con **Orchestrator's Brain** (`jpgarcia04/Orchestrator-s-
   2. **Las copias también están dentro (ADR-0032).** Al mirar el pendiente de la copia que no decía «Está dentro de» salió un hueco: el paquete sólo heredaba la sensibilidad de la copia **más vieja**. Con mi pasaporte en `01 Identidad` y una copia más vieja en otra carpeta, el PDF de la visa salía **sin tapar** (comprobado en el banco de pruebas). Elegí que **cuenten todas las copias**: cada una dice «Está dentro de», el paquete se tapa si cualquiera está protegida, y «Contiene» las junta en una fila («y 1 copia»).
   3. El «¿por qué?» de la sensibilidad ya cita el nombre **sin `%20`**.
   4. 467 tests en verde **en Linux**; clippy y fmt limpios (núcleo y `ui/src-tauri`); `svelte-check` sin avisos; capturas en el banco de pruebas. **Los 15 tests nuevos no se han corrido en Windows.**
+- Hecho en otra sesión en la nube, el 2026-09-25 (sin mi laptop):
+  1. **Los botones de la vista previa.** «Abrir», «En su carpeta» y «Ver en el mapa» no cabían en una fila y el tercero bajaba solo. Ahora «Abrir» ocupa la fila entera y los otros dos comparten la de abajo, del mismo ancho. Sólo CSS, en `VistaPrevia.svelte`; los tests siguen siendo 467.
+  2. **Lo decidí yo:** los ajustes que dependen de cómo quede mi bóveda se hacen cuando sea la definitiva, con todos mis documentos reales, no durante el desarrollo. El primero: en el mapa de una colección, un documento de una carpeta pequeña enciende «El resto de …» sin decir cuál es. **No lo toques** hasta que yo lo pida.
 - **Todavía no he abierto mi app con las versiones de estos días.**
 - Si te paso errores o capturas, arréglalos antes que cualquier otra cosa.
 
@@ -43,12 +46,14 @@ Guíame **de una en una**: qué hago, qué tengo que ver y para qué sirve. Espe
 2. **La fecha de mi pasaporte (ADR-0028).** *Para qué:* el OCR no leyó «caducidad» y el pasaporte no salía en «Caduca pronto». *Qué tengo que ver:* al pulsar mi pasaporte, «Caduca el …» con su «¿por qué?» y las dos fechas marcadas. Si la fecha es buena, «es correcto».
 3. **Los paquetes y sus copias (ADR-0030 y 0032).** *Para qué:* que encuentre los PDF que junté para la visa y que se tapen si llevan algo protegido, **aunque tenga otra copia** de eso en otra carpeta. *Qué tengo que ver:* en la vista previa de un PDF así, «Contiene», con **una sola fila por documento** (y «· y 1 copia» si tengo copias); si algo de dentro está en una carpeta marcada, el paquete tapado con «porque contiene …». *Tú puedes comprobar:* `obrain paquetes --db C:\Users\pacox\.obrain\brain.obrain` desde tu terminal (con `--db`, así no muda nada), **enmascarando los nombres** al enseñármelos. Mira también si alguno de mis 14 paquetes de agosto cambia de «normal» a «sensible» por una copia: sería el hueco del ADR-0032 cerrándose, y quiero saber cuál (enmascarado).
 4. **Mis colecciones (ADR-0031).** *Para qué:* juntar lo de un trámite sin mover nada y que obrain no lo pierda. *Qué hago yo:* «Colecciones» › «Nueva colección» › «Trámite de la visa»; en la vista previa de mi pasaporte, «Colecciones» y la marco; en la carpeta de mis estados de cuenta, `Ctrl`+clic en dos y «Añadir a una colección» en la barra de abajo. *Qué tengo que ver:* la colección con los tres, cada uno con su carpeta de verdad; «Buscar aquí» sólo encuentra lo de dentro; «Ver en el mapa» enciende estrellas **sin moverlas**; si renombro uno en el Explorador de Windows, a los pocos segundos sigue en la colección. *Lo único que es de Windows y no se pudo probar en la nube:* que WebView2 no se quede `Ctrl`+clic ni `Ctrl A`, y que la barra de abajo no tape nada en mi pantalla.
-5. Recuérdame **activar el Cifrado de dispositivo** de Windows si mi laptop lo tiene (Configuración › Privacidad y seguridad): cifrar la base de obrain no cifra mis archivos originales.
+5. **Los botones de la vista previa.** *Para qué:* que ninguno se quede descolgado. *Qué tengo que ver:* al pulsar cualquier documento, abajo, «Abrir» en toda la fila y «En su carpeta» y «Ver en el mapa» debajo, del mismo ancho, sin que ninguno baje solo.
+6. Recuérdame **activar el Cifrado de dispositivo** de Windows si mi laptop lo tiene (Configuración › Privacidad y seguridad): cifrar la base de obrain no cifra mis archivos originales.
 
 ### 3 · Pendientes pequeños, por si salen
 
 - Lo que la interfaz guarda en el navegador (tema, apartados plegados) sigue en AppData y puede variar según desde dónde se abra la app.
 - En la copia privada de Claude quedan restos de agosto (`vida.obrain-wal`, `respaldo-cifrado-a-medias-20260923`): sólo los borro yo, si quiero.
+- **Esperan a mi bóveda definitiva** (lo decidí el 2026-09-25; sólo si yo lo pido): los ajustes que dependen de cómo quede mi bóveda. Por ahora uno: en el mapa de una colección, un documento de una carpeta pequeña enciende «El resto de …» sin decir cuál es; se me ofreció que la estrella nombrara esas carpetas.
 - Un escaneo dentro de otro escaneo no se detecta como paquete (el OCR nunca lee dos veces igual). Si me importa, la alternativa medida es «texto parecido» (ADR-0030, alternativa B).
 - Si con el uso me hace falta: **arrastrar** documentos a una colección (se descartó por ahora porque en Windows hay que cambiar `dragDropEnabled` de Tauri y sólo se prueba aquí), o las colecciones **en el Inicio** (dije que no). Sólo si yo lo pido.
 

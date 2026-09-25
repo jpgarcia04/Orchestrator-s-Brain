@@ -1,6 +1,6 @@
 # Estado del proyecto — empieza aquí
 
-**Última revisión:** 2026-09-24
+**Última revisión:** 2026-09-25
 
 Una página para retomar el proyecto sin leer las 2.000 líneas de agosto. El
 diseño completo está en [`PROJECT-MASTER.md`](PROJECT-MASTER.md); el porqué de
@@ -125,6 +125,8 @@ seguridad de la base sin su clave de recuperación no se abre en otro equipo.
   Cada resultado dice si coincidió *por palabras* o *por significado*.
 - **Un clic** en un documento lo enseña en la vista previa; **doble clic** lo
   abre con su programa. Lo sensible sale borroso hasta que pulsas «Mostrar».
+  Abajo, **«Abrir»** ocupa la fila entera y, debajo, «En su carpeta» y «Ver
+  en el mapa» a partes iguales.
   Cada apartado de la vista previa —el documento, «Lo que sé de este
   documento», «Relacionado», «Detalles técnicos»— **se pliega pulsando su
   título**, y se queda como lo dejaste para los demás documentos y al volver a
@@ -270,6 +272,14 @@ un hueco de seguridad (una copia en una carpeta marcada no tapaba su paquete)
 y elegiste que **cuenten todas las copias** (ADR-0032). Y **no** se indexa la
 Papelera de Windows.
 
+**Decidido el 2026-09-25: lo que depende de cómo quede tu bóveda, cuando
+sea la definitiva.** En el mapa de una colección, un documento de una
+carpeta pequeña (que el cielo no abre como estrella propia) enciende «El
+resto de …» sin decir cuál es. Se te ofreció que la estrella lo dijera y
+contestaste que no ahora: primero se termina de desarrollar; cuando metas
+tus carpetas finales con todos tus documentos reales, esos ajustes se
+hacen con la bóveda de verdad delante.
+
 **Congelado** (no se borra, no se sigue): sesiones de trabajo y puentes,
 detección de versiones, el USN Change Journal, sincronización entre
 dispositivos.
@@ -301,9 +311,9 @@ de pruebas»). Lo que sigue es para ver que también funciona con **los tuyos**,
 en tu app de verdad, que es lo único que una sesión no puede hacer por ti. No
 rompe nada ni es urgente: si no lo haces, la app sigue igual; si algo no sale
 como aquí se dice, se arregla eso antes de seguir. La siguiente sesión te
-guía paso a paso. Pendiente al 2026-09-24: **la carpeta fija,
-los vencimientos sin palabra, un documento dentro de otro (con sus copias) y
-tus colecciones** (los cuatro, abajo).
+guía paso a paso. Pendiente al 2026-09-25: **la carpeta fija,
+los vencimientos sin palabra, un documento dentro de otro (con sus copias),
+tus colecciones y los botones de la vista previa** (los cinco, abajo).
 
 Y para ver el OCR: dale a «actualizar» con alguna foto de un documento en tu
 biblioteca y búscala por algo que diga. En la vista previa, debajo de la foto,
@@ -366,6 +376,11 @@ los pocos segundos tiene que seguir en ella, con el nombre nuevo. Lo único
 que es sólo de Windows y no se pudo probar aquí: que `Ctrl`+clic y `Ctrl A`
 no los intercepte WebView2, y que la barra de abajo no tape nada en tu
 pantalla.
+
+Y para ver los botones de la vista previa (2026-09-25): **para qué**, que
+ninguno se quede descolgado. Pulsa cualquier documento: abajo, «Abrir» ocupa
+la fila entera y «En su carpeta» y «Ver en el mapa» comparten la de debajo,
+del mismo ancho. Antes, «Ver en el mapa» bajaba solo a otra línea.
 
 Y para ver la papelera: con la app abierta, **borra** un documento de prueba
 de tu bóveda (a la Papelera de Windows, como siempre). A los pocos segundos
