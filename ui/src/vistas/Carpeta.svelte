@@ -7,7 +7,8 @@
   un clic, porque en una carpeta no hay nada que previsualizar.
 
   Ctrl+clic y Mayús+clic eligen varios, y Ctrl+A todos: abajo sale la barra
-  para meterlos de golpe en una colección (ADR-0031).
+  para meterlos de golpe en una colección (ADR-0031). O se arrastran a una
+  colección de la barra lateral (ADR-0033).
 -->
 <script lang="ts">
   import Cloud from "@lucide/svelte/icons/cloud";
@@ -16,6 +17,7 @@
   import Miniatura from "../componentes/Miniatura.svelte";
   import Tipo from "../componentes/Tipo.svelte";
   import { app } from "../lib/app.svelte";
+  import { arrastrable } from "../lib/arrastre";
   import { abrir } from "../lib/nucleo";
   import type { Fila } from "../lib/nucleo";
   import { fecha, nombreBonito, tipoDe, tipoLargo, tituloDe } from "../lib/nombres";
@@ -25,6 +27,8 @@
   const archivos = $derived((listado?.rows ?? []).filter((r) => r.kind === "file"));
   const orden = $derived(archivos.map((f) => f.id));
   const elegida = (id: string) => app.seleccion === id || app.elegidos.includes(id);
+  /** Lo que va en el arrastre en curso se atenúa (ADR-0033). */
+  const llevado = (id: string) => !!app.arrastre?.docs.includes(id);
 
   const resumen = $derived.by(() => {
     const partes: string[] = [];
@@ -83,8 +87,10 @@
           <button
             class="tarjeta hov"
             class:elegida={elegida(f.id)}
+            class:llevado={llevado(f.id)}
             aria-pressed={elegida(f.id)}
             onclick={(e) => app.pulsar(f.id, e, orden)}
+            use:arrastrable={{ id: f.id, titulo: d.titulo }}
             ondblclick={() => abrirArchivo(f)}
             title={f.label}
           >
@@ -112,8 +118,10 @@
           <button
             class="fila hov-fondo"
             class:elegida={elegida(f.id)}
+            class:llevado={llevado(f.id)}
             aria-pressed={elegida(f.id)}
             onclick={(e) => app.pulsar(f.id, e, orden)}
+            use:arrastrable={{ id: f.id, titulo: d.titulo }}
             ondblclick={() => abrirArchivo(f)}
             title={f.label}
           >
@@ -202,6 +210,10 @@
     overflow: hidden;
     background: var(--tarjeta);
     border: 1px solid var(--linea);
+  }
+  /* Lo que llevas arrastrando se queda atenuado en su sitio (ADR-0033). */
+  .llevado {
+    opacity: 0.45;
   }
   .tarjeta.elegida {
     border-color: var(--acento);

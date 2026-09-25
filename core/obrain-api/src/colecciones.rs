@@ -308,6 +308,47 @@ pub fn sacar(store: &Store, id: &EntityId, docs: &[EntityId], now: i64) -> crate
     Ok(salieron.len())
 }
 
+/// Lo que pasó al mover documentos de una colección a otra.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct Movidos {
+    /// Los que entraron en la de destino (los que ya estaban no cuentan).
+    pub added: usize,
+    /// Los que salieron de la de origen.
+    pub removed: usize,
+}
+
+/// **Mueve documentos de una colección a otra** ([ADR-0033]): entran en
+/// `hacia` y salen de `desde`. Es arrastrar de una colección a otra. Tus
+/// archivos no se tocan: sólo cambia en qué colección están.
+///
+/// A la misma colección no hace nada. Si algo no vale —una de las dos ya no
+/// existe, o uno no es un documento de tu bóveda— es un error **antes de
+/// escribir**, y quien llama lo hace dentro de una transacción
+/// (`Brain::move_between_collections`): nunca queda a medias.
+///
+/// [ADR-0033]: ../../../docs/adr/0033-arrastrar-a-una-coleccion.md
+pub fn mover(
+    store: &Store,
+    desde: &EntityId,
+    hacia: &EntityId,
+    docs: &[EntityId],
+    now: i64,
+    source: &str,
+) -> crate::Result<Movidos> {
+    let at = TimePoint::at(now);
+    existe(store, desde, at)?;
+    existe(store, hacia, at)?;
+    if desde == hacia {
+        return Ok(Movidos {
+            added: 0,
+            removed: 0,
+        });
+    }
+    let added = meter(store, hacia, docs, now, source)?;
+    let removed = sacar(store, desde, docs, now)?;
+    Ok(Movidos { added, removed })
+}
+
 /// Los documentos de una colección, **todos**: los de la bóveda y los de la
 /// papelera. Sin repetir, por identificador.
 pub fn miembros(store: &Store, id: &EntityId, at: TimePoint) -> obrain_core::Result<Vec<EntityId>> {

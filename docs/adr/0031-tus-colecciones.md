@@ -169,6 +169,8 @@ Se le ofreció. Rechazada por ahora: en Windows, Tauri se queda con el
 arrastre (`dragDropEnabled`) para cuando sueltas archivos de fuera; usarlo
 dentro de la ventana obliga a cambiar eso, y sólo se puede comprobar en su
 laptop. Se puede añadir después sin cambiar nada de esto.
+**Añadido el 2026-09-25 en [ADR-0033](0033-arrastrar-a-una-coleccion.md)**,
+con eventos de puntero y sin tocar `dragDropEnabled`.
 
 ### F. Filtrar la búsqueda después de cortarla
 

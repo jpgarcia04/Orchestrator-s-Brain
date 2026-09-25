@@ -3,7 +3,8 @@
 
   Arriba, buscar. Después las vistas —el inicio, el mapa, tus colecciones, lo
   sensible— y tu bóveda carpeta por carpeta, con su nombre limpio y cuántos
-  documentos tiene; debajo, cada una de tus colecciones (ADR-0031).
+  documentos tiene; debajo, cada una de tus colecciones (ADR-0031), donde se
+  sueltan los documentos que arrastras (ADR-0033).
   Abajo, el estado: si está al día, actualizar, añadir otra carpeta y el
   aspecto.
 -->
@@ -12,6 +13,7 @@
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
   import House from "@lucide/svelte/icons/house";
   import Layers from "@lucide/svelte/icons/layers";
+  import LayersPlus from "@lucide/svelte/icons/layers-plus";
   import Lock from "@lucide/svelte/icons/lock";
   import Moon from "@lucide/svelte/icons/moon";
   import Orbit from "@lucide/svelte/icons/orbit";
@@ -20,6 +22,7 @@
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import Sun from "@lucide/svelte/icons/sun";
   import Trash2 from "@lucide/svelte/icons/trash-2";
+  import X from "@lucide/svelte/icons/x";
   import { app } from "../lib/app.svelte";
   import { nombreBonito } from "../lib/nombres";
   import { papelera, sensibles } from "../lib/nucleo";
@@ -40,6 +43,39 @@
   const carpetas = $derived((app.raiz?.rows ?? []).filter((r) => r.kind === "folder"));
 
   const colecciones = $derived(app.colecciones);
+
+  // ── arrastrar a una colección (ADR-0033): cada una es un destino y, mientras
+  // arrastras, al final sale «Nueva colección». Al soltar ahí, su nombre.
+  const arrastre = $derived(app.arrastre);
+  const pendiente = $derived(app.pendiente);
+  let nombre = $state("");
+  let creando = $state(false);
+  let campo: HTMLInputElement | undefined = $state();
+
+  $effect(() => {
+    if (pendiente) {
+      nombre = "";
+      campo?.focus();
+    }
+  });
+
+  async function crearNueva(): Promise<void> {
+    if (!nombre.trim() || creando) return;
+    creando = true;
+    await app.crearPendiente(nombre);
+    creando = false;
+  }
+
+  function teclaNueva(e: KeyboardEvent): void {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void crearNueva();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      app.pendiente = null;
+    }
+  }
 
   /** La carpeta abierta y todo su camino: la de la barra se marca si estás dentro. */
   const abiertas = $derived.by(() => {
@@ -116,13 +152,16 @@
     </div>
   {/if}
 
-  {#if colecciones.length > 0}
+  {#if colecciones.length > 0 || arrastre || app.pendiente}
     <div class="grupo carpetas">
       <div class="rotulo cabeza">Tus colecciones</div>
       {#each colecciones as c (c.id)}
         <button
           class="item hov-fondo"
           class:activo={app.vista === "coleccion" && app.abierta?.id === c.id}
+          class:blanco={arrastre?.sobre === c.id && arrastre.desde !== c.id}
+          class:origen={arrastre?.desde === c.id}
+          data-soltar={c.id}
           onclick={() => app.abrirColeccion(c.id)}
           title={c.name}
         >
@@ -131,6 +170,30 @@
           <span class="cuenta">{c.documents}</span>
         </button>
       {/each}
+      {#if arrastre}
+        <div class="item soltar-nueva" class:blanco={arrastre.sobre === "nueva"} data-soltar="nueva">
+          <LayersPlus size={17} />
+          <span>Nueva colección</span>
+        </div>
+      {:else if pendiente}
+        <div class="nueva">
+          <input
+            bind:this={campo}
+            bind:value={nombre}
+            onkeydown={teclaNueva}
+            class="campo"
+            placeholder="Nombre de la colección"
+            aria-label="Nombre de la colección nueva"
+            maxlength="80"
+          />
+          <div class="con">
+            <span>con {pendiente.docs.length === 1 ? `«${pendiente.etiqueta}»` : pendiente.etiqueta}</span>
+            <button class="dejar hov-fondo" onclick={() => (app.pendiente = null)} aria-label="Dejarlo" title="Dejarlo · Esc">
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -252,6 +315,54 @@
   }
   .item span:first-of-type {
     flex-grow: 1;
+  }
+  /* Arrastrando (ADR-0033): donde caería se ilumina; la colección de la que
+     sale, no, porque ahí no pasaría nada. */
+  .item.blanco {
+    background: var(--sel);
+    color: var(--acento);
+    box-shadow: inset 0 0 0 1px var(--acento);
+  }
+  .item.origen {
+    opacity: 0.5;
+  }
+  .soltar-nueva {
+    border: 1px dashed var(--linea);
+    color: var(--acento);
+  }
+  .nueva {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 4px 2px 2px;
+  }
+  .nueva .campo {
+    height: 36px;
+    padding: 0 10px;
+    font-size: 13.5px;
+  }
+  .con {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding-left: 4px;
+    font-size: 12px;
+    color: var(--tenue);
+  }
+  .con span {
+    flex-grow: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .dejar {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    flex-shrink: 0;
   }
   .nombre {
     min-width: 0;

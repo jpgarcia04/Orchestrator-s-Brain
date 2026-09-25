@@ -8,7 +8,8 @@
   abajo, y si lo restauras vuelve solo (ADR-0025).
 
   Renombrar es un clic; borrar la colección pide dos, y nunca toca tus
-  documentos.
+  documentos. Arrastrar uno a otra colección de la barra lateral lo mueve
+  allí; con Ctrl, se queda en las dos (ADR-0033).
 -->
 <script lang="ts">
   import Check from "@lucide/svelte/icons/check";
@@ -21,6 +22,7 @@
   import Miniatura from "../componentes/Miniatura.svelte";
   import Tipo from "../componentes/Tipo.svelte";
   import { app } from "../lib/app.svelte";
+  import { arrastrable } from "../lib/arrastre";
   import { abrir } from "../lib/nucleo";
   import type { Miembro } from "../lib/nucleo";
   import { fecha, nombreBonito, tipoDe, tipoLargo, tituloDe } from "../lib/nombres";
@@ -111,6 +113,8 @@
   }
 
   const elegida = (id: string) => app.seleccion === id || app.elegidos.includes(id);
+  /** Lo que va en el arrastre en curso se atenúa (ADR-0033). */
+  const llevado = (id: string) => !!app.arrastre?.docs.includes(id);
 </script>
 
 {#if c}
@@ -153,7 +157,7 @@
       <p class="vacio">
         {c.in_trash.length
           ? "Lo que tenía está en la papelera."
-          : "Todavía no tiene nada. Abre un documento y pulsa «Colecciones» en su vista previa, o elige varios en una carpeta con Ctrl+clic."}
+          : "Todavía no tiene nada. Arrastra documentos aquí desde una carpeta (a su nombre en la barra lateral), pulsa «Colecciones» en la vista previa de uno, o elige varios con Ctrl+clic."}
       </p>
     {:else if app.modo === "cuadricula"}
       <div class="cuadricula">
@@ -162,8 +166,10 @@
           <button
             class="tarjeta hov"
             class:elegida={elegida(f.id)}
+            class:llevado={llevado(f.id)}
             aria-pressed={elegida(f.id)}
             onclick={(e) => app.pulsar(f.id, e, orden)}
+            use:arrastrable={{ id: f.id, titulo: d.titulo }}
             ondblclick={() => abrirArchivo(f)}
             title={f.label}
           >
@@ -191,9 +197,11 @@
           <button
             class="fila hov-fondo"
             class:elegida={elegida(f.id)}
+            class:llevado={llevado(f.id)}
             class:metida={!!f.inside}
             aria-pressed={elegida(f.id)}
             onclick={(e) => app.pulsar(f.id, e, orden)}
+            use:arrastrable={{ id: f.id, titulo: d.titulo }}
             ondblclick={() => abrirArchivo(f)}
             title={d.paquete ? `${f.label} · está dentro de «${d.paquete}»` : f.label}
           >
@@ -308,6 +316,10 @@
     overflow: hidden;
     background: var(--tarjeta);
     border: 1px solid var(--linea);
+  }
+  /* Lo que llevas arrastrando se queda atenuado en su sitio (ADR-0033). */
+  .llevado {
+    opacity: 0.45;
   }
   .tarjeta.elegida {
     border-color: var(--acento);

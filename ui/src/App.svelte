@@ -11,9 +11,13 @@
     lente del mapa.
   - `Ctrl A`, en una carpeta o una colección: elegir todos sus documentos
     (ADR-0031).
+  - Arrastrar un documento (o los elegidos) a una colección de la barra
+    lateral: desde una carpeta añade, desde una colección mueve, y con `Ctrl`
+    añade; `Esc` lo cancela (ADR-0033).
 -->
 <script lang="ts">
   import { onMount } from "svelte";
+  import Arrastrando from "./componentes/Arrastrando.svelte";
   import BarraElegidos from "./componentes/BarraElegidos.svelte";
   import BarraLateral from "./componentes/BarraLateral.svelte";
   import Buscador from "./componentes/Buscador.svelte";
@@ -49,6 +53,12 @@
   }
 
   function tecla(e: KeyboardEvent): void {
+    if (app.arrastre) {
+      // Arrastrando, `Esc` lo cancela y las demás teclas no hacen nada (Ctrl
+      // cambia «Mover» por «Añadir»; lo mira el propio arrastre).
+      if (e.key === "Escape") app.cancelarArrastre();
+      return;
+    }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
       app.abrirBuscador();
@@ -135,6 +145,7 @@
   {#if app.pidiendoPin}
     <Pin />
   {/if}
+  <Arrastrando />
 </div>
 {/if}
 

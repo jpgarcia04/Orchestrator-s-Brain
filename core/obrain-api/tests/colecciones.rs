@@ -639,3 +639,153 @@ fn cada_documento_dice_que_estrella_encender() {
     );
     assert_eq!(abierta.folders, 1);
 }
+
+/// Lo que enseña la colección abierta desde la aplicación: `nombre · carpeta`.
+fn en(brain: &Brain, c: &EntityId) -> Vec<String> {
+    brain
+        .collection(c)
+        .unwrap()
+        .rows
+        .into_iter()
+        .map(|m| format!("{} · {}", m.row.label, m.folder_label))
+        .collect()
+}
+
+#[test]
+fn mover_de_una_coleccion_a_otra_la_saca_de_la_primera_y_no_toca_tu_carpeta() {
+    let b = Boveda::nueva("arrastrar");
+    let visa = b.crear("Trámite de la visa");
+    let piso = b.crear("Todo lo del piso");
+    b.meter(
+        &visa,
+        &[
+            "01 Identidad/Pasaporte.txt",
+            "06 Dinero/Movimientos marzo.txt",
+        ],
+    );
+    b.meter(&piso, &["05 Vivienda/Contrato piso.txt"]);
+    let marzo = b.doc("06 Dinero/Movimientos marzo.txt");
+    let pasaporte = b.doc("01 Identidad/Pasaporte.txt");
+    let dinero = b.carpeta("06 Dinero");
+    let mut brain = Brain::from_store(b.store);
+    let antes = TimePoint::at(obrain_scan::now_ms());
+    std::thread::sleep(std::time::Duration::from_millis(5));
+
+    let r = brain
+        .move_between_collections(&visa, &piso, std::slice::from_ref(&marzo), UI)
+        .unwrap();
+    assert_eq!((r.added, r.removed), (1, 1));
+    assert_eq!(en(&brain, &visa), vec!["Pasaporte.txt · 01 Identidad"]);
+    assert_eq!(
+        en(&brain, &piso),
+        vec![
+            "Contrato piso.txt · 05 Vivienda",
+            "Movimientos marzo.txt · 06 Dinero",
+        ]
+    );
+
+    // En tu carpeta no cambia nada: ni el archivo ni el árbol.
+    assert!(
+        b.lib
+            .join("06 Dinero")
+            .join("Movimientos marzo.txt")
+            .exists()
+    );
+    let ahora = TimePoint::at(obrain_scan::now_ms());
+    let dentro = sky::children(brain.store(), Some(&dinero), ahora).unwrap();
+    assert!(
+        dentro
+            .rows
+            .iter()
+            .any(|r| r.label == "Movimientos marzo.txt")
+    );
+
+    // Las dos cosas son del usuario (I5), y el log sabe dónde estaba (I4).
+    assert!(
+        brain
+            .store()
+            .pointing_at(&piso, Some(colecciones::MEMBER_OF), ahora)
+            .unwrap()
+            .iter()
+            .all(|a| a.method == Method::User)
+    );
+    let entonces = colecciones::abrir(brain.store(), &visa, antes).unwrap();
+    assert_eq!(
+        entonces.rows.len(),
+        2,
+        "antes de moverlo, estaba en la visa"
+    );
+
+    // Si ya estaba en la de destino, no entra otra vez, pero sí sale de la
+    // de origen: al final está sólo en una.
+    let otra = colecciones::meter(
+        brain.store(),
+        &piso,
+        std::slice::from_ref(&pasaporte),
+        obrain_scan::now_ms(),
+        UI,
+    )
+    .unwrap();
+    assert_eq!(otra, 1);
+    let r = brain
+        .move_between_collections(&visa, &piso, std::slice::from_ref(&pasaporte), UI)
+        .unwrap();
+    assert_eq!((r.added, r.removed), (0, 1));
+    assert!(en(&brain, &visa).is_empty());
+    assert_eq!(en(&brain, &piso).len(), 3);
+}
+
+#[test]
+fn mover_a_la_misma_no_hace_nada_y_si_algo_no_vale_no_cambia_nada() {
+    let mut b = Boveda::nueva("arrastrar-mal");
+    let visa = b.crear("Trámite de la visa");
+    let piso = b.crear("Todo lo del piso");
+    b.meter(
+        &visa,
+        &[
+            "06 Dinero/Movimientos marzo.txt",
+            "06 Dinero/Movimientos abril.txt",
+        ],
+    );
+    let marzo = b.doc("06 Dinero/Movimientos marzo.txt");
+    let abril = b.doc("06 Dinero/Movimientos abril.txt");
+    // Abril se va a la papelera a mitad del arrastre.
+    std::fs::remove_file(b.ruta("06 Dinero/Movimientos abril.txt")).unwrap();
+    b.indexar();
+    let borrada = b.crear("Borrada");
+    colecciones::borrar(&b.store, &borrada, obrain_scan::now_ms()).unwrap();
+    let mut brain = Brain::from_store(b.store);
+    let antes = brain.store().log_len().unwrap();
+
+    // A la misma colección: nada, y no escribe nada.
+    let r = brain
+        .move_between_collections(&visa, &visa, std::slice::from_ref(&marzo), UI)
+        .unwrap();
+    assert_eq!((r.added, r.removed), (0, 0));
+    assert_eq!(brain.store().log_len().unwrap(), antes);
+
+    // A una colección que ya no existe: error, y marzo sigue en la visa.
+    let r = brain.move_between_collections(&visa, &borrada, std::slice::from_ref(&marzo), UI);
+    assert!(
+        matches!(
+            r,
+            Err(obrain_api::Error::Coleccion(colecciones::Error::NoExiste))
+        ),
+        "{r:?}"
+    );
+
+    // Con uno que ya está en la papelera: error, y no se mueve ninguno.
+    let r = brain.move_between_collections(&visa, &piso, &[marzo.clone(), abril.clone()], UI);
+    assert!(
+        matches!(
+            r,
+            Err(obrain_api::Error::Coleccion(
+                colecciones::Error::NoEsDocumento(_)
+            ))
+        ),
+        "{r:?}"
+    );
+    assert_eq!(brain.store().log_len().unwrap(), antes);
+    assert_eq!(en(&brain, &visa), vec!["Movimientos marzo.txt · 06 Dinero"]);
+    assert!(en(&brain, &piso).is_empty());
+}

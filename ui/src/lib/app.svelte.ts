@@ -20,6 +20,7 @@ import {
   explorar,
   marcarCarpeta as pedirMarca,
   meterEnColeccion,
+  moverEntreColecciones,
   pinBloquear,
   renombrarColeccion as pedirRenombrar,
   sacarDeColeccion,
@@ -31,6 +32,34 @@ import { tituloDe } from "./nombres";
 export type Vista = "inicio" | "carpeta" | "mapa" | "sensibles" | "papelera" | "colecciones" | "coleccion";
 export type Tema = "noche" | "dia";
 export type Modo = "cuadricula" | "lista";
+
+/**
+ * Un arrastre hacia una colección de la barra lateral (ADR-0033). Desde una
+ * carpeta añade; desde una colección mueve, y con Ctrl añade.
+ */
+export interface Arrastre {
+  /** Lo que se lleva: el documento agarrado, o todos los elegidos si era uno de ellos. */
+  docs: string[];
+  /** Cómo se llama lo que se lleva: su título, o «3 documentos». */
+  etiqueta: string;
+  /** La colección de la que sale, si se arrastra desde una colección abierta. */
+  desde: string | null;
+  /** Dónde está el ratón, en la ventana. */
+  x: number;
+  y: number;
+  /** Ctrl pulsado: añadir aunque venga de una colección. */
+  copiar: boolean;
+  /** Dónde caería: el id de una colección, `"nueva"`, o ningún sitio. */
+  sobre: string | null;
+}
+
+/** Soltado en «Nueva colección»: le falta el nombre. */
+export interface Pendiente {
+  docs: string[];
+  etiqueta: string;
+  desde: string | null;
+  copiar: boolean;
+}
 
 /** Preferencias de este equipo. Si el almacenamiento falla, se usan las de fábrica. */
 function leer(clave: string): string | null {
@@ -105,6 +134,10 @@ class App {
   buscarEn = $state<string | null>(null);
   /** Hay un menú abierto (el de las colecciones): sus teclas son suyas. */
   menu = $state(false);
+  /** Un arrastre en curso hacia una colección (ADR-0033). */
+  arrastre = $state<Arrastre | null>(null);
+  /** Lo soltado en «Nueva colección», esperando su nombre. */
+  pendiente = $state<Pendiente | null>(null);
   aviso = $state("");
   /** Sube cada vez que termina un reindexado: lo que se pinta con datos vuelve a pedirlos. */
   version = $state(0);
@@ -513,6 +546,115 @@ class App {
     this.elegidos = [];
   }
 
+  // ─────────────────────────────────────────── arrastrar a una colección (ADR-0033)
+
+  /**
+   * Empieza a arrastrar `id`. Si es uno de los elegidos, van todos; si no,
+   * sólo él, y lo elegido no cambia. Desde una colección abierta, mueve.
+   */
+  empezarArrastre(id: string, titulo: string, x: number, y: number, copiar: boolean): void {
+    const docs = this.elegidos.includes(id) ? [...this.elegidos] : [id];
+    this.pendiente = null;
+    this.arrastre = {
+      docs,
+      etiqueta: docs.length === 1 ? titulo : `${docs.length} documentos`,
+      desde: this.vista === "coleccion" ? (this.abierta?.id ?? null) : null,
+      x,
+      y,
+      copiar,
+      sobre: null,
+    };
+  }
+
+  /** El ratón se movió, o se pulsó o soltó Ctrl. Sin arrastre (se canceló), nada. */
+  moverArrastre(x: number, y: number, copiar: boolean, sobre: string | null): void {
+    const a = this.arrastre;
+    if (!a) return;
+    a.x = x;
+    a.y = y;
+    a.copiar = copiar;
+    a.sobre = sobre;
+  }
+
+  /** Cambia sólo Ctrl, sin mover el ratón. */
+  copiarArrastre(copiar: boolean): void {
+    if (this.arrastre) this.arrastre.copiar = copiar;
+  }
+
+  cancelarArrastre(): void {
+    this.arrastre = null;
+  }
+
+  /** ¿Lo que se lleva sale de su colección al soltarlo? */
+  mueve(a: { desde: string | null; copiar: boolean }): boolean {
+    return a.desde !== null && !a.copiar;
+  }
+
+  /** Lo que pasará si sueltas ahí: lo dice la etiqueta que sigue al ratón. */
+  get queHara(): { texto: string; vale: boolean } {
+    const a = this.arrastre;
+    if (!a || a.sobre === null) return { texto: "Suelta en una colección de la barra lateral", vale: false };
+    const uno = a.docs.length === 1;
+    if (a.sobre === "nueva") {
+      return {
+        texto: this.mueve(a) ? "Mover a una colección nueva" : uno ? "Crear una colección con él" : "Crear una colección con ellos",
+        vale: true,
+      };
+    }
+    const nombre = this.colecciones.find((c) => c.id === a.sobre)?.name ?? "";
+    if (a.sobre === a.desde) return { texto: `${uno ? "Ya está" : "Ya están"} en «${nombre}»`, vale: false };
+    return { texto: `${this.mueve(a) ? "Mover" : "Añadir"} a «${nombre}»`, vale: true };
+  }
+
+  /** Suelta: en una colección, añade o mueve; en «Nueva colección», pide el nombre. */
+  async soltarArrastre(): Promise<void> {
+    const a = this.arrastre;
+    this.arrastre = null;
+    if (!a || a.sobre === null || a.sobre === a.desde) return;
+    if (a.sobre === "nueva") {
+      this.pendiente = { docs: a.docs, etiqueta: a.etiqueta, desde: a.desde, copiar: a.copiar };
+      return;
+    }
+    if (this.mueve(a) && a.desde) await this.moverA(a.desde, a.sobre, a.docs, a.etiqueta);
+    else await this.meter(a.sobre, a.docs);
+  }
+
+  /** Crea la colección con lo que se soltó en «Nueva colección». `false` si no se pudo. */
+  async crearPendiente(nombre: string): Promise<boolean> {
+    const p = this.pendiente;
+    if (!p) return false;
+    const mueve = this.mueve(p);
+    const id = await this.crearColeccion(nombre, mueve ? [] : p.docs);
+    if (!id) return false;
+    this.pendiente = null;
+    if (mueve && p.desde) await this.moverA(p.desde, id, p.docs, p.etiqueta);
+    else if (p.docs.length > 1) this.elegidos = [];
+    return true;
+  }
+
+  /**
+   * Mueve documentos de una colección a otra, de una vez. Siguen en sus
+   * carpetas: en Windows no cambia nada, y el aviso lo dice.
+   */
+  async moverA(desde: string, hacia: string, docs: string[], etiqueta: string): Promise<void> {
+    const de = this.colecciones.find((c) => c.id === desde)?.name ?? "la colección";
+    try {
+      await moverEntreColecciones(desde, hacia, docs);
+      // Salen de la colección abierta: ni elegidos ni en la vista previa.
+      this.elegidos = this.elegidos.filter((e) => !docs.includes(e));
+      if (this.seleccion && docs.includes(this.seleccion) && this.abierta?.id === desde) this.seleccion = null;
+      await this.recargarColecciones();
+      this.version++;
+      const a = this.colecciones.find((c) => c.id === hacia)?.name ?? "la colección";
+      this.avisar(
+        docs.length === 1
+          ? `«${etiqueta}» movido de «${de}» a «${a}». En su carpeta no cambia nada.`
+          : `${docs.length} documentos movidos de «${de}» a «${a}». En sus carpetas no cambia nada.`,
+      );
+    } catch (e) {
+      this.avisar(`No se pudo mover — ${e}`);
+    }
+  }
 
   abrirBuscador(semilla = ""): void {
     this.semilla = semilla;

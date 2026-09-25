@@ -100,6 +100,7 @@
     <p class="pista">
       Para meter documentos: ábrelo y pulsa <strong>«Colecciones»</strong> en su vista previa, o elige varios en una
       carpeta con <kbd>Ctrl</kbd>+clic (o <kbd>Ctrl</kbd> <kbd>A</kbd> para todos) y pulsa «Añadir a una colección».
+      También puedes <strong>arrastrarlos</strong>: mientras arrastras sale «Nueva colección» en la barra lateral.
     </p>
   {/if}
 </div>

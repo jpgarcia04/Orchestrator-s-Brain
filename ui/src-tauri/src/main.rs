@@ -194,6 +194,21 @@ fn sacar_de_coleccion(
     con(&cerebro, |b| b.remove_from_collection(&EntityId(id), &docs))
 }
 
+/// Arrastrar de una colección a otra (ADR-0033): entran en `hacia` y salen de
+/// `desde`, de una vez.
+#[tauri::command]
+fn mover_entre_colecciones(
+    desde: String,
+    hacia: String,
+    docs: Vec<String>,
+    cerebro: State<'_, Cerebro>,
+) -> Result<obrain_api::Movidos, String> {
+    let docs: Vec<EntityId> = docs.into_iter().map(EntityId).collect();
+    con(&cerebro, |b| {
+        b.move_between_collections(&EntityId(desde), &EntityId(hacia), &docs, "user@ui")
+    })
+}
+
 #[tauri::command]
 fn lente(
     focus: Vec<String>,
@@ -732,6 +747,7 @@ fn main() {
             borrar_coleccion,
             meter_en_coleccion,
             sacar_de_coleccion,
+            mover_entre_colecciones,
             lente,
             cielo,
             explorar,

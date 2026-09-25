@@ -200,6 +200,25 @@ kbd {
   }
 }
 
+/* Arrastrando a una colección (ADR-0033): la mano cerrada en toda la
+   ventana, y nada se selecciona. */
+html.arrastrando,
+html.arrastrando * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+/* Y **sólo los destinos responden al ratón**: nada más se aclara al pasar
+   como si pudiera recibirlo —una carpeta de la barra lateral no mueve
+   ningún archivo—. La barra y la lista se siguen desplazando con la rueda. */
+html.arrastrando body * {
+  pointer-events: none;
+}
+html.arrastrando nav.lateral,
+html.arrastrando main,
+html.arrastrando [data-soltar] {
+  pointer-events: auto;
+}
+
 /* Barras de desplazamiento discretas, del color de la línea. */
 * {
   scrollbar-width: thin;

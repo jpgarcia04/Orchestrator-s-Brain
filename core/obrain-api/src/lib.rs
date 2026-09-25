@@ -54,7 +54,7 @@ pub use obrain_embed::embedder::Embedder;
 use std::path::Path;
 use std::time::Instant;
 
-pub use colecciones::{Abierta, Coleccion, Miembro, Pertenece};
+pub use colecciones::{Abierta, Coleccion, Miembro, Movidos, Pertenece};
 pub use dentro::{Copia, Paquete, Parte};
 pub use entity::{Claim, EntityView};
 pub use indexar::IndexReport;
@@ -652,6 +652,20 @@ impl Brain {
         let (now, _) = Self::now();
         self.store
             .transaction(|s| colecciones::sacar(s, id, docs, now))
+    }
+
+    /// **Mueve documentos** de una colección a otra, de una vez: entran en
+    /// `hacia` y salen de `desde`, o no cambia nada (ADR-0033).
+    pub fn move_between_collections(
+        &mut self,
+        desde: &EntityId,
+        hacia: &EntityId,
+        docs: &[EntityId],
+        source: &str,
+    ) -> Result<Movidos> {
+        let (now, _) = Self::now();
+        self.store
+            .transaction(|s| colecciones::mover(s, desde, hacia, docs, now, source))
     }
 
     /// Los documentos que llevan otros dentro, con lo que llevan (ADR-0030).

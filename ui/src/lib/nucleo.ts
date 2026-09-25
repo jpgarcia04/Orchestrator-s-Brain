@@ -528,6 +528,21 @@ export const meterEnColeccion = (id: string, docs: string[]) =>
 export const sacarDeColeccion = (id: string, docs: string[]) =>
   invoke<number>("sacar_de_coleccion", { id, docs });
 
+/** Lo que pasó al mover de una colección a otra. */
+export interface Movidos {
+  /** Los que entraron en la de destino (los que ya estaban no cuentan). */
+  added: number;
+  /** Los que salieron de la de origen. */
+  removed: number;
+}
+
+/**
+ * Mueve documentos de una colección a otra, de una vez (ADR-0033): entran en
+ * `hacia` y salen de `desde`, o no cambia nada. Siguen en sus carpetas.
+ */
+export const moverEntreColecciones = (desde: string, hacia: string, docs: string[]) =>
+  invoke<Movidos>("mover_entre_colecciones", { desde, hacia, docs });
+
 export const lente = (focus: string[], radius = 2, budget = 300) =>
   invoke<Lente>("lente", { focus, radius, budget });
 
