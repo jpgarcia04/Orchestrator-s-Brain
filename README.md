@@ -138,7 +138,7 @@ Con un modelo de inteligencia artificial **que corre en tu máquina** —se desc
 > Puedes marcar **una carpeta entera** —por ejemplo, la de tus documentos de identidad— y todo lo que tenga dentro será sensible, también lo que metas después: la foto de tu TIE no necesita tener texto ni un nombre que la delate. Si luego la renombras o la mueves a otro sitio del mismo disco, la marca va con ella.
 
 ### 🗂️ Y tú también relacionas: *tus colecciones*
-Junta a mano lo que va junto aunque viva en carpetas distintas —**«Trámite de la visa»**: el pasaporte, la póliza, la matrícula y los estados de cuenta— sin mover nada de su sitio. Un documento puede estar en varias, sigue en ellas aunque lo muevas o lo renombres, y si lo borras y lo recuperas, vuelve solo. Puedes buscar sólo dentro de una colección, y en el mapa se encienden las estrellas donde están sus documentos, sin mover ninguna.
+Junta a mano lo que va junto aunque viva en carpetas distintas —**«Trámite de la visa»**: el pasaporte, la póliza, la matrícula y los estados de cuenta— sin mover nada de su sitio. Un documento puede estar en varias, sigue en ellas aunque lo muevas o lo renombres, y si lo borras y lo recuperas, vuelve solo. Puedes buscar sólo dentro de una colección, y en el mapa se encienden las estrellas donde están sus documentos, sin mover ninguna. Para juntar, **arrastra**: suelta un documento (o varios elegidos) en una colección de la barra lateral, o en «Nueva colección». De una colección a otra se mueve —con Ctrl, se queda en las dos—, y en tus carpetas de Windows no cambia nada: una colección es como una playlist.
 
 ### 5. 🌌 Visualizar — *El mapa*
 Todo ese conocimiento cobra vida en una visualización interactiva — tu galaxia personal de conocimiento, donde puedes explorar, navegar y descubrir conexiones que habías olvidado.
@@ -170,7 +170,7 @@ El proyecto está en desarrollo activo. Cada hito se valida contra la pregunta d
 | **M5c** — Enterarse | Lo nuevo aparece sin lanzar nada | ✅ Completo: al abrir la app, con «actualizar» y vigilando tus carpetas en vivo |
 | **Fase 2** — La interfaz nueva | Svelte 5: escritorio tipo sistema operativo con vista previa (cada apartado se pliega desde su título y se queda como lo dejaste), buscador `Ctrl K`, la galaxia como vista «Mapa» enlazada, aspecto de noche y de día | ✅ Completo |
 | **Fase 3** — Documentos personales | Sensibilidad por carpeta ✅ · cifrado en reposo y PIN ✅ · OCR ✅ · vencimientos ✅ · vigilar la carpeta en vivo ✅ · papelera ✅ | ✅ Completo y probado en Windows (2026-09-23) |
-| **Después de la 3** — Tu bóveda, relacionada | Un documento dentro de otro ✅: el paquete dice qué lleva, cada documento suelto en qué paquete está, el paquete hereda la sensibilidad de lo que lleva (de todas sus copias) y la búsqueda los agrupa · tus colecciones ✅: juntar a mano sin mover nada, buscar dentro, verlas en el mapa | ✅ Hecho en el banco de pruebas (2026-09-24); falta verlo en Windows |
+| **Después de la 3** — Tu bóveda, relacionada | Un documento dentro de otro ✅: el paquete dice qué lleva, cada documento suelto en qué paquete está, el paquete hereda la sensibilidad de lo que lleva (de todas sus copias) y la búsqueda los agrupa · tus colecciones ✅: juntar a mano sin mover nada, buscar dentro, verlas en el mapa, y arrastrando a la barra lateral | ✅ Hecho en el banco de pruebas (2026-09-25); falta verlo en Windows |
 | **M6** — Construir conocimiento | Inferencia de procesos y enriquecimiento | ⏳ Planificado |
 | **M7** — La pregunta | Responder la pregunta de la visa | 🎯 Meta final |
 

@@ -32,15 +32,16 @@ computadora.
 | **Vencimientos**: lee cuándo caduca cada documento («VALIDEZ 15 11 2026» en la foto de la TIE, «vence el 30 de septiembre» en el contrato) y el Inicio te enseña **«Caduca pronto»**: lo que vence en 90 días y lo que ya venció. Cada fecha dice por qué la leyó y se corrige en un clic. **Aunque el OCR se coma la palabra** (tu pasaporte): la saca de la zona MRZ (`P<MEX<<…`) con su dígito de control, de la expedición más N años justos en un documento de identidad, o del año solo de la INE (ADR-0028) | Tu pasaporte no daba fecha (2026-09-23): el OCR no leyó «caducidad». Arreglado y comprobado con su texto; falta verlo en tu app |
 | **Una carpeta fija para todo**: la base, su llave y el modelo viven en `C:\Users\pacox\.obrain`, abras obrain desde donde lo abras (una PowerShell, la terminal de Claude o la de Codex). La primera vez, obrain muda sola la base de `%LOCALAPPDATA%\obrain` (ADR-0029) | Tu modelo ya está ahí (2026-09-23). Falta abrir la app para que mude tu base |
 | **Un documento dentro de otro**: el PDF que armaste para un trámite juntando otros (tus estados de cuenta, una constancia) dice **«Contiene»** y qué lleva, con su «¿por qué?» marcado en el texto; cada documento suelto dice **«Está dentro de»** y te lleva al paquete por donde está. El paquete **es tan sensible como lo que lleva** (el pasaporte de `01 Identidad` dentro del PDF de la visa lo tapa), y en la búsqueda lo de dentro sale justo debajo de su paquete (ADR-0030) | Probado con tu base de agosto: 14 paquetes, ninguno falso. Falta verlo en tu app |
-| **Tus colecciones**: juntas a mano lo que va junto aunque viva en carpetas distintas —«Trámite de la visa»: el pasaporte, la póliza, la matrícula, los estados de cuenta— **sin mover nada**. Un documento puede estar en varias. Se meten desde la vista previa («Colecciones») o varios a la vez (`Ctrl`+clic, `Mayús`+clic, `Ctrl A`); se ven en la barra lateral y en su vista; se busca sólo dentro; en el mapa se encienden sus estrellas sin mover ninguna (ADR-0031) | Hecho en el banco de pruebas (2026-09-24); falta verlo en tu app |
+| **Tus colecciones**: juntas a mano lo que va junto aunque viva en carpetas distintas —«Trámite de la visa»: el pasaporte, la póliza, la matrícula, los estados de cuenta— **sin mover nada**. Un documento puede estar en varias. Se meten desde la vista previa («Colecciones») o varios a la vez (`Ctrl`+clic, `Mayús`+clic, `Ctrl A`); se ven en la barra lateral y en su vista; se busca sólo dentro; en el mapa se encienden sus estrellas sin mover ninguna (ADR-0031). **Y arrastrando** (ADR-0033): sueltas un documento (o los elegidos) en una colección de la barra lateral o en «Nueva colección»; de una colección a otra se mueve, con `Ctrl` se queda en las dos, y en tus carpetas de Windows no cambia nada | Hecho en el banco de pruebas (colecciones 2026-09-24, arrastre 2026-09-25); falta verlo en tu app |
 | **Las copias también están dentro**: si tienes el mismo documento dos veces (tu pasaporte en `01 Identidad` y otra copia en otra carpeta), las dos dicen «Está dentro de», y el paquete se tapa si **cualquiera** está protegida. Antes sólo contaba la más vieja, y el paquete podía salir sin tapar (ADR-0032) | Hecho en el banco de pruebas (2026-09-24); falta verlo en tu app |
 | La app se pone al día sola al abrirse, y tiene botón «actualizar» | |
 | **Vigila tus carpetas en vivo** mientras está abierta: guardas un documento y aparece solo, a los 3 segundos de dejar de tocar la carpeta, sin avisos (sólo el indicador de abajo a la izquierda) | ✅ Probado en tu Windows (2026-09-23) |
 | **Papelera**: lo que borras sale de Recientes, «Caduca pronto», el explorador, el mapa y la búsqueda, y se queda 30 días en la vista «Papelera»; después se olvida lo que se leyó de él (o antes, con «Olvidar ya» o «Vaciar papelera»). Mover y renombrar ya no dejan documentos ni carpetas repetidos | ✅ Probado en tu Windows (2026-09-23) |
 
-Núcleo en Rust con 467 tests, todos en verde en Linux (2026-09-24). **Los 452
-de antes, también en tu Windows** (2026-09-23); los 15 nuevos —colecciones y
-copias— se corren allí la próxima vez que abras la laptop. Interfaz en Tauri +
+Núcleo en Rust con 469 tests, todos en verde en Linux (2026-09-25). **Los 452
+de antes, también en tu Windows** (2026-09-23); los 17 nuevos —colecciones,
+copias y mover de una colección a otra— se corren allí la próxima vez que
+abras la laptop. Interfaz en Tauri +
 Svelte 5, con el mapa en PixiJS.
 
 ## Cómo usarlo hoy (Windows)
@@ -162,6 +163,17 @@ seguridad de la base sin su clave de recuperación no se abre en otro equipo.
   documento, sigue en su colección; si lo borras, sale de ella (la colección
   dice «En la papelera») y **vuelve solo** si lo restauras. Una colección no
   es sensible: lo sensible sigue tapado dentro de ella como en su carpeta.
+  **Arrastrando** (ADR-0033): agarra un documento de una carpeta o de una
+  colección —o uno de los que elegiste con `Ctrl`+clic, y van todos— y
+  suéltalo en una colección de «Tus colecciones», en la barra lateral. Junto
+  al ratón te dice qué va a pasar antes de soltar: *«Añadir a …»*, *«Mover a
+  …»* o *«Ya está en …»*. Desde una carpeta **añade**; de una colección a
+  otra **mueve** (sale de la primera), y con `Ctrl` pulsado se queda en las
+  dos, como en el Explorador de Windows. Mientras arrastras sale **«Nueva
+  colección»** al final: suelta ahí, escribe el nombre y `Enter`. `Esc`
+  cancela. **En tus carpetas de Windows no cambia nada**: una colección es
+  como una playlist, y el documento sigue en su carpeta aunque lo saques de
+  todas.
 - **Mapa:** cada estrella es una carpeta; pulsarla la abre en el explorador.
   Desde un documento, «Ver en el mapa» enseña con qué se relaciona.
 - **`Esc`** deshace un escalón: cierra el buscador, suelta lo elegido, cierra
@@ -252,7 +264,7 @@ Y nombres que se lean solos, con la fecha delante:
 | 1 | El núcleo para tu carpeta: bibliotecas, nombres, `obrain indexar`, «actualizar» | ✅ Hecha |
 | 2 | La interfaz nueva en Svelte 5: el explorador como escritorio estilo sistema operativo, la galaxia como vista «Mapa» enlazada, `Ctrl+K`, vista previa rápida | ✅ Hecha |
 | **3** | **Documentos personales**: ✅ sensibilidad por carpeta (y la marca sigue a la carpeta si la renombras) · ✅ cifrado y PIN · ✅ OCR · ✅ vencimientos · ✅ vigilar la carpeta en vivo · ✅ papelera | ✅ Hecha y probada en tu Windows (2026-09-23); los vencimientos, afinados con tu pasaporte (ADR-0028), falta verlos en tu app |
-| 3+ | **Tu bóveda, relacionada**: ✅ un documento dentro de otro (ADR-0030), con todas sus copias (ADR-0032) · ✅ tus colecciones (ADR-0031) | ✅ Hecha en el banco de pruebas (2026-09-24); falta verla en tu app |
+| 3+ | **Tu bóveda, relacionada**: ✅ un documento dentro de otro (ADR-0030), con todas sus copias (ADR-0032) · ✅ tus colecciones (ADR-0031) · ✅ arrastrar a una colección (ADR-0033) | ✅ Hecha en el banco de pruebas (2026-09-25); falta verla en tu app |
 | 4 | La visión original: trámites reconstruidos, la pregunta de la visa | Congelada (JP, 2026-09-23: primero usar la app en Windows) |
 
 **Decidido el 2026-09-23, por construir** (el orden, después de probar la app
@@ -279,6 +291,23 @@ resto de …» sin decir cuál es. Se te ofreció que la estrella lo dijera y
 contestaste que no ahora: primero se termina de desarrollar; cuando metas
 tus carpetas finales con todos tus documentos reales, esos ajustes se
 hacen con la bóveda de verdad delante.
+
+**Decidido el 2026-09-25, desde la nube: arrastrar a una colección
+(ADR-0033).** Elegiste arrastrar desde una carpeta y desde una colección;
+soltar en la barra lateral y en «Nueva colección»; y que de una colección a
+otra se **mueva**, con `Ctrl` para que se quede en las dos. Preguntaste si
+eso movía el archivo en Windows: **no**, nunca; sólo cambia en qué colección
+está. Se hizo sin tocar la configuración de Tauri (con el mismo mecanismo que
+el arrastre del mapa), así que lo que se probó en el navegador es lo mismo que
+verás en Windows.
+
+**Por evaluar contigo: elegir qué entra en la app y qué no.** Lo dijiste
+así: *«el explorador de Windows ve toda mi computadora, y nuestra app ve todo
+lo más importante, toda mi vida que quiero que se muestre»*. La mitad ya está
+(la app sólo lee las carpetas que le das, y dentro es un espejo de Windows).
+Faltan dos piezas: **quitar una carpeta** de la app, y **esconder algo de
+dentro** (una subcarpeta o un archivo que no quieres que salga). Está en el
+§10 del maestro con lo que hay que decidir; se programa cuando lo elijas.
 
 **Congelado** (no se borra, no se sigue): sesiones de trabajo y puentes,
 detección de versiones, el USN Change Journal, sincronización entre
@@ -313,7 +342,8 @@ rompe nada ni es urgente: si no lo haces, la app sigue igual; si algo no sale
 como aquí se dice, se arregla eso antes de seguir. La siguiente sesión te
 guía paso a paso. Pendiente al 2026-09-25: **la carpeta fija,
 los vencimientos sin palabra, un documento dentro de otro (con sus copias),
-tus colecciones y los botones de la vista previa** (los cinco, abajo).
+tus colecciones, los botones de la vista previa y arrastrar a una
+colección** (los seis, abajo).
 
 Y para ver el OCR: dale a «actualizar» con alguna foto de un documento en tu
 biblioteca y búscala por algo que diga. En la vista previa, debajo de la foto,
@@ -376,6 +406,20 @@ los pocos segundos tiene que seguir en ella, con el nombre nuevo. Lo único
 que es sólo de Windows y no se pudo probar aquí: que `Ctrl`+clic y `Ctrl A`
 no los intercepte WebView2, y que la barra de abajo no tape nada en tu
 pantalla.
+
+Y para ver el arrastre (ADR-0033): **para qué**, que juntar un trámite sea
+agarrar y soltar, y que el ratón de tu laptop (o su touchpad) haga lo mismo
+que en las pruebas. Con al menos dos colecciones: abre una carpeta, agarra un
+documento y, sin soltar, llévalo a una colección de la barra lateral. Junto
+al ratón tiene que decir *«Añadir a …»* y la colección iluminarse; suéltalo y
+sale *«Añadido a …»*. Elige dos con `Ctrl`+clic y arrastra uno: tienen que ir
+los dos (*«2 documentos»*). Arrástralos a **«Nueva colección»** (sale abajo
+mientras arrastras), escribe un nombre y `Enter`. Luego abre una colección y
+arrastra un documento a otra: dice *«Mover a …»* y, con `Ctrl` pulsado,
+*«Añadir a …»*. Al soltar sin `Ctrl`, sale de la primera y el aviso dice *«En
+su carpeta no cambia nada»*: compruébalo en el Explorador de Windows. Y que un
+clic normal siga abriendo la vista previa y el doble clic el archivo. Lo único
+que no se pudo ver aquí: que el touchpad no confunda un clic con un arrastre.
 
 Y para ver los botones de la vista previa (2026-09-25): **para qué**, que
 ninguno se quede descolgado. Pulsa cualquier documento: abajo, «Abrir» ocupa
