@@ -6,7 +6,7 @@
 //! sopa de ligaduras ni que una página web indexó su aviso de cookies.
 
 use obrain_core::{Store, TimePoint};
-use obrain_extract::{extract_all, index, load_files, search, ExtractReport};
+use obrain_extract::{ExtractReport, extract_all_with, index, load_files, search};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
@@ -69,7 +69,11 @@ fn main() -> ExitCode {
             Ok(hits) => {
                 print_hits(&q, &hits);
                 // "Instantánea" es el criterio de M2. Un número, no un adjetivo.
-                println!("\n  {} resultados en {:.1} ms", hits.len(), elapsed.as_secs_f64() * 1000.0);
+                println!(
+                    "\n  {} resultados en {:.1} ms",
+                    hits.len(),
+                    elapsed.as_secs_f64() * 1000.0
+                );
                 ExitCode::SUCCESS
             }
             Err(e) => {
@@ -97,7 +101,13 @@ fn main() -> ExitCode {
     let before = store.log_len().unwrap_or(0);
     let started = std::time::Instant::now();
     let mut report = ExtractReport::default();
-    let res = store.transaction(|s| extract_all(s, &files, at, &mut report));
+    // El OCR del sistema, si lo hay (Windows): fotos y PDF escaneados.
+    let ocr = obrain_ocr::platform();
+    match &ocr {
+        Some(o) => println!("  OCR: {}", o.engine()),
+        None => println!("  OCR: no hay reconocedor en este sistema; las fotos se saltan"),
+    }
+    let res = store.transaction(|s| extract_all_with(s, &files, at, &mut report, ocr.as_deref()));
     let elapsed = started.elapsed();
     let _ = std::panic::take_hook();
 
@@ -117,6 +127,7 @@ fn main() -> ExitCode {
     println!("\n── ABIERTOS ───────────────────────────────");
     println!("  archivos abiertos       {}", report.opened);
     println!("      texto extraido      {}", report.extracted);
+    println!("        con OCR           {}", report.ocr);
     println!("      sin texto (vacio)   {}", report.empty);
     println!("      binario disfrazado  {}", report.binary);
     println!("      ruido descartado    {}", report.noise);
@@ -274,8 +285,14 @@ fn evidencia(store: &Store, tp: TimePoint) {
 
     let pct = |n: usize| n as f64 * 100.0 / total.max(1) as f64;
     println!("  fragmentos                {total}");
-    println!("  con texto de maquina      {con_sello}  ({:.1}%)", pct(con_sello));
-    println!("  SIN nada que enseñar      {sin_prueba}  ({:.1}%)", pct(sin_prueba));
+    println!(
+        "  con texto de maquina      {con_sello}  ({:.1}%)",
+        pct(con_sello)
+    );
+    println!(
+        "  SIN nada que enseñar      {sin_prueba}  ({:.1}%)",
+        pct(sin_prueba)
+    );
     if sin_prueba > 0 {
         println!("\n  los que no tienen prueba (se enseñan vacios, nunca el sello):");
         for (e, ordinal) in &mudos {
@@ -285,7 +302,10 @@ fn evidencia(store: &Store, tp: TimePoint) {
                 .flatten()
                 .and_then(|a| a.object.as_text().map(str::to_string))
                 .unwrap_or_else(|| e.to_string());
-            println!("    #{ordinal:<4} {}", p.rsplit(['\\', '/']).next().unwrap_or(&p));
+            println!(
+                "    #{ordinal:<4} {}",
+                p.rsplit(['\\', '/']).next().unwrap_or(&p)
+            );
         }
     }
 }
@@ -350,7 +370,10 @@ fn sample(store: &Store, files: &[obrain_extract::FileRow], tp: TimePoint) {
             for (e, n, _) in &rows {
                 let p = nombre(e);
                 let corto = p.rsplit(['\\', '/']).next().unwrap_or(&p);
-                println!("  {n:>7} {:>6.1}%  {corto}", *n as f64 * 100.0 / total as f64);
+                println!(
+                    "  {n:>7} {:>6.1}%  {corto}",
+                    *n as f64 * 100.0 / total as f64
+                );
             }
             println!(
                 "\n  estos 12 archivos son el {:.1}% del indice ({acumulado} de {total} fragmentos)",

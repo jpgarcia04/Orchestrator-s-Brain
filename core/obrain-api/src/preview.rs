@@ -102,16 +102,24 @@ pub struct Preview {
     pub height: u32,
     /// Por qué no hay nada que enseñar, dicho con todas las letras.
     pub reason: Option<String>,
+    /// Es sensible, hay PIN y no está desbloqueado: el contenido **no ha
+    /// salido del núcleo** (ADR-0021). No es un borroso: no hay nada que
+    /// destapar hasta que se escriba el PIN.
+    pub locked: bool,
 }
 
 /// Qué se puede enseñar de esta entidad.
 ///
-/// `query` sólo cambia **dónde se abre** el texto, nunca cuánto se puede leer.
+/// `query` y `tramo` sólo cambian **dónde se abre** el texto, nunca cuánto se
+/// puede leer. El tramo, si lo hay, manda: es un sitio exacto del documento
+/// —dónde está algo que lleva dentro (ADR-0030)— y no una búsqueda.
 pub fn of(
     store: &Store,
     id: &EntityId,
     query: Option<&str>,
+    tramo: Option<(usize, usize)>,
     at: TimePoint,
+    locked: bool,
 ) -> Result<Preview> {
     let texto_de = |p: &str| -> Result<Option<String>> {
         Ok(store
@@ -139,19 +147,36 @@ pub fn of(
         width: 0,
         height: 0,
         reason: None,
+        locked: false,
         path,
     };
 
+    // ── 0. Con el PIN puesto y sin desbloquear, lo sensible no se lee: ni el
+    //       texto de la base ni, sobre todo, el archivo para la miniatura.
+    if locked && p.sensitivity != "normal" {
+        p.locked = true;
+        p.reason = Some("protegido con tu PIN".to_string());
+        return Ok(p);
+    }
+
     // ── 1. El texto. No abre ningún archivo: sale de la proyección de M2.
     if let Some(doc) = obrain_extract::index::document_text(store.conn(), id)? {
-        let (inicio, fin, marca) = window(&doc, query);
+        let (inicio, fin, marca) = match tramo {
+            Some(t) => window_at(&doc, t),
+            None => window(&doc, query),
+        };
         p.kind = "text";
         p.chars = doc.chars().count();
         p.truncated = fin - inicio < doc.len();
         p.offset = inicio;
         p.highlight = marca;
         p.text = Some(doc[inicio..fin].to_string());
-        return Ok(p);
+        // Una foto con texto reconocido (OCR) se sigue enseñando como foto:
+        // el texto va con ella, debajo. Un escaneo se reconoce por la imagen.
+        let es_imagen = p.path.as_deref().is_some_and(is_image);
+        if !es_imagen {
+            return Ok(p);
+        }
     }
 
     // ── 2. La miniatura. **Aquí sí se abre un archivo**, así que la guarda va
@@ -178,7 +203,18 @@ pub fn of(
         }
     }
 
-    p.reason = Some(reason(disponibilidad, p.availability.is_some(), status.as_deref()));
+    // En la papelera (ADR-0025) ya no hay archivo que abrir: sólo lo que se
+    // leyó de él, si se leyó algo.
+    if p.path.is_none() && p.availability.is_some() {
+        p.reason =
+            Some("ya no está en tu bóveda, y de este archivo no se había leído texto".to_string());
+        return Ok(p);
+    }
+    p.reason = Some(reason(
+        disponibilidad,
+        p.availability.is_some(),
+        status.as_deref(),
+    ));
     Ok(p)
 }
 
@@ -192,7 +228,8 @@ fn reason(a: Option<Availability>, etiquetado: bool, status: Option<&str>) -> St
     match a {
         Some(Availability::Local) => match status {
             Some("empty") => {
-                "se leyó y no tenía texto — casi siempre es un PDF escaneado, y haría falta OCR"
+                "se leyó y no tenía texto: casi siempre es un documento escaneado, y el reconocedor de texto \
+                 (OCR) de este equipo no encontró nada legible o no está disponible"
                     .to_string()
             }
             Some("binary") => "se leyó y no era texto, aunque lo pareciera por el nombre".to_string(),
@@ -246,6 +283,25 @@ fn window(doc: &str, query: Option<&str>) -> (usize, usize, Option<(usize, usize
     (inicio, fin, marca)
 }
 
+/// Qué tramo se abre para enseñar **este** sitio del documento, marcado.
+///
+/// Si cabe desde el principio, se abre por el principio, como [`window`]. Si
+/// no, un poco antes de donde empieza. Lo que no quepa del sitio en la
+/// ventana se marca hasta el borde: un estado de cuenta de 60 KB dentro de un
+/// paquete no se ve entero, pero se ve dónde empieza.
+fn window_at(doc: &str, (desde, hasta): (usize, usize)) -> (usize, usize, Option<(usize, usize)>) {
+    let desde = floor(doc, desde);
+    let hasta = ceil(doc, hasta.max(desde));
+    let inicio = if hasta <= TEXT_BUDGET {
+        0
+    } else {
+        floor(doc, desde.saturating_sub(TEXT_BUDGET / 8))
+    };
+    let fin = ceil(doc, (inicio + TEXT_BUDGET).min(doc.len()));
+    let marca = (desde < fin && hasta > desde).then(|| (desde - inicio, hasta.min(fin) - inicio));
+    (inicio, fin, marca)
+}
+
 /// Retrocede hasta un límite de carácter. Rebanar UTF-8 por la mitad es un
 /// pánico, no un resultado peor.
 fn floor(s: &str, mut i: usize) -> usize {
@@ -270,7 +326,11 @@ fn ceil(s: &str, mut i: usize) -> usize {
 /// exigiría abrir el archivo, y abrirlo es exactamente lo que la guarda decide
 /// si se puede hacer. La comprobación barata va antes que la cara.
 fn is_image(path: &str) -> bool {
-    let ext = path.rsplit('.').next().unwrap_or_default().to_ascii_lowercase();
+    let ext = path
+        .rsplit('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     IMAGE_EXT.contains(&ext.as_str())
 }
 
@@ -326,7 +386,11 @@ fn thumbnail(path: &Path) -> Option<(String, u32, u32)> {
     let mut buf = std::io::Cursor::new(Vec::new());
     img.write_to(&mut buf, formato).ok()?;
     let datos = base64::engine::general_purpose::STANDARD.encode(buf.into_inner());
-    Some((format!("data:{mime};base64,{datos}"), img.width(), img.height()))
+    Some((
+        format!("data:{mime};base64,{datos}"),
+        img.width(),
+        img.height(),
+    ))
 }
 
 /// ¿Hay algún píxel que no sea opaco?
@@ -374,7 +438,11 @@ mod tests {
         let (s, e) = marca.expect("hay tramo marcado");
         let visto = &doc[i..f];
         assert!(visto.contains("aguacate"));
-        assert!(visto[s..e].contains("aguacate"), "la marca apunta a otro sitio: {:?}", &visto[s..e]);
+        assert!(
+            visto[s..e].contains("aguacate"),
+            "la marca apunta a otro sitio: {:?}",
+            &visto[s..e]
+        );
     }
 
     /// Mientras la prueba quepa dentro del presupuesto, el documento se abre
@@ -396,6 +464,34 @@ mod tests {
             assert!(doc.is_char_boundary(i) && doc.is_char_boundary(f));
             let _ = &doc[i..f]; // rebanar no puede entrar en pánico
         }
+        for t in [(1, 7), (90_001, 150_003), (0, 999_999)] {
+            let (i, f, marca) = window_at(&doc, t);
+            assert!(doc.is_char_boundary(i) && doc.is_char_boundary(f));
+            let (s, e) = marca.unwrap();
+            let _ = &doc[i..f][s..e];
+        }
+    }
+
+    /// Un estado de cuenta en la mitad de un paquete de 80 KB: la ventana va
+    /// a donde empieza y lo marca (ADR-0030).
+    #[test]
+    fn un_tramo_abre_la_ventana_donde_empieza_y_lo_marca() {
+        let antes = "portada. ".repeat(6_000); // 54 KB
+        let marzo = "estado de cuenta de marzo. ".repeat(400);
+        let doc = format!("{antes}{marzo}{}", "abril. ".repeat(3_000));
+        let t = (antes.len(), antes.len() + marzo.len());
+        let (i, f, marca) = window_at(&doc, t);
+        assert!(i > 0 && i < t.0 && f > t.1);
+        let (s, e) = marca.unwrap();
+        assert_eq!(&doc[i..f][s..e], marzo);
+
+        // Si cabe desde el principio, se abre por el principio.
+        let (i, _, marca) = window_at(&doc, (10, 50));
+        assert_eq!((i, marca), (0, Some((10, 50))));
+
+        // Más largo que la ventana: se marca hasta el borde.
+        let (i, f, marca) = window_at(&doc, (100, doc.len()));
+        assert_eq!(marca, Some((100 - i, f - i)));
     }
 
     /// La nube manda sobre el estado de extracción. Decirle a alguien que «de
@@ -403,7 +499,11 @@ mod tests {
     /// está en la máquina sugiere un fallo del programa donde no lo hay.
     #[test]
     fn la_nube_manda_sobre_el_estado_de_extraccion() {
-        let r = reason(Some(Availability::CloudDehydrated), true, Some("unsupported"));
+        let r = reason(
+            Some(Availability::CloudDehydrated),
+            true,
+            Some("unsupported"),
+        );
         assert!(r.contains("nube"), "{r}");
         assert!(r.contains("descargaría"), "{r}");
     }

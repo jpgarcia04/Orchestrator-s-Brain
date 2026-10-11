@@ -48,10 +48,27 @@ impl SkipReason {
 /// Regenerables: si se borran, una herramienta los reconstruye. No son
 /// conocimiento.
 const BUILD_DIRS: &[&str] = &[
-    "node_modules", "target", "__pycache__", ".venv", "venv", "env",
-    ".next", ".nuxt", ".svelte-kit", ".parcel-cache", ".turbo",
-    "bower_components", "vendor", "Pods", ".gradle", ".mvn",
-    "obj", "bin", "Debug", "Release", "CMakeFiles",
+    "node_modules",
+    "target",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "env",
+    ".next",
+    ".nuxt",
+    ".svelte-kit",
+    ".parcel-cache",
+    ".turbo",
+    "bower_components",
+    "vendor",
+    "Pods",
+    ".gradle",
+    ".mvn",
+    "obj",
+    "bin",
+    "Debug",
+    "Release",
+    "CMakeFiles",
 ];
 
 /// Internos de herramientas. `.git` se excluye **como directorio**: el
@@ -69,10 +86,31 @@ const BUILD_DIRS: &[&str] = &[
 /// usuario, y la puerta de sensibilidad (M3½) es la última línea, no la
 /// primera.
 const TOOL_DIRS: &[&str] = &[
-    ".git", ".hg", ".svn", ".cache", ".pytest_cache", ".mypy_cache",
-    ".ruff_cache", ".tox", ".idea", ".vs", ".vscode", ".terraform",
-    ".cargo", ".rustup", ".nvm", ".npm", ".pnpm-store", ".yarn", ".m2",
-    ".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker",
+    ".git",
+    ".hg",
+    ".svn",
+    ".cache",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".tox",
+    ".idea",
+    ".vs",
+    ".vscode",
+    ".terraform",
+    ".cargo",
+    ".rustup",
+    ".nvm",
+    ".npm",
+    ".pnpm-store",
+    ".yarn",
+    ".m2",
+    ".ssh",
+    ".gnupg",
+    ".aws",
+    ".azure",
+    ".kube",
+    ".docker",
 ];
 
 /// Datos de aplicación: cachés de navegador, perfiles, almacenes locales.
@@ -86,11 +124,33 @@ const TOOL_DIRS: &[&str] = &[
 /// Es la demostración de por qué M3 tenía que poder auditarse: los contadores
 /// decían "4.336 aristas" y parecían un éxito.
 const APP_DATA_DIRS: &[&str] = &[
-    "Cache", "Cache_Data", "Code Cache", "GPUCache", "DawnCache", "DawnGraphiteCache",
-    "ShaderCache", "GrShaderCache", "CacheStorage", "Service Worker", "blob_storage",
-    "IndexedDB", "Local Storage", "Session Storage", "Crashpad", "component_crx_cache",
-    "extensions_crx_cache", "Safe Browsing", "WidevineCdm", "hyphen-data",
-    "Local State", "Network", "Sessions", "Storage", "logs", "Logs", "CrashReports",
+    "Cache",
+    "Cache_Data",
+    "Code Cache",
+    "GPUCache",
+    "DawnCache",
+    "DawnGraphiteCache",
+    "ShaderCache",
+    "GrShaderCache",
+    "CacheStorage",
+    "Service Worker",
+    "blob_storage",
+    "IndexedDB",
+    "Local Storage",
+    "Session Storage",
+    "Crashpad",
+    "component_crx_cache",
+    "extensions_crx_cache",
+    "Safe Browsing",
+    "WidevineCdm",
+    "hyphen-data",
+    "Local State",
+    "Network",
+    "Sessions",
+    "Storage",
+    "logs",
+    "Logs",
+    "CrashReports",
 ];
 
 /// Directorios de paquetes de terceros que **sólo** son basura cuando cuelgan
@@ -105,10 +165,8 @@ const APP_DATA_DIRS: &[&str] = &[
 /// para una carpeta suya, y podarla por nombre sería el error caro de este
 /// módulo. `WindowsPowerShell\Scripts`, en cambio, **no** se poda: ahí es donde
 /// la gente guarda sus propios scripts.
-const DEPENDENCY_PAIRS: &[(&str, &str)] = &[
-    ("WindowsPowerShell", "Modules"),
-    ("PowerShell", "Modules"),
-];
+const DEPENDENCY_PAIRS: &[(&str, &str)] =
+    &[("WindowsPowerShell", "Modules"), ("PowerShell", "Modules")];
 
 /// Marcadores de un directorio de datos de usuario de Chromium.
 ///
@@ -129,9 +187,18 @@ const CHROMIUM_MARKERS: &[&str] = &["Local State", "First Run"];
 
 /// Rutas del sistema operativo. Se comparan como componente de ruta.
 const SYSTEM_DIRS: &[&str] = &[
-    "AppData", "Application Data", "$Recycle.Bin", "System Volume Information",
-    "Windows", "Program Files", "Program Files (x86)", "ProgramData",
-    "Recovery", "PerfLogs", "MSOCache", "$WinREAgent",
+    "AppData",
+    "Application Data",
+    "$Recycle.Bin",
+    "System Volume Information",
+    "Windows",
+    "Program Files",
+    "Program Files (x86)",
+    "ProgramData",
+    "Recovery",
+    "PerfLogs",
+    "MSOCache",
+    "$WinREAgent",
 ];
 
 pub struct ExclusionSet {
@@ -250,6 +317,22 @@ impl ExclusionSet {
         }
     }
 
+    /// ¿Cuelga esta ruta **absoluta** de una carpeta con punto de la raíz del
+    /// perfil? Es la regla de [`Self::dotdir_del_perfil`] para quien no baja
+    /// directorio a directorio, sino que recibe rutas sueltas: el vigía.
+    ///
+    /// Ahí vive la base de obrain, `%USERPROFILE%\.obrain` ([ADR-0029]). Con
+    /// el perfil entero como biblioteca, sin esto cada escritura de la base
+    /// despertaría al vigía, y su pasada volvería a escribir en la base.
+    ///
+    /// [ADR-0029]: ../../../docs/adr/0029-una-carpeta-fija-fuera-de-appdata.md
+    pub fn cuelga_de_dotdir_del_perfil(&self, path: &Path) -> bool {
+        path.ancestors().any(|a| {
+            a.file_name()
+                .is_some_and(|n| self.dotdir_del_perfil(a, &n.to_string_lossy()))
+        })
+    }
+
     /// Asimetría deliberada respecto a [`Self::skip_dir`]: aquí se excluye por
     /// `SYSTEM` pero **no** por `HIDDEN`.
     ///
@@ -258,9 +341,7 @@ impl ExclusionSet {
     /// suele ser contenido del usuario que alguna aplicación marcó, y perderlo
     /// sería un falso negativo — el error caro según el criterio de este módulo.
     pub fn skip_file(&self, name: &str, attributes: u32) -> Option<SkipReason> {
-        if self.skip_hidden
-            && attributes & crate::triage::attr::SYSTEM != 0
-        {
+        if self.skip_hidden && attributes & crate::triage::attr::SYSTEM != 0 {
             return Some(SkipReason::HiddenOrSystem);
         }
         // Ruido conocido del sistema de archivos, no contenido.
@@ -346,7 +427,10 @@ mod tests {
     /// Perfil fijo: los tests de la señal no pueden depender de en qué máquina
     /// corren.
     fn con_perfil(raiz: &str) -> ExclusionSet {
-        ExclusionSet { profile_root: Some(PathBuf::from(raiz)), ..Default::default() }
+        ExclusionSet {
+            profile_root: Some(PathBuf::from(raiz)),
+            ..Default::default()
+        }
     }
 
     /// El hallazgo del 2026-08-10. Un escaneo en seco del perfil real devolvió
@@ -359,12 +443,40 @@ mod tests {
     #[test]
     fn poda_el_estado_de_herramientas_que_cuelga_del_perfil() {
         let e = con_perfil("C:/Users/x");
-        for name in [".codex", ".gemini", ".antigravity", ".claude", ".m2", ".loquesalgaelmesqueviene"] {
+        for name in [
+            ".codex",
+            ".gemini",
+            ".antigravity",
+            ".claude",
+            ".m2",
+            ".loquesalgaelmesqueviene",
+        ] {
             assert_eq!(
                 e.skip_dir(&d(&format!("C:/Users/x/{name}")), attr::DIRECTORY),
                 Some(SkipReason::ToolInternal),
                 "{name} cuelga del perfil y empieza por punto"
             );
+        }
+    }
+
+    /// La misma regla para una ruta suelta, que es lo que recibe el vigía: la
+    /// base de obrain (`.obrain`) y lo de dentro no son de la bóveda.
+    #[test]
+    fn una_ruta_suelta_dentro_de_una_carpeta_con_punto_del_perfil() {
+        let e = con_perfil("C:/Users/x");
+        for ruta in [
+            "C:/Users/x/.obrain/brain.obrain-wal",
+            "C:/Users/x/.obrain/models/multilingual-e5-small/model.onnx",
+            "C:/Users/x/.codex/sesion.json",
+        ] {
+            assert!(e.cuelga_de_dotdir_del_perfil(&d(ruta)), "{ruta}");
+        }
+        for ruta in [
+            "C:/Users/x/Documentos/.borradores/carta.docx",
+            "C:/Users/x/Segundo Cerebro/01 Identidad/pasaporte.pdf",
+            "D:/.obrain/brain.obrain",
+        ] {
+            assert!(!e.cuelga_de_dotdir_del_perfil(&d(ruta)), "{ruta}");
         }
     }
 
@@ -374,15 +486,27 @@ mod tests {
     #[test]
     fn una_carpeta_con_punto_mas_adentro_es_del_usuario() {
         let e = con_perfil("C:/Users/x");
-        assert_eq!(e.skip_dir(&d("C:/Users/x/Documentos/.borradores"), attr::DIRECTORY), None);
-        assert_eq!(e.skip_dir(&d("C:/Users/x/OneDrive/.notas de la visa"), attr::DIRECTORY), None);
+        assert_eq!(
+            e.skip_dir(&d("C:/Users/x/Documentos/.borradores"), attr::DIRECTORY),
+            None
+        );
+        assert_eq!(
+            e.skip_dir(&d("C:/Users/x/OneDrive/.notas de la visa"), attr::DIRECTORY),
+            None
+        );
     }
 
     /// Y la señal no puede llevarse por delante el perfil entero.
     #[test]
     fn la_regla_del_perfil_no_toca_las_carpetas_normales() {
         let e = con_perfil("C:/Users/x");
-        for name in ["Documentos", "Downloads", "OneDrive", "Imágenes", "Escritorio"] {
+        for name in [
+            "Documentos",
+            "Downloads",
+            "OneDrive",
+            "Imágenes",
+            "Escritorio",
+        ] {
             assert_eq!(
                 e.skip_dir(&d(&format!("C:/Users/x/{name}")), attr::DIRECTORY),
                 None,
@@ -399,7 +523,10 @@ mod tests {
         let e = con_perfil("C:/Users/x");
         for name in [".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker"] {
             assert_eq!(
-                e.skip_dir(&d(&format!("C:/Users/x/Proyectos/servidor/{name}")), attr::DIRECTORY),
+                e.skip_dir(
+                    &d(&format!("C:/Users/x/Proyectos/servidor/{name}")),
+                    attr::DIRECTORY
+                ),
                 Some(SkipReason::ToolInternal),
                 "{name} no es conocimiento del usuario"
             );
@@ -408,6 +535,10 @@ mod tests {
 
     /// `%USERPROFILE%` y la ruta que escribe una persona no tienen por qué
     /// coincidir ni en mayúsculas ni en separador.
+    ///
+    /// Sólo en Windows: fuera de él `\` no es un separador y `C:\Users\Pacox`
+    /// es un único componente, así que la comparación no tiene nada que medir.
+    #[cfg(windows)]
     #[test]
     fn la_raiz_del_perfil_se_compara_como_lo_hace_windows() {
         let e = con_perfil("C:\\Users\\Pacox");
@@ -420,23 +551,44 @@ mod tests {
     /// Sin perfil conocido, la señal se apaga entera en vez de adivinar.
     #[test]
     fn sin_perfil_la_senal_no_poda_nada() {
-        let e = ExclusionSet { profile_root: None, ..Default::default() };
+        let e = ExclusionSet {
+            profile_root: None,
+            ..Default::default()
+        };
         assert_eq!(e.skip_dir(&d("C:/Users/x/.codex"), attr::DIRECTORY), None);
     }
 
     #[test]
     fn poda_lo_regenerable() {
         let e = ExclusionSet::new();
-        assert_eq!(e.skip_dir(&d("x/node_modules"), attr::DIRECTORY), Some(SkipReason::BuildArtifact));
-        assert_eq!(e.skip_dir(&d("x/target"), attr::DIRECTORY), Some(SkipReason::BuildArtifact));
-        assert_eq!(e.skip_dir(&d("x/.git"), attr::DIRECTORY), Some(SkipReason::ToolInternal));
-        assert_eq!(e.skip_dir(&d("x/AppData"), attr::DIRECTORY), Some(SkipReason::SystemPath));
+        assert_eq!(
+            e.skip_dir(&d("x/node_modules"), attr::DIRECTORY),
+            Some(SkipReason::BuildArtifact)
+        );
+        assert_eq!(
+            e.skip_dir(&d("x/target"), attr::DIRECTORY),
+            Some(SkipReason::BuildArtifact)
+        );
+        assert_eq!(
+            e.skip_dir(&d("x/.git"), attr::DIRECTORY),
+            Some(SkipReason::ToolInternal)
+        );
+        assert_eq!(
+            e.skip_dir(&d("x/AppData"), attr::DIRECTORY),
+            Some(SkipReason::SystemPath)
+        );
     }
 
     #[test]
     fn poda_las_caches_que_las_apps_dejan_en_documentos() {
         let e = ExclusionSet::new();
-        for name in ["Cache", "Code Cache", "GPUCache", "Service Worker", "IndexedDB"] {
+        for name in [
+            "Cache",
+            "Code Cache",
+            "GPUCache",
+            "Service Worker",
+            "IndexedDB",
+        ] {
             assert_eq!(
                 e.skip_dir(&d(&format!("x/{name}")), attr::DIRECTORY),
                 Some(SkipReason::AppData),
@@ -449,7 +601,11 @@ mod tests {
     fn no_poda_contenido_del_usuario() {
         let e = ExclusionSet::new();
         for name in ["Documentos", "Fotos", "Proyectos", "visa", "facturas 2023"] {
-            assert_eq!(e.skip_dir(&d(&format!("x/{name}")), attr::DIRECTORY), None, "{name} es del usuario");
+            assert_eq!(
+                e.skip_dir(&d(&format!("x/{name}")), attr::DIRECTORY),
+                None,
+                "{name} es del usuario"
+            );
         }
     }
 
@@ -459,7 +615,10 @@ mod tests {
         let e = ExclusionSet::new();
         for parent in ["WindowsPowerShell", "PowerShell"] {
             assert_eq!(
-                e.skip_dir(&d(&format!("C:/Users/x/Documentos/{parent}/Modules")), attr::DIRECTORY),
+                e.skip_dir(
+                    &d(&format!("C:/Users/x/Documentos/{parent}/Modules")),
+                    attr::DIRECTORY
+                ),
                 Some(SkipReason::Dependency),
                 "{parent}\\Modules es el node_modules de PowerShell"
             );
@@ -472,8 +631,20 @@ mod tests {
     #[test]
     fn modules_a_secas_no_se_poda() {
         let e = ExclusionSet::new();
-        assert_eq!(e.skip_dir(&d("C:/Users/x/Documentos/Curso Rust/Modules"), attr::DIRECTORY), None);
-        assert_eq!(e.skip_dir(&d("C:/Users/x/Documentos/WindowsPowerShell/Scripts"), attr::DIRECTORY), None);
+        assert_eq!(
+            e.skip_dir(
+                &d("C:/Users/x/Documentos/Curso Rust/Modules"),
+                attr::DIRECTORY
+            ),
+            None
+        );
+        assert_eq!(
+            e.skip_dir(
+                &d("C:/Users/x/Documentos/WindowsPowerShell/Scripts"),
+                attr::DIRECTORY
+            ),
+            None
+        );
     }
 
     /// El 34,6 % restante. Se detecta por marcador porque ninguna de las
@@ -486,13 +657,24 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
 
         let e = ExclusionSet::new();
-        assert_eq!(e.skip_dir(&dir, attr::DIRECTORY), None, "todavía no hay marcadores");
+        assert_eq!(
+            e.skip_dir(&dir, attr::DIRECTORY),
+            None,
+            "todavía no hay marcadores"
+        );
 
         std::fs::write(dir.join("Local State"), b"{}").unwrap();
-        assert_eq!(e.skip_dir(&dir, attr::DIRECTORY), None, "un solo marcador no basta");
+        assert_eq!(
+            e.skip_dir(&dir, attr::DIRECTORY),
+            None,
+            "un solo marcador no basta"
+        );
 
         std::fs::write(dir.join("First Run"), b"").unwrap();
-        assert_eq!(e.skip_dir(&dir, attr::DIRECTORY), Some(SkipReason::BrowserProfile));
+        assert_eq!(
+            e.skip_dir(&dir, attr::DIRECTORY),
+            Some(SkipReason::BrowserProfile)
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

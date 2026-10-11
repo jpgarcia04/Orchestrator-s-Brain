@@ -105,9 +105,7 @@ pub fn decide(level: Sensitivity, capability: Capability, runs: Runs) -> Decisio
                 Decision::Allow
             }
         }
-        (Sensitivity::Sensitive, Runs::Remote) => {
-            Decision::Deny("sensitive: solo modelos locales")
-        }
+        (Sensitivity::Sensitive, Runs::Remote) => Decision::Deny("sensitive: solo modelos locales"),
         (Sensitivity::Sensitive, Runs::Local) => Decision::Allow,
         (Sensitivity::Normal, Runs::Local) => Decision::Allow,
         (Sensitivity::Normal, Runs::Remote) => Decision::NeedsConsent,
@@ -170,7 +168,11 @@ mod tests {
 
     #[test]
     fn la_boveda_nunca_sale() {
-        for cap in [Capability::Summarizer, Capability::Answerer, Capability::Reranker] {
+        for cap in [
+            Capability::Summarizer,
+            Capability::Answerer,
+            Capability::Reranker,
+        ] {
             assert!(!decide(Sensitivity::Vault, cap, Runs::Remote).allowed());
         }
     }
@@ -231,8 +233,14 @@ mod tests {
         }
         store
             .assert(
-                NewAssertion::new(secreto.clone(), "sensitivity_level", "vault", Method::Inferred, at)
-                    .source("guard:test"),
+                NewAssertion::new(
+                    secreto.clone(),
+                    "sensitivity_level",
+                    "vault",
+                    Method::Inferred,
+                    at,
+                )
+                .source("guard:test"),
             )
             .unwrap();
         store.reproject_sensitivity(&secreto, tp).unwrap();

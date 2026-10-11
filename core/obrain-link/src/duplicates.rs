@@ -4,16 +4,11 @@
 //! no hay confianza parcial, no hay modelo. Es el ejemplo puro de por qué la
 //! columna determinista de §4.4 es donde está el valor inicial del grafo.
 
-use crate::{write_edge, Edge, FileView, LinkReport};
+use crate::{Edge, FileView, LinkReport, write_edge};
 use obrain_core::{Method, Result, Store, Value};
 use std::collections::HashMap;
 
-pub fn link(
-    store: &Store,
-    files: &[FileView],
-    at: i64,
-    report: &mut LinkReport,
-) -> Result<()> {
+pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport) -> Result<()> {
     let mut by_hash: HashMap<&str, Vec<&FileView>> = HashMap::new();
     for f in files {
         // Un archivo vacío tiene el mismo hash que todos los demás archivos
@@ -109,12 +104,20 @@ mod tests {
         let canonical = &files[1].entity;
         for f in [&files[0], &files[2]] {
             let a = s.resolve(&f.entity, "duplicate_of", tp).unwrap().unwrap();
-            assert_eq!(a.object.as_entity(), Some(canonical), "todos apuntan al mas antiguo");
+            assert_eq!(
+                a.object.as_entity(),
+                Some(canonical),
+                "todos apuntan al mas antiguo"
+            );
             assert_eq!(a.method, Method::Deterministic);
             assert_eq!(a.confidence, 1.0);
         }
         // el archivo sin pareja no gana ninguna arista
-        assert!(s.resolve(&files[3].entity, "duplicate_of", tp).unwrap().is_none());
+        assert!(
+            s.resolve(&files[3].entity, "duplicate_of", tp)
+                .unwrap()
+                .is_none()
+        );
     }
 
     /// Regresión encontrada en el corpus real: todos los archivos de 0 bytes
@@ -133,7 +136,10 @@ mod tests {
         }
         let mut r = LinkReport::default();
         super::link(&s, &files, 2000, &mut r).unwrap();
-        assert_eq!(r.duplicate_of, 0, "vacio == vacio es cierto pero no dice nada");
+        assert_eq!(
+            r.duplicate_of, 0,
+            "vacio == vacio es cierto pero no dice nada"
+        );
     }
 
     #[test]

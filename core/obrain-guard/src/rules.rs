@@ -30,7 +30,11 @@ pub struct Signal {
 
 impl Signal {
     const fn new(rule: &'static str, level: Sensitivity, confidence: f64) -> Self {
-        Signal { rule, level, confidence }
+        Signal {
+            rule,
+            level,
+            confidence,
+        }
     }
 }
 
@@ -200,10 +204,18 @@ pub fn classify_name(name: &str) -> Option<Signal> {
     // «criptografía» con «secreto».
     if ext != "pub" {
         if VAULT_STEM.contains(&stem.as_str()) {
-            return Some(Signal::new("nombre:material-de-clave", Sensitivity::Vault, 0.95));
+            return Some(Signal::new(
+                "nombre:material-de-clave",
+                Sensitivity::Vault,
+                0.95,
+            ));
         }
         if VAULT_EXT.contains(&ext.as_str()) {
-            return Some(Signal::new("extension:material-de-clave", Sensitivity::Vault, 0.90));
+            return Some(Signal::new(
+                "extension:material-de-clave",
+                Sensitivity::Vault,
+                0.90,
+            ));
         }
         // `.env`, `.env.local`, `.env.production`: el archivo donde por
         // convención vive todo lo que no debe estar en el repositorio.
@@ -217,10 +229,18 @@ pub fn classify_name(name: &str) -> Option<Signal> {
         return Some(Signal::new(vault_substr_rule(t), Sensitivity::Vault, 0.80));
     }
     if let Some(t) = SENSITIVE_SUBSTR.iter().find(|t| full.contains(**t)) {
-        return Some(Signal::new(sensitive_substr_rule(t), Sensitivity::Sensitive, 0.70));
+        return Some(Signal::new(
+            sensitive_substr_rule(t),
+            Sensitivity::Sensitive,
+            0.70,
+        ));
     }
     if SENSITIVE_TOKEN.iter().any(|t| has_token(&full, t)) {
-        return Some(Signal::new("nombre:sigla-de-identidad", Sensitivity::Sensitive, 0.65));
+        return Some(Signal::new(
+            "nombre:sigla-de-identidad",
+            Sensitivity::Sensitive,
+            0.65,
+        ));
     }
     None
 }
@@ -258,9 +278,18 @@ fn vault_substr_rule(t: &str) -> &'static str {
 
 fn sensitive_substr_rule(t: &str) -> &'static str {
     match t {
-        "nomina" | "payslip" | "payroll" | "finiquito" | "declaracion de la renta"
-        | "tax return" | "extracto bancario" | "bank statement" | "estado de cuenta"
-        | "tarjeta de credito" | "credit card" | "hipoteca" => "nombre:financiero",
+        "nomina"
+        | "payslip"
+        | "payroll"
+        | "finiquito"
+        | "declaracion de la renta"
+        | "tax return"
+        | "extracto bancario"
+        | "bank statement"
+        | "estado de cuenta"
+        | "tarjeta de credito"
+        | "credit card"
+        | "hipoteca" => "nombre:financiero",
         "historia clinica" | "historial medico" | "informe medico" | "receta medica"
         | "medical record" | "tarjeta sanitaria" => "nombre:salud",
         "contrato" | "poliza" => "nombre:contractual",
@@ -319,9 +348,15 @@ mod tests {
 
     #[test]
     fn los_documentos_de_identidad_son_sensibles() {
-        assert_eq!(nivel("Pasaporte escaneado.pdf"), Some(Sensitivity::Sensitive));
+        assert_eq!(
+            nivel("Pasaporte escaneado.pdf"),
+            Some(Sensitivity::Sensitive)
+        );
         assert_eq!(nivel("dni-frente.jpg"), Some(Sensitivity::Sensitive));
-        assert_eq!(nivel("solicitud VISA 2019.pdf"), Some(Sensitivity::Sensitive));
+        assert_eq!(
+            nivel("solicitud VISA 2019.pdf"),
+            Some(Sensitivity::Sensitive)
+        );
     }
 
     /// El error que justifica que existan dos formas de casar: sin frontera de
@@ -344,7 +379,10 @@ mod tests {
     #[test]
     fn contract_en_ingles_no_dispara() {
         assert_eq!(nivel("IContractResolver.cs"), None);
-        assert_eq!(nivel("Contrato de alquiler.pdf"), Some(Sensitivity::Sensitive));
+        assert_eq!(
+            nivel("Contrato de alquiler.pdf"),
+            Some(Sensitivity::Sensitive)
+        );
     }
 
     #[test]

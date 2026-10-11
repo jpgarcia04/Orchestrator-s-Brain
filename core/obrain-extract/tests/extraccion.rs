@@ -6,7 +6,7 @@
 //! documentos de Office de la máquina están todos deshidratados en OneDrive.
 
 use obrain_core::{EntityId, Facet, Method, NewAssertion, Store, TimePoint, Value};
-use obrain_extract::{chunk, extract_all, index, load_files, search, ExtractReport, Status};
+use obrain_extract::{ExtractReport, Status, chunk, extract_all, index, load_files, search};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -39,7 +39,10 @@ fn ingerir(store: &Store, path: &Path, availability: &str, at: i64) -> EntityId 
             .unwrap();
     };
     w("has_facet", Facet::Addressable.as_str().into());
-    w("path_observed_at", path.to_string_lossy().to_string().into());
+    w(
+        "path_observed_at",
+        path.to_string_lossy().to_string().into(),
+    );
     w("file_size", Value::Number(bytes.len() as f64));
     w("availability", availability.into());
     w("has_hash", blake3::hash(&bytes).to_hex().to_string().into());
@@ -52,7 +55,10 @@ fn correr(store: &mut Store, at: i64) -> ExtractReport {
     store
         .transaction(|s| extract_all(s, &files, at, &mut r))
         .unwrap();
-    assert!(r.arithmetic_holds(), "la aritmetica del informe no cierra: {r:?}");
+    assert!(
+        r.arithmetic_holds(),
+        "la aritmetica del informe no cierra: {r:?}"
+    );
     r
 }
 
@@ -69,7 +75,11 @@ fn nunca_se_extrae_un_archivo_que_no_esta_local() {
     let dir = temp_dir("nolocal");
     let mut store = Store::open_in_memory().unwrap();
 
-    let deshidratado = escribir(&dir, "presupuesto.md", "Presupuesto Universidad Canada 2023.");
+    let deshidratado = escribir(
+        &dir,
+        "presupuesto.md",
+        "Presupuesto Universidad Canada 2023.",
+    );
     let placeholder = escribir(&dir, "contrato.md", "Contrato de arrendamiento firmado.");
     let local = escribir(&dir, "notas.md", "Notas locales sobre el tramite.");
 
@@ -94,7 +104,10 @@ fn nunca_se_extrae_un_archivo_que_no_esta_local() {
     // Y no se encuentra por su contenido, que es la comprobación de verdad:
     // si estuviera indexado, aparecería.
     let hits = search(&store, "Presupuesto Universidad", 10, TimePoint::at(3_000)).unwrap();
-    assert!(hits.is_empty(), "el contenido de un placeholder llego al indice: {hits:?}");
+    assert!(
+        hits.is_empty(),
+        "el contenido de un placeholder llego al indice: {hits:?}"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -110,7 +123,13 @@ fn una_disponibilidad_desconocida_tampoco_se_toca() {
     let e = store.create_entity(1_000).unwrap();
     let w = |pred: &str, v: Value| {
         store
-            .assert(NewAssertion::new(e.clone(), pred, v, Method::Deterministic, 1_000))
+            .assert(NewAssertion::new(
+                e.clone(),
+                pred,
+                v,
+                Method::Deterministic,
+                1_000,
+            ))
             .unwrap();
     };
     w("path_observed_at", p.to_string_lossy().to_string().into());
@@ -240,16 +259,26 @@ fn reejecutar_no_reextrae_ni_infla_el_log() {
 fn editar_un_archivo_sustituye_sus_fragmentos() {
     let dir = temp_dir("editado");
     let mut store = Store::open_in_memory().unwrap();
-    let p = escribir(&dir, "notas.md", "Version primera con la palabra alcachofa.");
+    let p = escribir(
+        &dir,
+        "notas.md",
+        "Version primera con la palabra alcachofa.",
+    );
     let e = ingerir(&store, &p, "local", 1_000);
     correr(&mut store, 2_000);
     assert_eq!(
-        search(&store, "alcachofa", 5, TimePoint::at(2_500)).unwrap().len(),
+        search(&store, "alcachofa", 5, TimePoint::at(2_500))
+            .unwrap()
+            .len(),
         1
     );
 
     // El archivo cambia; M1 volvería a escribir `has_hash`.
-    escribir(&dir, "notas.md", "Version segunda con la palabra berenjena.");
+    escribir(
+        &dir,
+        "notas.md",
+        "Version segunda con la palabra berenjena.",
+    );
     let bytes = std::fs::read(&p).unwrap();
     store
         .assert(NewAssertion::new(
@@ -281,7 +310,11 @@ fn editar_un_archivo_sustituye_sus_fragmentos() {
 fn el_log_registra_el_hecho_de_extraer_no_el_texto() {
     let dir = temp_dir("log");
     let mut store = Store::open_in_memory().unwrap();
-    let p = escribir(&dir, "acta.md", "Acta de la sesion de trabajo del 14 de enero.");
+    let p = escribir(
+        &dir,
+        "acta.md",
+        "Acta de la sesion de trabajo del 14 de enero.",
+    );
     let e = ingerir(&store, &p, "local", 1_000);
     correr(&mut store, 2_000);
 
@@ -332,7 +365,12 @@ fn el_indice_se_puede_tirar_y_rehacer() {
 
     let r = correr(&mut store, 4_000);
     assert_eq!(r.extracted, 1);
-    assert_eq!(search(&store, "flujograma", 5, TimePoint::at(5_000)).unwrap().len(), 1);
+    assert_eq!(
+        search(&store, "flujograma", 5, TimePoint::at(5_000))
+            .unwrap()
+            .len(),
+        1
+    );
     assert_eq!(
         store.log_len().unwrap(),
         log_antes,
@@ -417,15 +455,29 @@ fn el_documento_se_recompone_sin_repetir_el_solape() {
     correr(&mut store, 2_000);
 
     let trozos = index::chunks_of(store.conn(), &e).unwrap();
-    assert!(trozos.len() > 1, "haria falta mas de un fragmento: {}", trozos.len());
+    assert!(
+        trozos.len() > 1,
+        "haria falta mas de un fragmento: {}",
+        trozos.len()
+    );
 
-    let doc = index::document_text(store.conn(), &e).unwrap().expect("hay texto");
+    let doc = index::document_text(store.conn(), &e)
+        .unwrap()
+        .expect("hay texto");
     let pegados: usize = trozos.iter().map(|(_, t)| t.len()).sum();
-    assert!(doc.len() < pegados, "no se quito el solape: {} vs {pegados}", doc.len());
+    assert!(
+        doc.len() < pegados,
+        "no se quito el solape: {} vs {pegados}",
+        doc.len()
+    );
 
     // La propiedad que importa: cada parrafo aparece **una vez**.
     for (i, parrafo) in parrafos.iter().enumerate() {
-        assert_eq!(doc.matches(parrafo.as_str()).count(), 1, "el parrafo {i} sale repetido");
+        assert_eq!(
+            doc.matches(parrafo.as_str()).count(),
+            1,
+            "el parrafo {i} sale repetido"
+        );
     }
     assert_eq!(doc, obrain_extract::text::normalize(&original).trim_end());
 

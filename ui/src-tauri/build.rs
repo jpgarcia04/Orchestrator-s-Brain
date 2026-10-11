@@ -40,9 +40,8 @@ fn main() {
             copia.display()
         );
         println!("cargo:rerun-if-changed={}", icono.display());
-        atributos = atributos.windows_attributes(
-            tauri_build::WindowsAttributes::new().window_icon_path(&copia),
-        );
+        atributos = atributos
+            .windows_attributes(tauri_build::WindowsAttributes::new().window_icon_path(&copia));
     }
 
     tauri_build::try_build(atributos).expect("no se pudo preparar la compilacion de Tauri");

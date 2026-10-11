@@ -90,6 +90,9 @@ pub struct EmbedReport {
     /// Fragmentos que hacía falta vectorizar.
     pub pending: usize,
     pub vectors_written: usize,
+    /// Entidades cuyos vectores se han sacado del índice porque subieron a
+    /// bóveda después de vectorizarse (una carpeta marcada, una regla nueva).
+    pub entities_purged: usize,
     /// Entidades que la puerta rechazó **en la comprobación por invocación**.
     /// Debe ser 0: si no lo es, `embeddable` y `check` discrepan y eso es un
     /// defecto del control, no una estadística.
@@ -125,15 +128,22 @@ pub fn embed_all(
     let model = embedder.model();
     let tp = TimePoint::at(at);
 
+    // ── 0 · quién ya no puede estar ──
+    // Lo que subió a bóveda después de vectorizarse sale del índice, y su
+    // procedencia deja de estar vigente: el log no puede seguir afirmando que
+    // está vectorizado algo que ya no lo está.
+    report.entities_purged += store.purge_vault_embeddings(at)?.len();
+
     // ── 1 · quién entra. La puerta, no `chunks`. ──
     let allowed = gate::embeddable(store.conn())?;
     report.entities_allowed = allowed.len();
     report.chunks_withheld = gate::withheld_chunks(store.conn())?;
-    let with_text: i64 = store.conn().query_row(
-        "SELECT COUNT(DISTINCT entity) FROM chunks",
-        [],
-        |r| r.get(0),
-    )?;
+    let with_text: i64 =
+        store
+            .conn()
+            .query_row("SELECT COUNT(DISTINCT entity) FROM chunks", [], |r| {
+                r.get(0)
+            })?;
     report.entities_withheld = (with_text as usize).saturating_sub(allowed.len());
 
     // ── 2 · qué falta ──
@@ -181,8 +191,24 @@ pub fn embed_all(
         if n == 0 {
             continue;
         }
-        write_if_changed(store, report, e, "embedded_with", Value::Text(model.label()), tp, at)?;
-        write_if_changed(store, report, e, "vector_count", Value::Number(n as f64), tp, at)?;
+        write_if_changed(
+            store,
+            report,
+            e,
+            "embedded_with",
+            Value::Text(model.label()),
+            tp,
+            at,
+        )?;
+        write_if_changed(
+            store,
+            report,
+            e,
+            "vector_count",
+            Value::Number(n as f64),
+            tp,
+            at,
+        )?;
     }
 
     report.elapsed = started.elapsed();

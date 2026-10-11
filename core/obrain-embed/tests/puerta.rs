@@ -16,10 +16,14 @@
 use obrain_core::rusqlite::params;
 use obrain_core::{EntityId, Method, NewAssertion, Sensitivity, Store, TimePoint};
 use obrain_embed::embedder::{Embedder, ModelId, Role};
-use obrain_embed::{index, EmbedReport};
+use obrain_embed::{EmbedReport, index};
 use std::cell::RefCell;
 
-const M: ModelId = ModelId { id: "juguete", version: 1, dim: 4 };
+const M: ModelId = ModelId {
+    id: "juguete",
+    version: 1,
+    dim: 4,
+};
 
 /// Determinista y trazable: registra **todo** lo que se le pide embeber, que
 /// es lo que permite afirmar que el texto de la bóveda no llegó al modelo.
@@ -76,8 +80,14 @@ fn con_fragmentos(store: &Store, at: i64, textos: &[&str]) -> EntityId {
 fn a_la_boveda(store: &Store, e: &EntityId, at: i64) {
     store
         .assert(
-            NewAssertion::new(e.clone(), "sensitivity_level", "vault", Method::Inferred, at)
-                .source("test"),
+            NewAssertion::new(
+                e.clone(),
+                "sensitivity_level",
+                "vault",
+                Method::Inferred,
+                at,
+            )
+            .source("test"),
         )
         .unwrap();
     store.reproject_sensitivity(e, TimePoint::at(at)).unwrap();
@@ -87,7 +97,11 @@ fn a_la_boveda(store: &Store, e: &EntityId, at: i64) {
 fn vectores_de(store: &Store, e: &EntityId) -> i64 {
     store
         .conn()
-        .query_row("SELECT COUNT(*) FROM vectors WHERE entity = ?1", [e.as_str()], |r| r.get(0))
+        .query_row(
+            "SELECT COUNT(*) FROM vectors WHERE entity = ?1",
+            [e.as_str()],
+            |r| r.get(0),
+        )
         .unwrap()
 }
 
@@ -105,12 +119,19 @@ fn la_boveda_no_acaba_con_un_solo_vector() {
     let mut r = EmbedReport::default();
     obrain_embed::embed_all(&store, &modelo, at, &mut r).unwrap();
 
-    assert_eq!(vectores_de(&store, &secreto), 0, "la boveda ha entrado en el indice vectorial");
+    assert_eq!(
+        vectores_de(&store, &secreto),
+        0,
+        "la boveda ha entrado en el indice vectorial"
+    );
     assert_eq!(vectores_de(&store, &normal), 2);
     assert_eq!(r.vectors_written, 2);
     assert_eq!(r.chunks_withheld, 2);
     assert_eq!(r.entities_withheld, 1);
-    assert_eq!(r.denied_at_call, 0, "embeddable y check tienen que estar de acuerdo");
+    assert_eq!(
+        r.denied_at_call, 0,
+        "embeddable y check tienen que estar de acuerdo"
+    );
 
     // Y el texto de la bóveda **ni siquiera se le ofreció al modelo**. Con un
     // modelo local la diferencia parece académica; con uno remoto es la
@@ -135,15 +156,23 @@ fn la_boveda_tampoco_deja_procedencia() {
     obrain_embed::embed_all(&store, &Juguete::default(), at, &mut r).unwrap();
 
     let tp = TimePoint::at(at);
-    assert!(store.resolve(&secreto, "embedded_with", tp).unwrap().is_none());
-    assert!(store.resolve(&secreto, "vector_count", tp).unwrap().is_none());
+    assert!(
+        store
+            .resolve(&secreto, "embedded_with", tp)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        store
+            .resolve(&secreto, "vector_count", tp)
+            .unwrap()
+            .is_none()
+    );
 }
 
 /// Clasificar algo como bóveda **después** de vectorizarlo es el caso
-/// desagradable: los vectores ya existen. Que la clasificación no los borre es
-/// correcto —I1 dice que el índice es una proyección y quien lo reconstruye es
-/// quien lo mantiene—, pero entonces la reconstrucción **tiene** que dejarlo
-/// fuera, o la bóveda sería una etiqueta sin efecto.
+/// desagradable: los vectores ya existen. El cambio de sensibilidad los revoca
+/// inmediatamente; reconstruir después tampoco puede volver a introducirlos.
 #[test]
 fn reclasificar_a_boveda_saca_del_indice_al_reconstruir() {
     let store = base();
@@ -155,6 +184,7 @@ fn reclasificar_a_boveda_saca_del_indice_al_reconstruir() {
     assert_eq!(vectores_de(&store, &e), 1);
 
     a_la_boveda(&store, &e, at + 1);
+    assert_eq!(vectores_de(&store, &e), 0);
 
     // Reconstruir la proyección es la operación normal de I1.
     store.conn().execute("DELETE FROM vectors", []).unwrap();
@@ -163,6 +193,55 @@ fn reclasificar_a_boveda_saca_del_indice_al_reconstruir() {
 
     assert_eq!(vectores_de(&store, &e), 0);
     assert_eq!(r2.vectors_written, 0);
+}
+
+/// Y sin reconstruir nada: el cambio de sensibilidad ya lo saca.
+/// Es el caso de una foto que se mete en una carpeta marcada como bóveda
+/// (ADR-0020): la pasada siguiente no tiene que esperar a purgarlo.
+#[test]
+fn la_pasada_siguiente_saca_del_indice_lo_que_subio_a_boveda() {
+    let store = base();
+    let at = 1_000;
+    let e = con_fragmentos(&store, at, &["un escaneo que luego va a la boveda"]);
+    let otro = con_fragmentos(&store, at, &["un recibo normal"]);
+
+    let mut r = EmbedReport::default();
+    obrain_embed::embed_all(&store, &Juguete::default(), at, &mut r).unwrap();
+    assert_eq!(vectores_de(&store, &e), 1);
+    assert!(
+        store
+            .resolve(&e, "embedded_with", TimePoint::at(at))
+            .unwrap()
+            .is_some()
+    );
+
+    a_la_boveda(&store, &e, at + 1);
+    assert_eq!(vectores_de(&store, &e), 0);
+    for p in ["embedded_with", "vector_count"] {
+        assert!(
+            store
+                .resolve(&e, p, TimePoint::at(at + 1))
+                .unwrap()
+                .is_none()
+        );
+    }
+    let mut r2 = EmbedReport::default();
+    obrain_embed::embed_all(&store, &Juguete::default(), at + 2, &mut r2).unwrap();
+
+    assert_eq!(vectores_de(&store, &e), 0);
+    assert_eq!(vectores_de(&store, &otro), 1, "lo demás no se toca");
+    assert_eq!(
+        r2.entities_purged, 0,
+        "ya se revocó al cambiar sensibilidad"
+    );
+    let tp = TimePoint::at(at + 2);
+    assert!(store.resolve(&e, "embedded_with", tp).unwrap().is_none());
+    assert!(store.resolve(&e, "vector_count", tp).unwrap().is_none());
+
+    // Y otra pasada ya no tiene nada que sacar.
+    let mut r3 = EmbedReport::default();
+    obrain_embed::embed_all(&store, &Juguete::default(), at + 3, &mut r3).unwrap();
+    assert_eq!(r3.entities_purged, 0);
 }
 
 /// Lo `sensitive` **sí** entra en el índice: §5.2 le concede índice vectorial
@@ -175,8 +254,14 @@ fn lo_sensible_si_se_vectoriza_en_local() {
     let e = con_fragmentos(&store, at, &["matricula con un NIE dentro"]);
     store
         .assert(
-            NewAssertion::new(e.clone(), "sensitivity_level", "sensitive", Method::Inferred, at)
-                .source("test"),
+            NewAssertion::new(
+                e.clone(),
+                "sensitivity_level",
+                "sensitive",
+                Method::Inferred,
+                at,
+            )
+            .source("test"),
         )
         .unwrap();
     store.reproject_sensitivity(&e, TimePoint::at(at)).unwrap();

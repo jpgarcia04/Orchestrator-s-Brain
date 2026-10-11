@@ -1,7 +1,7 @@
 //! Texto plano, configuración y código. El extractor más simple y el que más
 //! archivos toca en un disco real.
 
-use crate::text::{decode, Decoded};
+use crate::text::{Decoded, decode};
 
 pub fn extract(bytes: &[u8]) -> Result<String, String> {
     match decode(bytes) {

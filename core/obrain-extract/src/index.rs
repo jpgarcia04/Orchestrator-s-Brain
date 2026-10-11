@@ -11,7 +11,7 @@
 //! con qué chunker, cuánto texto salió y qué hash tenía. Eso es procedencia
 //! (I9) y sobrevive a que se borre el índice.
 
-use obrain_core::rusqlite::{params, Connection, OptionalExtension};
+use obrain_core::rusqlite::{Connection, OptionalExtension, params};
 use obrain_core::{EntityId, Result};
 
 /// Versión del **esquema** de la proyección, independiente del log.
@@ -92,6 +92,9 @@ pub fn migrate(conn: &Connection) -> Result<()> {
 /// Lo que ya sabíamos de una entidad, para no repetir trabajo.
 #[derive(Debug, Clone)]
 pub struct Previous {
+    /// Con qué se extrajo: `pdf`, `pdf+ocr`, `image`… Es lo que dice si a un
+    /// PDF escaneado ya se le pasó el OCR o todavía no.
+    pub extractor: String,
     pub extractor_ver: i64,
     pub file_hash: Option<String>,
     pub status: String,
@@ -105,7 +108,7 @@ pub fn previous(
 ) -> Result<Option<Previous>> {
     Ok(conn
         .query_row(
-            "SELECT extractor_ver, file_hash, status FROM extractions
+            "SELECT extractor_ver, file_hash, status, extractor FROM extractions
              WHERE entity = ?1 AND chunker = ?2 AND chunker_ver = ?3",
             params![entity.as_str(), chunker, chunker_ver],
             |r| {
@@ -113,6 +116,7 @@ pub fn previous(
                     extractor_ver: r.get(0)?,
                     file_hash: r.get(1)?,
                     status: r.get(2)?,
+                    extractor: r.get(3)?,
                 })
             },
         )
@@ -205,9 +209,11 @@ pub fn chunk_count(conn: &Connection) -> Result<i64> {
 /// estrategia de fragmentación, que es un número que conviene mirar antes de
 /// que el corpus tenga 200.000 archivos.
 pub fn stored_chars(conn: &Connection) -> Result<i64> {
-    Ok(conn.query_row("SELECT COALESCE(SUM(LENGTH(text)), 0) FROM chunks", [], |r| {
-        r.get(0)
-    })?)
+    Ok(conn.query_row(
+        "SELECT COALESCE(SUM(LENGTH(text)), 0) FROM chunks",
+        [],
+        |r| r.get(0),
+    )?)
 }
 
 /// Los archivos que más ocupan el índice, de mayor a menor.
@@ -228,18 +234,16 @@ pub fn heaviest(conn: &Connection, limit: usize) -> Result<Vec<(EntityId, i64, i
 
 /// Entidades cuya extracción acabó en un estado concreto.
 pub fn with_status(conn: &Connection, status: &str, limit: usize) -> Result<Vec<EntityId>> {
-    let mut stmt = conn.prepare(
-        "SELECT entity FROM extractions WHERE status = ?1 ORDER BY entity LIMIT ?2",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT entity FROM extractions WHERE status = ?1 ORDER BY entity LIMIT ?2")?;
     let rows = stmt.query_map(params![status, limit as i64], |r| Ok(EntityId(r.get(0)?)))?;
     Ok(rows.collect::<obrain_core::rusqlite::Result<Vec<_>>>()?)
 }
 
 /// Fragmentos de una entidad, en orden.
 pub fn chunks_of(conn: &Connection, entity: &EntityId) -> Result<Vec<(i64, String)>> {
-    let mut stmt = conn.prepare(
-        "SELECT ordinal, text FROM chunks WHERE entity = ?1 ORDER BY ordinal",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT ordinal, text FROM chunks WHERE entity = ?1 ORDER BY ordinal")?;
     let rows = stmt.query_map([entity.as_str()], |r| Ok((r.get(0)?, r.get(1)?)))?;
     Ok(rows.collect::<obrain_core::rusqlite::Result<Vec<_>>>()?)
 }
@@ -259,39 +263,87 @@ pub fn chunks_of(conn: &Connection, entity: &EntityId) -> Result<Vec<(i64, Strin
 ///
 /// [ADR-0005]: ../../../docs/adr/0005-donde-vive-el-texto-extraido.md
 pub fn document_text(conn: &Connection, entity: &EntityId) -> Result<Option<String>> {
-    let mut stmt = conn.prepare(
-        "SELECT byte_start, text FROM chunks WHERE entity = ?1 ORDER BY ordinal",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT byte_start, text FROM chunks WHERE entity = ?1 ORDER BY ordinal")?;
     let rows = stmt.query_map([entity.as_str()], |r| {
         Ok((r.get::<_, i64>(0)?.max(0) as usize, r.get::<_, String>(1)?))
     })?;
 
-    let mut out = String::new();
-    let mut cursor = 0usize;
-    let mut hubo = false;
+    let mut costura = Costura::default();
     for row in rows {
         let (start, text) = row?;
-        hubo = true;
-        let end = start + text.len();
-        if end <= cursor && !out.is_empty() {
-            continue; // enteramente dentro de lo que ya está puesto
+        costura.poner(start, &text);
+    }
+    Ok(costura.hubo.then_some(costura.out))
+}
+
+/// Los textos de **todas** las entidades, de una pasada, uno cada vez.
+///
+/// Es [`document_text`] para quien tiene que leerlo todo —comparar cada
+/// documento con los demás ([ADR-0030])—: una consulta en vez de una por
+/// documento, y un texto en memoria cada vez en vez de todos a la vez. Se
+/// empalma con la misma costura, así que los bytes son los mismos que enseña
+/// la vista previa y un tramo apunta al mismo sitio en los dos.
+///
+/// [ADR-0030]: ../../../docs/adr/0030-un-documento-dentro-de-otro.md
+pub fn each_document_text(
+    conn: &Connection,
+    mut f: impl FnMut(EntityId, &str) -> Result<()>,
+) -> Result<()> {
+    let mut stmt =
+        conn.prepare("SELECT entity, byte_start, text FROM chunks ORDER BY entity, ordinal")?;
+    let mut rows = stmt.query([])?;
+    let mut actual: Option<(String, Costura)> = None;
+    while let Some(r) = rows.next()? {
+        let entity: String = r.get(0)?;
+        let start = r.get::<_, i64>(1)?.max(0) as usize;
+        let text: String = r.get(2)?;
+        if actual.as_ref().is_none_or(|(e, _)| *e != entity) {
+            if let Some((e, c)) = actual.take() {
+                f(EntityId(e), &c.out)?;
+            }
+            actual = Some((entity, Costura::default()));
         }
-        let desde = cursor.saturating_sub(start);
+        if let Some((_, c)) = actual.as_mut() {
+            c.poner(start, &text);
+        }
+    }
+    if let Some((e, c)) = actual {
+        f(EntityId(e), &c.out)?;
+    }
+    Ok(())
+}
+
+/// Empalma los fragmentos de un documento, en orden, por su offset.
+#[derive(Default)]
+struct Costura {
+    out: String,
+    cursor: usize,
+    hubo: bool,
+}
+
+impl Costura {
+    fn poner(&mut self, start: usize, text: &str) {
+        self.hubo = true;
+        let end = start + text.len();
+        if end <= self.cursor && !self.out.is_empty() {
+            return; // enteramente dentro de lo que ya está puesto
+        }
+        let desde = self.cursor.saturating_sub(start);
         if desde == 0 {
             // Un hueco entre fragmentos no debería existir. Si lo hubiera, se
             // marca con un salto en vez de pegar dos párrafos que no iban
             // juntos: un texto mal cosido se lee como un archivo corrupto.
-            if start > cursor && !out.is_empty() {
-                out.push('\n');
+            if start > self.cursor && !self.out.is_empty() {
+                self.out.push('\n');
             }
-            out.push_str(&text);
+            self.out.push_str(text);
         } else if desde < text.len() && text.is_char_boundary(desde) {
-            out.push_str(&text[desde..]);
+            self.out.push_str(&text[desde..]);
         } else if desde < text.len() {
-            out.push('\n');
-            out.push_str(&text);
+            self.out.push('\n');
+            self.out.push_str(text);
         }
-        cursor = cursor.max(end);
+        self.cursor = self.cursor.max(end);
     }
-    Ok(hubo.then_some(out))
 }

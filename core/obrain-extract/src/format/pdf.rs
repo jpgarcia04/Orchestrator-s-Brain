@@ -10,7 +10,7 @@
 //!   envuelta en `catch_unwind`. No es elegante; es lo correcto cuando el
 //!   fallo viene de datos que no controlamos.
 
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub fn extract(bytes: &[u8]) -> Result<String, String> {
     let owned = bytes.to_vec();

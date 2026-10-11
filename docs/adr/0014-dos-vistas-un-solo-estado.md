@@ -1,6 +1,6 @@
 # ADR-0014 — Dos vistas, un solo estado: la galaxia y el explorador
 
-- **Estado:** Aceptada
+- **Estado:** Aceptada — sus puntos 1 a 3 los invierte [ADR-0019](0019-el-explorador-es-el-escritorio.md) (2026-09-22): el explorador es la base y el mapa se invoca. Los puntos 4 a 6 siguen en pie.
 - **Fecha:** 2026-08-10
 - **Complementa a:** [ADR-0013](0013-el-mapa-es-la-pantalla.md)
 - **Acota:** [`EXPERIENCE.md`](../EXPERIENCE.md) §4.4

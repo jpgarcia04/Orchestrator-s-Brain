@@ -78,7 +78,12 @@ fn main() -> ExitCode {
     // Auditoría: mirar aristas reales, no sólo contadores.
     if args.iter().any(|a| a == "--sample") {
         let tp = TimePoint::at(at);
-        for p in ["duplicate_of", "downloaded_from", "version_of", "occurred_during"] {
+        for p in [
+            "duplicate_of",
+            "downloaded_from",
+            "version_of",
+            "occurred_during",
+        ] {
             println!("\n── muestra de {p} ──");
             match obrain_link::sample_edges(&store, p, 6, tp) {
                 Ok(rows) if rows.is_empty() => println!("  (ninguna)"),

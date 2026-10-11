@@ -9,7 +9,7 @@
 //!
 //! Esto imprime, sin abrir ninguna ventana, lo que el mapa va a enseñar.
 
-use obrain_api::{lens, sky, Brain};
+use obrain_api::{Brain, lens, sky};
 use obrain_core::{EntityId, TimePoint};
 use std::process::ExitCode;
 use std::time::Instant;
@@ -45,9 +45,8 @@ fn main() -> ExitCode {
             .and_then(|i| args.get(i + 1))
             .cloned()
     };
-    let numero = |n: &str, por_defecto: usize| {
-        value(n).and_then(|v| v.parse().ok()).unwrap_or(por_defecto)
-    };
+    let numero =
+        |n: &str, por_defecto: usize| value(n).and_then(|v| v.parse().ok()).unwrap_or(por_defecto);
     // La consulta es el primer argumento suelto que no sea una opción ni el
     // valor de una.
     let consulta = args[1..]
@@ -104,7 +103,9 @@ fn main() -> ExitCode {
                 let señales: [Señal; 6] = [
                     ("archivos   (regla de hoy)", |r| r.files as i64),
                     ("aserciones (cuánto sabe)", |r| r.assertions as i64),
-                    ("sesiones   (cuántas veces volviste)", |r| r.sessions as i64),
+                    ("sesiones   (cuántas veces volviste)", |r| {
+                        r.sessions as i64
+                    }),
                     ("lapso/días (cuánta vida abarca)", |r| r.span_days),
                     ("aristas    (con qué se relaciona)", |r| r.out_edges as i64),
                     // Derivada: no cuánto hay, sino cuánto sabe el sistema de
@@ -145,7 +146,11 @@ fn main() -> ExitCode {
                     t.elapsed().as_secs_f64() * 1000.0
                 );
                 for r in &c.regions {
-                    let marca = if r.sensitivity == "normal" { "  " } else { " ⚠" };
+                    let marca = if r.sensitivity == "normal" {
+                        "  "
+                    } else {
+                        " ⚠"
+                    };
                     let resto = if r.remainder { " (resto)" } else { "" };
                     println!("  {:>5}{marca} d{}  {}{resto}", r.weight, r.depth, r.label);
                 }
@@ -203,7 +208,11 @@ fn main() -> ExitCode {
                 }
                 println!();
                 for r in l.rows.iter().take(numero("--limite", 40)) {
-                    let marca = if r.sensitivity == "normal" { "  " } else { " ⚠" };
+                    let marca = if r.sensitivity == "normal" {
+                        "  "
+                    } else {
+                        " ⚠"
+                    };
                     // Lo que no se puede leer se dice **en la fila**, no en un
                     // panel al final: es la señal que decide si algo se puede
                     // previsualizar sin descargarlo.
@@ -222,7 +231,10 @@ fn main() -> ExitCode {
                 if l.rows.len() > numero("--limite", 40) {
                     println!("  … y {} más", l.rows.len() - numero("--limite", 40));
                 }
-                println!("\n  id del foco: {}", l.focus.as_deref().unwrap_or("(raíces)"));
+                println!(
+                    "\n  id del foco: {}",
+                    l.focus.as_deref().unwrap_or("(raíces)")
+                );
             }
             Err(e) => eprintln!("explorar: {e}"),
         }
@@ -245,12 +257,22 @@ fn main() -> ExitCode {
                 println!("{}", serde_json::to_string(&v).unwrap_or_default());
             }
             Ok(v) => {
-                println!("\n── QUÉ SE VE ── {:.1} ms ──", t.elapsed().as_secs_f64() * 1000.0);
-                println!("  ruta            {}", v.path.as_deref().unwrap_or("(sin ruta)"));
+                println!(
+                    "\n── QUÉ SE VE ── {:.1} ms ──",
+                    t.elapsed().as_secs_f64() * 1000.0
+                );
+                println!(
+                    "  ruta            {}",
+                    v.path.as_deref().unwrap_or("(sin ruta)")
+                );
                 println!(
                     "  disponibilidad  {}  →  {}",
                     v.availability.as_deref().unwrap_or("(sin etiqueta)"),
-                    if v.readable { "se puede abrir" } else { "NO SE ABRE" }
+                    if v.readable {
+                        "se puede abrir"
+                    } else {
+                        "NO SE ABRE"
+                    }
                 );
                 println!("  sensibilidad    {}", v.sensitivity);
                 println!("  qué hay         {}", v.kind);
@@ -332,9 +354,12 @@ fn main() -> ExitCode {
             vistazo.answer.branches.join(" + ")
         );
         for (i, h) in vistazo.answer.hits.iter().enumerate() {
-            let marca = if h.sensitivity == "normal" { "" } else { " ⚠" };
-            let ramas: Vec<String> =
-                h.ranks.iter().map(|(r, p)| format!("{r}#{p}")).collect();
+            let marca = if h.sensitivity == "normal" {
+                ""
+            } else {
+                " ⚠"
+            };
+            let ramas: Vec<String> = h.ranks.iter().map(|(r, p)| format!("{r}#{p}")).collect();
             println!("  {:>2}. {}{marca}   [{}]", i + 1, h.label, ramas.join(" "));
             if !h.snippet.is_empty() {
                 println!("      {}", h.snippet.chars().take(96).collect::<String>());

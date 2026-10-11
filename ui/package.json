@@ -3,19 +3,29 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
-  "description": "M5 · La barra sobre el sustrato — ADR-0004",
+  "description": "La aplicación de escritorio de Orchestrator's Brain — Svelte 5 sobre Tauri",
   "scripts": {
+    "test": "node --test tests/*.test.mjs",
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "build": "svelte-check --tsconfig ./tsconfig.json && vite build",
     "tauri": "tauri",
     "app": "tauri dev"
   },
   "dependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@fontsource/instrument-serif": "^5.3.0",
+    "@lucide/svelte": "^1.47.0",
     "@tauri-apps/api": "^2",
     "pixi.js": "^8"
   },
   "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^6.2.4",
     "@tauri-apps/cli": "^2",
+    "@tsconfig/svelte": "^5.0.8",
+    "svelte": "^5.57.1",
+    "svelte-check": "^4.7.6",
     "typescript": "^5.6",
     "vite": "^6"
   }

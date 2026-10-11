@@ -190,7 +190,10 @@ mod tests {
 
     #[test]
     fn el_salto_de_pagina_del_pdf_no_ensucia_el_texto() {
-        assert_eq!(normalize("pagina uno\u{0c}pagina dos"), "pagina uno pagina dos");
+        assert_eq!(
+            normalize("pagina uno\u{0c}pagina dos"),
+            "pagina uno pagina dos"
+        );
     }
 
     #[test]

@@ -26,9 +26,21 @@ tauri = { version = "2", features = [] }
 # que se dice en pantalla y no sólo aquí: obrain es solo-lectura, pero el
 # programa que abra el archivo no tiene por qué serlo.
 tauri-plugin-opener = "2"
+# El selector de carpetas de «Añadir carpeta». Se usa **desde Rust**, no desde
+# la ventana: el webview no tiene permisos del plugin, así que no puede abrir
+# diálogos ni pasar rutas; sólo pide «añade una carpeta» y elige la persona.
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 
 [profile.release]
 lto = true
 codegen-units = 1
 strip = true
+
+# Argon2id comprueba el PIN y deriva la clave de recuperación (ADR-0021). En
+# `npm run app` todo va sin optimizar, y sin esto comprobar un PIN tardaría
+# segundos en vez de décimas.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3

@@ -10,8 +10,8 @@
 //! mala. Sólo se ve mirando vecinos de verdad.
 
 use obrain_core::{Store, TimePoint};
-use obrain_embed::embedder::{cosine, Embedder};
-use obrain_embed::{download, e5, index, search, EmbedReport};
+use obrain_embed::embedder::{Embedder, cosine};
+use obrain_embed::{EmbedReport, download, e5, index, search};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -35,11 +35,16 @@ fn main() -> ExitCode {
     }
 
     let flag = |n: &str| args.iter().any(|a| a == n);
-    let value =
-        |n: &str| args.iter().position(|a| a == n).and_then(|i| args.get(i + 1)).cloned();
+    let value = |n: &str| {
+        args.iter()
+            .position(|a| a == n)
+            .and_then(|i| args.get(i + 1))
+            .cloned()
+    };
 
-    let model_dir: PathBuf =
-        value("--modelo").map(PathBuf::from).unwrap_or_else(download::default_dir);
+    let model_dir: PathBuf = value("--modelo")
+        .map(PathBuf::from)
+        .unwrap_or_else(download::default_dir);
 
     // ── el paso deliberado de red ──
     if flag("--descargar-modelo") {
@@ -82,8 +87,14 @@ fn main() -> ExitCode {
 
     if !download::is_present(&model_dir) {
         eprintln!("\n  No hay modelo en {}\n", model_dir.display());
-        eprintln!("  Ejecuta una vez:  obrain-embed {} --descargar-modelo\n", args[0]);
-        eprintln!("  O bajalo a mano:\n{}", download::manual_instructions(&model_dir));
+        eprintln!(
+            "  Ejecuta una vez:  obrain-embed {} --descargar-modelo\n",
+            args[0]
+        );
+        eprintln!(
+            "  O bajalo a mano:\n{}",
+            download::manual_instructions(&model_dir)
+        );
         return ExitCode::FAILURE;
     }
 
@@ -103,7 +114,10 @@ fn main() -> ExitCode {
     }
 
     // ── vectorizar ──
-    let mut report = EmbedReport { model_load, ..Default::default() };
+    let mut report = EmbedReport {
+        model_load,
+        ..Default::default()
+    };
     if !flag("--dry-run") {
         println!("\n▸ vectorizando con {}", embedder.model().label());
         println!("  modelo cargado en {:.2} s", model_load.as_secs_f64());
@@ -135,7 +149,10 @@ fn informe(store: &Store, r: &EmbedReport, embedder: &dyn Embedder, before: i64,
     println!("  entidades concedidas    {}", r.entities_allowed);
     println!("  entidades retenidas     {}", r.entities_withheld);
     println!("  fragmentos retenidos    {}", r.chunks_withheld);
-    println!("  rechazos en la llamada  {}  (debe ser 0)", r.denied_at_call);
+    println!(
+        "  rechazos en la llamada  {}  (debe ser 0)",
+        r.denied_at_call
+    );
 
     println!("\n── INDICE VECTORIAL ───────────────────────");
     println!("  fragmentos pendientes   {}", r.pending);
@@ -149,8 +166,14 @@ fn informe(store: &Store, r: &EmbedReport, embedder: &dyn Embedder, before: i64,
     );
 
     println!("\n── COSTE DEL MODELO ───────────────────────");
-    println!("  carga del modelo        {:.2} s", r.model_load.as_secs_f64());
-    println!("  dentro del modelo       {:.2} s", r.inference.as_secs_f64());
+    println!(
+        "  carga del modelo        {:.2} s",
+        r.model_load.as_secs_f64()
+    );
+    println!(
+        "  dentro del modelo       {:.2} s",
+        r.inference.as_secs_f64()
+    );
     println!("  total                   {:.2} s", r.elapsed.as_secs_f64());
     if r.vectors_written > 0 && r.inference.as_secs_f64() > 0.0 {
         println!(
@@ -174,7 +197,9 @@ fn informe(store: &Store, r: &EmbedReport, embedder: &dyn Embedder, before: i64,
     println!("\n── ARITMETICA ─────────────────────────────");
     let con_texto: i64 = store
         .conn()
-        .query_row("SELECT COUNT(DISTINCT entity) FROM chunks", [], |r| r.get(0))
+        .query_row("SELECT COUNT(DISTINCT entity) FROM chunks", [], |r| {
+            r.get(0)
+        })
         .unwrap_or(0);
     let frag: i64 = store
         .conn()
@@ -305,8 +330,11 @@ fn medir(store: &Store, embedder: &dyn Embedder) {
     let mut best_mem = f64::MAX;
     for _ in 0..20 {
         let t = std::time::Instant::now();
-        let mut top: Vec<(f32, usize)> =
-            residente.iter().enumerate().map(|(i, (_, _, v))| (cosine(&qv, v), i)).collect();
+        let mut top: Vec<(f32, usize)> = residente
+            .iter()
+            .enumerate()
+            .map(|(i, (_, _, v))| (cosine(&qv, v), i))
+            .collect();
         top.sort_by(|a, b| b.0.total_cmp(&a.0));
         top.truncate(50);
         std::hint::black_box(&top);
@@ -342,7 +370,10 @@ fn medir(store: &Store, embedder: &dyn Embedder) {
     if r.is_ok() {
         let suelo = un_lote * (50.0 / batch as f64);
         println!("\n  50 secuencias largas por e5-small (118 M)  {suelo:.2} s  ← suelo MEDIDO");
-        println!("  bge-reranker-v2-m3 son 568 M               x4,8 ≈ {:.1} s  ← EXTRAPOLADO", suelo * 4.8);
+        println!(
+            "  bge-reranker-v2-m3 son 568 M               x4,8 ≈ {:.1} s  ← EXTRAPOLADO",
+            suelo * 4.8
+        );
         println!("  (la extrapolacion es por parametros; no es una medicion del reranker)");
     }
 }
@@ -380,7 +411,10 @@ fn auditar(store: &Store, embedder: &dyn Embedder, tp: TimePoint) {
 
     // ── 1 · vecinos de documentos reales ──
     println!("\n══ VECINOS DE DOCUMENTOS REALES ═══════════");
-    println!("  El contador dice «{} vectores». Esto dice si significan algo.", vectors.len());
+    println!(
+        "  El contador dice «{} vectores». Esto dice si significan algo.",
+        vectors.len()
+    );
     let interes = [
         "MatriculaJuanPabloGarcia",
         "PROJECT-MASTER",
@@ -489,7 +523,11 @@ fn comparar(store: &Store, embedder: &dyn Embedder, q: &str, tp: TimePoint) {
     if vectorial.is_empty() {
         println!(" · nada");
     } else {
-        println!(" · {}  ({:.3})", corto(&vectorial[0].path), vectorial[0].score);
+        println!(
+            " · {}  ({:.3})",
+            corto(&vectorial[0].path),
+            vectorial[0].score
+        );
     }
     if let Some(f) = fused.first() {
         let proc: Vec<String> = f.ranks.iter().map(|(n, r)| format!("{n}#{r}")).collect();

@@ -1,0 +1,6 @@
+# Commits que sólo cambian el formato. `git blame` los salta con:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# (GitHub lo lee solo.)
+
+# cargo fmt en el núcleo y en ui/src-tauri, sin cambios de código
+14ac75f8baf50400a622bf77b2e6e0b15f91c810

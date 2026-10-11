@@ -5,8 +5,8 @@
 //! triaje marca como `CloudPlaceholder` no se toca jamás.
 
 use crate::exclude::{ExclusionSet, SkipReason};
-use crate::identity::{content_hash, file_identity, FileIdentity};
-use crate::triage::{classify, Availability};
+use crate::identity::{FileIdentity, content_hash, file_identity};
+use crate::triage::{Availability, classify};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -24,6 +24,19 @@ pub struct Candidate {
     pub identity: Option<FileIdentity>,
     /// `None` si el triaje prohibió leer contenido.
     pub hash: Option<String>,
+}
+
+/// Una carpeta recorrida, con su identidad ([ADR-0027]).
+///
+/// En NTFS un directorio tiene `FileID` como un archivo y lo conserva al
+/// renombrarlo y al moverlo dentro del mismo disco: es lo que permite que una
+/// carpeta marcada como sensible siga siéndolo con otro nombre.
+///
+/// [ADR-0027]: ../../../docs/adr/0027-la-carpeta-sigue-a-su-fileid.md
+#[derive(Debug, Clone)]
+pub struct FolderCandidate {
+    pub path: PathBuf,
+    pub identity: FileIdentity,
 }
 
 #[derive(Debug, Default)]
@@ -45,6 +58,11 @@ pub struct ScanReport {
     pub bytes_hashed: u64,
     /// **La métrica que valida M1**: archivos de nube que nunca se tocaron.
     pub cloud_untouched: usize,
+
+    /// Las carpetas recorridas —la raíz incluida— con su identidad. Sólo las
+    /// que el triaje deja abrir: una carpeta de nube que se descargaría al
+    /// abrirla se queda sin identidad, como un archivo.
+    pub folders: Vec<FolderCandidate>,
 
     pub errors: Vec<String>,
     pub elapsed: Duration,
@@ -127,6 +145,18 @@ impl Scanner {
 
             if entry.file_type().is_dir() {
                 report.dirs_visited += 1;
+                let attrs = entry.metadata().map(|m| attributes_from(&m)).unwrap_or(0);
+                if classify(attrs).may_open() {
+                    match file_identity(entry.path()) {
+                        Ok(identity) => report.folders.push(FolderCandidate {
+                            path: entry.path().to_path_buf(),
+                            identity,
+                        }),
+                        Err(e) => report
+                            .errors
+                            .push(format!("{}: {e}", entry.path().display())),
+                    }
+                }
                 continue;
             }
             if !entry.file_type().is_file() {
@@ -137,7 +167,9 @@ impl Scanner {
             let meta = match entry.metadata() {
                 Ok(m) => m,
                 Err(e) => {
-                    report.errors.push(format!("{}: {e}", entry.path().display()));
+                    report
+                        .errors
+                        .push(format!("{}: {e}", entry.path().display()));
                     continue;
                 }
             };
@@ -172,7 +204,9 @@ impl Scanner {
                         Some(id)
                     }
                     Err(e) => {
-                        report.errors.push(format!("{}: {e}", entry.path().display()));
+                        report
+                            .errors
+                            .push(format!("{}: {e}", entry.path().display()));
                         None
                     }
                 }

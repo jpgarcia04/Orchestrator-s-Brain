@@ -11,6 +11,11 @@ obrain-core = { path = "../obrain-core" }
 obrain-extract = { path = "../obrain-extract" }
 obrain-embed = { path = "../obrain-embed" }
 obrain-guard = { path = "../obrain-guard" }
+# Los vencimientos: la etapa que los lee del texto y su lectura (ADR-0023).
+obrain-expiry = { path = "../obrain-expiry" }
+# El vigía de las bibliotecas (ADR-0024): `ReadDirectoryChangesW` en Windows,
+# `inotify` en Linux, que es donde se prueba.
+notify = "8"
 # Sólo para reutilizar `label`: el nombre legible de una entidad ya se decide
 # en M3 y no puede decidirse otra vez aquí.
 obrain-link = { path = "../obrain-link" }
@@ -21,6 +26,13 @@ obrain-link = { path = "../obrain-link" }
 # discreparan se hidrataría un puntero de OneDrive sin que nadie lo notara.
 obrain-scan = { path = "../obrain-scan" }
 thiserror = "2"
+# La llave de la base y la clave de recuperación (ADR-0021).
+obrain-keys = { path = "../obrain-keys" }
+# El OCR de Windows, para fotos y PDF escaneados (se lo pasa a M2 al indexar).
+obrain-ocr = { path = "../obrain-ocr" }
+# El hash del PIN: Argon2id, el mismo que deriva la clave de recuperación.
+argon2 = "0.5"
+getrandom = "0.3"
 # Los tipos de salida cruzan a TypeScript tal cual. Es la alternativa a una
 # capa de DTOs en el backend de Tauri que sería, palabra por palabra, estos
 # mismos campos otra vez.

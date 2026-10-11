@@ -30,10 +30,11 @@
 //! La medición y el umbral a partir del cual esto deja de valer están en
 //! `docs/adr/0009`.
 
-use crate::embedder::{cosine, ModelId};
+use crate::embedder::{ModelId, cosine};
 use crate::{Error, Result};
-use obrain_core::rusqlite::{params, Connection};
 use obrain_core::EntityId;
+use obrain_core::rusqlite::{Connection, ToSql, params, params_from_iter};
+use std::collections::HashSet;
 
 pub const DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS vectors (
@@ -90,11 +91,7 @@ pub struct Pending {
 /// consulta recibe la lista ya filtrada por [`obrain_guard::gate::embeddable`]
 /// y no la reconstruye: la diferencia entre las dos formas de escribirlo es
 /// exactamente la diferencia entre cumplir I11 y decir que se cumple.
-pub fn pending(
-    conn: &Connection,
-    allowed: &[EntityId],
-    model: ModelId,
-) -> Result<Vec<Pending>> {
+pub fn pending(conn: &Connection, allowed: &[EntityId], model: ModelId) -> Result<Vec<Pending>> {
     let mut stmt = conn.prepare(
         "SELECT c.id, c.entity, c.chunker, c.chunker_ver, c.text
            FROM chunks c
@@ -135,7 +132,9 @@ pub fn insert(conn: &Connection, p: &Pending, model: ModelId, vec: &[f32]) -> Re
     }
     let norm = vec.iter().map(|x| x * x).sum::<f32>().sqrt();
     if !(0.99..=1.01).contains(&norm) {
-        return Err(Error::Model(format!("vector sin normalizar (norma {norm})")));
+        return Err(Error::Model(format!(
+            "vector sin normalizar (norma {norm})"
+        )));
     }
     let mut blob = Vec::with_capacity(vec.len() * 4);
     for x in vec {
@@ -185,20 +184,62 @@ pub struct Neighbour {
 /// El filtro por `(model_id, model_ver)` no es higiene: durante una migración
 /// I7 hay dos juegos de vectores en la tabla, y compararlos entre sí daría
 /// números que parecen puntuaciones y no significan nada.
-pub fn knn(conn: &Connection, query: &[f32], model: ModelId, limit: usize) -> Result<Vec<Neighbour>> {
-    let mut stmt = conn.prepare(
+pub fn knn(
+    conn: &Connection,
+    query: &[f32],
+    model: ModelId,
+    limit: usize,
+) -> Result<Vec<Neighbour>> {
+    knn_within(conn, query, model, limit, None)
+}
+
+/// [`knn`] **sólo entre estos documentos** (los de una colección, ADR-0031).
+/// El filtro va en la consulta, antes de ordenar y cortar, así que no se
+/// pierde nadie que estuviera más abajo. `None` es todo el índice.
+pub fn knn_within(
+    conn: &Connection,
+    query: &[f32],
+    model: ModelId,
+    limit: usize,
+    within: Option<&HashSet<EntityId>>,
+) -> Result<Vec<Neighbour>> {
+    let dentro: Vec<&str> = within
+        .map(|w| w.iter().map(EntityId::as_str).collect())
+        .unwrap_or_default();
+    if within.is_some() && dentro.is_empty() {
+        return Ok(Vec::new());
+    }
+    let filtro = if within.is_some() {
+        let huecos: Vec<String> = (0..dentro.len()).map(|i| format!("?{}", i + 4)).collect();
+        format!("AND entity IN ({})", huecos.join(", "))
+    } else {
+        String::new()
+    };
+    let mut stmt = conn.prepare(&format!(
         "SELECT chunk, entity, vec FROM vectors
-          WHERE model_id = ?1 AND model_ver = ?2 AND dim = ?3",
-    )?;
-    let rows = stmt.query_map(params![model.id, model.version, model.dim as i64], |r| {
-        Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, Vec<u8>>(2)?))
+          WHERE model_id = ?1 AND model_ver = ?2 AND dim = ?3
+          AND entity IN (SELECT id FROM entities WHERE sensitivity != 'vault') {filtro}"
+    ))?;
+    let dim = model.dim as i64;
+    let mut valores: Vec<&dyn ToSql> = vec![&model.id, &model.version, &dim];
+    valores.extend(dentro.iter().map(|e| e as &dyn ToSql));
+    let rows = stmt.query_map(params_from_iter(valores), |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, Vec<u8>>(2)?,
+        ))
     })?;
 
     let mut best: Vec<Neighbour> = Vec::new();
     for row in rows {
         let (chunk, entity, blob) = row?;
         let v = decode(&blob, model.dim)?;
-        best.push(Neighbour { chunk, entity: EntityId(entity), score: cosine(query, &v) });
+        best.push(Neighbour {
+            chunk,
+            entity: EntityId(entity),
+            score: cosine(query, &v),
+        });
     }
     best.sort_by(|a, b| b.score.total_cmp(&a.score));
     best.truncate(limit);
@@ -233,7 +274,11 @@ pub fn load_all(conn: &Connection, model: ModelId) -> Result<Vec<(i64, EntityId,
           WHERE model_id = ?1 AND model_ver = ?2 ORDER BY chunk",
     )?;
     let rows = stmt.query_map(params![model.id, model.version], |r| {
-        Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, Vec<u8>>(2)?))
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, Vec<u8>>(2)?,
+        ))
     })?;
     let mut out = Vec::new();
     for row in rows {
@@ -248,7 +293,11 @@ mod tests {
     use super::*;
     use obrain_core::Store;
 
-    const M: ModelId = ModelId { id: "prueba", version: 1, dim: 3 };
+    const M: ModelId = ModelId {
+        id: "prueba",
+        version: 1,
+        dim: 3,
+    };
 
     fn base() -> Store {
         let store = Store::open_in_memory().unwrap();
@@ -268,7 +317,13 @@ mod tests {
             )
             .unwrap();
         let id = store.conn().last_insert_rowid();
-        Pending { chunk: id, entity: e, chunker: "paragraph-pack".into(), chunker_ver: 1, text: texto.into() }
+        Pending {
+            chunk: id,
+            entity: e,
+            chunker: "paragraph-pack".into(),
+            chunker_ver: 1,
+            text: texto.into(),
+        }
     }
 
     #[test]
@@ -281,6 +336,55 @@ mod tests {
         assert!((vecinos[0].score - 1.0).abs() < 1e-6);
     }
 
+    #[test]
+    fn el_knn_no_usa_vectores_vault_aunque_la_purga_no_haya_ocurrido() {
+        let store = base();
+        let p = fragmento(&store, 1, "SINTETICO");
+        insert(store.conn(), &p, M, &[1.0, 0.0, 0.0]).unwrap();
+        assert_eq!(knn(store.conn(), &[1.0, 0.0, 0.0], M, 5).unwrap().len(), 1);
+        // Residuo histórico sintético: omite a propósito el setter seguro.
+        store
+            .conn()
+            .execute(
+                "UPDATE entities SET sensitivity = 'vault' WHERE id = ?1",
+                [p.entity.as_str()],
+            )
+            .unwrap();
+        assert_eq!(count(store.conn(), M).unwrap(), 1);
+        assert!(
+            knn(store.conn(), &[1.0, 0.0, 0.0], M, 5)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    /// Buscar dentro de una colección (ADR-0031): el filtro va antes de
+    /// cortar, así que el mejor de dentro sale aunque fuera el último de todos.
+    #[test]
+    fn el_knn_filtrado_no_pierde_lo_que_estaba_mas_abajo() {
+        let store = base();
+        let cerca = fragmento(&store, 1, "cerca");
+        let lejos = fragmento(&store, 2, "lejos");
+        insert(store.conn(), &cerca, M, &[1.0, 0.0, 0.0]).unwrap();
+        insert(store.conn(), &lejos, M, &[0.0, 1.0, 0.0]).unwrap();
+
+        let todos = knn(store.conn(), &[1.0, 0.0, 0.0], M, 1).unwrap();
+        assert_eq!(todos[0].entity, cerca.entity);
+
+        let dentro: HashSet<EntityId> = [lejos.entity.clone()].into();
+        let v = knn_within(store.conn(), &[1.0, 0.0, 0.0], M, 1, Some(&dentro)).unwrap();
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].entity, lejos.entity);
+
+        let vacia = HashSet::new();
+        assert!(
+            knn_within(store.conn(), &[1.0, 0.0, 0.0], M, 5, Some(&vacia))
+                .unwrap()
+                .is_empty(),
+            "una colección vacía no encuentra nada, no todo"
+        );
+    }
+
     /// Un vector sin normalizar rompe el kNN en silencio: las puntuaciones
     /// dejan de ser cosenos y el orden deja de significar nada. Se rechaza al
     /// escribir, que es la única vez que sale barato comprobarlo.
@@ -289,7 +393,10 @@ mod tests {
         let store = base();
         let p = fragmento(&store, 1, "hola");
         assert!(insert(store.conn(), &p, M, &[3.0, 4.0, 0.0]).is_err());
-        assert!(insert(store.conn(), &p, M, &[1.0, 0.0]).is_err(), "dimension equivocada");
+        assert!(
+            insert(store.conn(), &p, M, &[1.0, 0.0]).is_err(),
+            "dimension equivocada"
+        );
     }
 
     /// El escenario de §5.3: dos modelos conviviendo durante una migración.
@@ -297,13 +404,21 @@ mod tests {
     #[test]
     fn dos_modelos_conviven_y_no_se_mezclan() {
         let store = base();
-        const N: ModelId = ModelId { id: "nuevo", version: 1, dim: 3 };
+        const N: ModelId = ModelId {
+            id: "nuevo",
+            version: 1,
+            dim: 3,
+        };
         let p = fragmento(&store, 1, "hola");
 
         insert(store.conn(), &p, M, &[1.0, 0.0, 0.0]).unwrap();
         insert(store.conn(), &p, N, &[0.0, 1.0, 0.0]).unwrap();
 
-        assert_eq!(count(store.conn(), M).unwrap(), 1, "el nuevo no ha pisado al viejo");
+        assert_eq!(
+            count(store.conn(), M).unwrap(),
+            1,
+            "el nuevo no ha pisado al viejo"
+        );
         assert_eq!(count(store.conn(), N).unwrap(), 1);
         assert_eq!(census(store.conn()).unwrap().len(), 2);
 
@@ -313,7 +428,10 @@ mod tests {
         assert!((v[0].score - 1.0).abs() < 1e-6);
         let n = knn(store.conn(), &[1.0, 0.0, 0.0], N, 10).unwrap();
         assert_eq!(n.len(), 1);
-        assert!(n[0].score.abs() < 1e-6, "el vector del otro modelo es ortogonal aqui");
+        assert!(
+            n[0].score.abs() < 1e-6,
+            "el vector del otro modelo es ortogonal aqui"
+        );
     }
 
     /// Reembeber no duplica: la clave primaria es el fragmento más la
@@ -359,7 +477,12 @@ mod tests {
         // lo correcto: era el vector de un texto que ya no existe.
         assert_eq!(count(store.conn(), M).unwrap(), 0);
         // Y el fragmento nuevo vuelve a estar pendiente.
-        assert_eq!(pending(store.conn(), std::slice::from_ref(&p.entity), M).unwrap().len(), 1);
+        assert_eq!(
+            pending(store.conn(), std::slice::from_ref(&p.entity), M)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -371,7 +494,11 @@ mod tests {
         insert(store.conn(), &p, M, &[1.0, 0.0, 0.0]).unwrap();
         assert_eq!(pending(store.conn(), &permitidas, M).unwrap().len(), 0);
         // ...pero para otro modelo sigue pendiente. Es la migración en paralelo.
-        const N: ModelId = ModelId { id: "nuevo", version: 1, dim: 3 };
+        const N: ModelId = ModelId {
+            id: "nuevo",
+            version: 1,
+            dim: 3,
+        };
         assert_eq!(pending(store.conn(), &permitidas, N).unwrap().len(), 1);
     }
 }

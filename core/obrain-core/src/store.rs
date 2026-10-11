@@ -35,15 +35,89 @@ pub struct Store {
 
 impl Store {
     pub fn open_in_memory() -> Result<Self> {
-        let store = Store { conn: Connection::open_in_memory()? };
+        let store = Store {
+            conn: Connection::open_in_memory()?,
+        };
         store.migrate()?;
         Ok(store)
     }
 
+    /// Abre una base del disco.
+    ///
+    /// **Si tiene llave, está cifrada** (ADR-0021) y se abre con la llave que
+    /// guarda el sistema —DPAPI en Windows—, sin preguntar nada. Si no la
+    /// tiene, se abre en claro, como siempre. Crear la llave de una base nueva
+    /// o cifrar una que estaba en claro no pasa aquí: es una decisión del
+    /// producto y la toma `obrain_api::cifrado::abrir`.
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self> {
-        let store = Store { conn: Connection::open(path)? };
+        let path = path.as_ref();
+        let key = if obrain_keys::exists(path) {
+            Some(obrain_keys::unlock(path)?)
+        } else {
+            None
+        };
+        Self::open_with(path, key.as_ref())
+    }
+
+    /// Abre una base con esta llave, o en claro con `None`.
+    pub fn open_with(
+        path: impl AsRef<std::path::Path>,
+        key: Option<&obrain_keys::DataKey>,
+    ) -> Result<Self> {
+        let conn = Connection::open(path)?;
+        if let Some(k) = key {
+            // La llave tiene que ser lo primero que se le dice a la conexión.
+            // En crudo (`x'…'`) no hay derivación: son 256 bits de azar.
+            conn.execute_batch(&format!(
+                "PRAGMA key = \"{}\";",
+                k.sqlcipher_literal().as_str()
+            ))?;
+            // SQLCipher no comprueba la llave hasta leer la primera página.
+            // Se lee aquí para que una llave equivocada sea este error y no un
+            // «file is not a database» tres llamadas más tarde.
+            conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .map_err(|_| Error::WrongKey)?;
+        }
+        // Lo temporal, en memoria: un archivo temporal de SQLite en claro al
+        // lado de una base cifrada sería una fuga por la puerta de atrás.
+        conn.execute_batch("PRAGMA temp_store = MEMORY;")?;
+        // WAL: la aplicación lee mientras el indexador escribe desde otra
+        // conexión. Sin esto, cualquier lectura durante un reindexado fallaría
+        // con «database is locked». Y la espera cubre a dos escritores que
+        // coincidan, que en vez de fallar se turnan.
+        conn.query_row("PRAGMA journal_mode = WAL", [], |r| r.get::<_, String>(0))?;
+        conn.busy_timeout(std::time::Duration::from_secs(10))?;
+        let store = Store { conn };
         store.migrate()?;
         Ok(store)
+    }
+
+    /// Copia una base **en claro** a `destino`, **cifrada** con esta llave.
+    ///
+    /// Es `sqlcipher_export`: esquema, datos, índices y triggers —los de I1 e
+    /// I4 incluidos—. No toca el origen; sustituirlo es cosa de quien migra.
+    pub fn export_encrypted(
+        origen: impl AsRef<std::path::Path>,
+        destino: impl AsRef<std::path::Path>,
+        key: &obrain_keys::DataKey,
+    ) -> Result<()> {
+        let conn = Connection::open(origen)?;
+        // Que el WAL quede volcado en el archivo principal antes de copiar.
+        conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
+        conn.execute(
+            "ATTACH DATABASE ?1 AS cifrada KEY ?2",
+            rusqlite::params![
+                destino.as_ref().to_string_lossy(),
+                key.sqlcipher_literal().as_str()
+            ],
+        )?;
+        conn.query_row("SELECT sqlcipher_export('cifrada')", [], |_| Ok(()))?;
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        conn.execute_batch(&format!("PRAGMA cifrada.user_version = {version};"))?;
+        conn.execute_batch("DETACH DATABASE cifrada;")?;
+        Ok(())
     }
 
     fn migrate(&self) -> Result<()> {
@@ -51,10 +125,13 @@ impl Store {
         self.conn
             .pragma_update(None, "user_version", SCHEMA_VERSION)?;
         for (id, label, card, method, inverse) in SEED_PREDICATES {
+            // La etiqueta es presentación y se actualiza; el resto de la
+            // declaración no se toca en una base que ya existe.
             self.conn.execute(
-                "INSERT OR IGNORE INTO predicates
+                "INSERT INTO predicates
                      (id, label, cardinality, symmetric, transitive, inverse, default_method)
-                 VALUES (?1, ?2, ?3, 0, 0, ?4, ?5)",
+                 VALUES (?1, ?2, ?3, 0, 0, ?4, ?5)
+                 ON CONFLICT(id) DO UPDATE SET label = excluded.label",
                 rusqlite::params![id, label, card, inverse, method],
             )?;
         }
@@ -99,16 +176,67 @@ impl Store {
         Sensitivity::parse(&s).ok_or_else(|| Error::Corrupt(format!("sensibilidad '{s}'")))
     }
 
-    /// Cambiar sensibilidad es una operación de seguridad, no una aserción.
-    pub fn set_sensitivity(&self, id: &EntityId, s: Sensitivity) -> Result<()> {
-        let n = self.conn.execute(
-            "UPDATE entities SET sensitivity = ?2 WHERE id = ?1",
-            rusqlite::params![id.as_str(), s.as_str()],
+    /// Escribe el control de seguridad y revoca el estado de embeddings al
+    /// entrar o salir de `vault`, en el mismo savepoint y con el tiempo del llamante.
+    /// También reconcilia un `vault` ya proyectado con residuos anteriores.
+    pub fn set_sensitivity(&self, id: &EntityId, s: Sensitivity, at: i64) -> Result<()> {
+        self.atomic_write(|store| {
+            let previous = store.sensitivity(id)?;
+            let n = store.conn.execute(
+                "UPDATE entities SET sensitivity = ?2 WHERE id = ?1",
+                rusqlite::params![id.as_str(), s.as_str()],
+            )?;
+            if n == 0 {
+                return Err(Error::UnknownEntity(id.to_string()));
+            }
+            if s == Sensitivity::Vault || previous == Sensitivity::Vault {
+                store.revoke_embeddings(id, at)?;
+            }
+            Ok(())
+        })
+    }
+
+    /// Revoca la proyección opcional y su procedencia actual. No carga un
+    /// modelo ni crea tablas de M4 en un Store que sólo tiene el esquema core.
+    /// El historial permanece consultable con un `known` anterior a `at`.
+    fn revoke_embeddings(&self, id: &EntityId, at: i64) -> Result<bool> {
+        let has_vectors: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'vectors')",
+            [],
+            |r| r.get(0),
         )?;
-        if n == 0 {
-            return Err(Error::UnknownEntity(id.to_string()));
-        }
-        Ok(())
+        let vectors = if has_vectors {
+            self.conn
+                .execute("DELETE FROM vectors WHERE entity = ?1", [id.as_str()])?
+        } else {
+            0
+        };
+        let claims = self.conn.execute(
+            "UPDATE assertions SET retracted_at = ?2 WHERE subject = ?1
+             AND predicate IN ('embedded_with', 'vector_count')
+             AND retracted_at IS NULL AND asserted_at <= ?2",
+            rusqlite::params![id.as_str(), at],
+        )?;
+        Ok(vectors > 0 || claims > 0)
+    }
+
+    /// Reconcilia residuos de versiones anteriores, incluso procedencia sin
+    /// vectores. Se usa también al clasificar sin modelo. No sanea el historial.
+    pub fn purge_vault_embeddings(&self, at: i64) -> Result<Vec<EntityId>> {
+        self.atomic_write(|store| {
+            let ids: Vec<EntityId> = store
+                .conn
+                .prepare("SELECT id FROM entities WHERE sensitivity = 'vault' ORDER BY id")?
+                .query_map([], |r| Ok(EntityId(r.get(0)?)))?
+                .collect::<rusqlite::Result<_>>()?;
+            let mut purged = Vec::new();
+            for id in ids {
+                if store.revoke_embeddings(&id, at)? {
+                    purged.push(id);
+                }
+            }
+            Ok(purged)
+        })
     }
 
     /// Recalcula la columna `sensitivity` desde las aserciones `sensitivity_level`
@@ -129,18 +257,17 @@ impl Store {
     /// 2. **Si no, gana la señal más restrictiva.** Entre "puede ser una clave"
     ///    y "parece normal", el sistema se equivoca hacia el lado que no filtra.
     ///
+    /// Desde [ADR-0020] el usuario también se pronuncia **sobre una carpeta**, y
+    /// esa marca la hereda todo lo que está dentro. Las reglas completas, con la
+    /// herencia, están en [`Store::resolve_sensitivity`].
+    ///
     /// Es una **proyección reconstruible** (I1): tirar la columna y volver a
     /// llamar aquí para cada entidad da exactamente el mismo estado.
+    ///
+    /// [ADR-0020]: ../../../docs/adr/0020-sensibilidad-por-carpeta.md
     pub fn reproject_sensitivity(&self, id: &EntityId, at: TimePoint) -> Result<Sensitivity> {
-        let claims = self.query(Some(id), Some("sensitivity_level"), at)?;
-        let parse = |a: &Assertion| a.object.as_text().and_then(Sensitivity::parse);
-
-        let level = match claims.iter().find(|a| a.method == Method::User) {
-            Some(u) => parse(u).unwrap_or(Sensitivity::Normal),
-            None => claims.iter().filter_map(parse).max().unwrap_or(Sensitivity::Normal),
-        };
-        self.set_sensitivity(id, level)?;
-        Ok(level)
+        let marks = self.folder_marks(at)?;
+        self.reproject_sensitivity_under(id, at, &marks)
     }
 
     /// Cuántas entidades hay en cada nivel. Un control de seguridad tiene que
@@ -217,10 +344,12 @@ impl Store {
         let id = AssertionId::new();
         let (kind, ent, txt, num) = decompose(&a.object);
         self.conn.execute(
-            &format!("INSERT INTO assertions ({COLS}) VALUES \
+            &format!(
+                "INSERT INTO assertions ({COLS}) VALUES \
                       (:id, :subject, :predicate, :kind, :ent, :txt, :num, \
                        :valid_from, :valid_to, :asserted_at, NULL, \
-                       :method, :source, :confidence, :evidence)"),
+                       :method, :source, :confidence, :evidence)"
+            ),
             named_params! {
                 ":id":          id.as_str(),
                 ":subject":     a.subject.as_str(),
@@ -239,6 +368,79 @@ impl Store {
             },
         )?;
         Ok(id)
+    }
+
+    /// Escribe una respuesta del usuario (I5) **sin repetirla**.
+    ///
+    /// Si lo último que dijo sobre `(sujeto, predicado)` ya era esto, no
+    /// escribe nada y devuelve aquella aserción: pulsar «es correcto» dos veces
+    /// es una respuesta, no dos. En cardinalidad `one`, lo que dijo antes con
+    /// otro valor deja de estar vigente —se retracta, no se borra (I4)—: cambió
+    /// de opinión, y el log lo cuenta. Lo inferido no se toca nunca: la
+    /// precedencia ya hace que mande lo suyo.
+    pub fn assert_by_user(&self, a: NewAssertion) -> Result<AssertionId> {
+        if a.method != Method::User {
+            return Err(Error::Corrupt("assert_by_user exige método user".into()));
+        }
+        self.atomic_write(|s| s.assert_user_inner(a))
+    }
+
+    fn assert_user_inner(&self, a: NewAssertion) -> Result<AssertionId> {
+        let suyas: Vec<Assertion> = self
+            .query(
+                Some(&a.subject),
+                Some(&a.predicate),
+                TimePoint::at(a.asserted_at),
+            )?
+            .into_iter()
+            .filter(|x| x.method == Method::User)
+            .collect();
+        // `query` ordena por precedencia: la primera es la más reciente.
+        if let Some(ultima) = suyas.first().filter(|x| x.object == a.object) {
+            return Ok(ultima.id.clone());
+        }
+        // Las señales de sensibilidad son many, pero la decisión del usuario
+        // es única: dos cambios en el mismo milisegundo no pueden dejar que
+        // mande la respuesta anterior por el orden accidental de SQLite.
+        if a.predicate == "sensitivity_level" || self.cardinality(&a.predicate)? == Cardinality::One
+        {
+            for x in &suyas {
+                self.retract(&x.id, a.asserted_at)?;
+            }
+        }
+        self.assert(a)
+    }
+
+    /// Agrupa una escritura de dominio, también dentro de una transacción de
+    /// etapa. Un fallo no deja retractaciones ni proyecciones a medias.
+    pub fn atomic_write<T, E>(
+        &self,
+        f: impl FnOnce(&Store) -> std::result::Result<T, E>,
+    ) -> std::result::Result<T, E>
+    where
+        E: From<Error>,
+    {
+        self.conn
+            .execute_batch("SAVEPOINT domain_write")
+            .map_err(|e| E::from(Error::from(e)))?;
+        let result = f(self);
+        match result {
+            Ok(value) => {
+                if let Err(e) = self.conn.execute_batch("RELEASE domain_write") {
+                    let _ = self
+                        .conn
+                        .execute_batch("ROLLBACK TO domain_write; RELEASE domain_write");
+                    return Err(E::from(Error::from(e)));
+                }
+                Ok(value)
+            }
+            Err(e) => {
+                let _ = self
+                    .conn
+                    .execute_batch("ROLLBACK TO domain_write; RELEASE domain_write");
+                Err(e)
+            }
+        }
     }
 
     /// Retracta una aserción. **No la borra** (I4): la marca como no vigente
@@ -297,17 +499,32 @@ impl Store {
     /// predicado bitemporal de I6 es una sola cadena de SQL en este archivo.
     /// Reescribirlo fuera sería tener dos definiciones de "vigente".
     pub fn query_by_object(&self, object: &EntityId, at: TimePoint) -> Result<Vec<Assertion>> {
+        self.pointing_at(object, None, at)
+    }
+
+    /// [`Store::query_by_object`] de un solo predicado: *qué documentos están
+    /// dentro de éste* sin traerse, de paso, los cientos de `contained_by` de
+    /// una carpeta.
+    pub fn pointing_at(
+        &self,
+        object: &EntityId,
+        predicate: Option<&str>,
+        at: TimePoint,
+    ) -> Result<Vec<Assertion>> {
         let sql = format!(
             "SELECT {COLS} FROM assertions
-             WHERE object_entity = :object AND {BITEMPORAL}
+             WHERE object_entity = :object
+               AND (:predicate IS NULL OR predicate = :predicate)
+               AND {BITEMPORAL}
              {PRECEDENCE}"
         );
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(
             named_params! {
-                ":object": object.as_str(),
-                ":valid":  at.valid,
-                ":known":  at.known,
+                ":object":    object.as_str(),
+                ":predicate": predicate,
+                ":valid":     at.valid,
+                ":known":     at.known,
             },
             row_to_assertion,
         )?;
@@ -387,6 +604,41 @@ impl Store {
             .optional()?)
     }
 
+    /// Lo **último** que se afirmó de `(sujeto, predicado)` hasta `known`,
+    /// **aunque ya esté retractado**.
+    ///
+    /// Es la pregunta de la historia, no la del presente: *«¿dónde estaba?»*.
+    /// La destapó la papelera ([ADR-0025]): un documento que ya no está tiene
+    /// su ruta retractada —ya no vive ahí— y aun así hay que poder llamarlo por
+    /// su nombre y decir en qué carpeta estaba.
+    ///
+    /// [ADR-0025]: ../../../docs/adr/0025-lo-que-ya-no-esta.md
+    pub fn resolve_last(
+        &self,
+        subject: &EntityId,
+        predicate: &str,
+        known: i64,
+    ) -> Result<Option<Assertion>> {
+        let sql = format!(
+            "SELECT {COLS} FROM assertions
+             WHERE subject = :subject AND predicate = :predicate
+               AND asserted_at <= :known
+             ORDER BY asserted_at DESC, id DESC LIMIT 1"
+        );
+        Ok(self
+            .conn
+            .query_row(
+                &sql,
+                named_params! {
+                    ":subject":   subject.as_str(),
+                    ":predicate": predicate,
+                    ":known":     known,
+                },
+                row_to_assertion,
+            )
+            .optional()?)
+    }
+
     /// Facetas vigentes de una entidad. El "tipo" de una entidad es esto.
     pub fn facets(&self, subject: &EntityId, at: TimePoint) -> Result<Vec<String>> {
         Ok(self
@@ -422,7 +674,11 @@ impl Store {
         for (subject, predicate) in keys {
             let subject = EntityId(subject);
             let assertions = self.query(Some(&subject), Some(&predicate), at)?;
-            out.push(Contradiction { subject, predicate, assertions });
+            out.push(Contradiction {
+                subject,
+                predicate,
+                assertions,
+            });
         }
         Ok(out)
     }

@@ -2,7 +2,7 @@
 //! todo, para **verificar** el criterio: cero hidratación de OneDrive.
 
 use obrain_core::Store;
-use obrain_scan::{ingest, now_ms, Availability, IngestReport, Scanner};
+use obrain_scan::{Availability, IngestReport, Scanner, ingest, now_ms, register_library};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -22,7 +22,10 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     }
 
-    let root = PathBuf::from(&args[0]);
+    // Absoluta siempre: la ruta de cada archivo **es** su carpeta para M3, y
+    // `.\docs` y `C:\...\docs` serían dos árboles distintos para el mismo disco.
+    let root =
+        std::path::absolute(PathBuf::from(&args[0])).unwrap_or_else(|_| PathBuf::from(&args[0]));
     let flag = |n: &str| args.iter().any(|a| a == n);
     let value = |n: &str| {
         args.iter()
@@ -71,7 +74,11 @@ fn main() -> ExitCode {
         .expect("abrir store");
 
         let at = now_ms();
-        let res = store.transaction(|s| ingest(s, &candidates, at, &mut ing));
+        let res = store.transaction(|s| {
+            ingest(s, &candidates, at, &mut ing)?;
+            // La raíz que se escanea es la que el usuario eligió: su biblioteca.
+            register_library(s, &root, at).map(|_| ())
+        });
         if let Err(e) = res {
             eprintln!("error al ingestar: {e}");
             return ExitCode::FAILURE;

@@ -28,8 +28,15 @@ pub struct IngestReport {
     /// Aserciones omitidas por no aportar nada nuevo. Es la métrica que
     /// mantiene el log proporcionado a la información real.
     pub assertions_unchanged: usize,
-    /// `file_id` caducados que se han retractado al reconciliar.
+    /// `file_id` caducados que se han retractado al reconciliar, y rutas y
+    /// carpetas viejas de lo que se movió o ya no está.
     pub assertions_retracted: usize,
+    /// Documentos que estaban en la papelera (o ya olvidados) y han vuelto: por
+    /// su `FileID` o por su contenido (ADR-0025).
+    pub entities_returned: usize,
+    /// Las entidades que este recorrido ha visto, para saber después qué **no**
+    /// ha visto ([`crate::ausentes::mark_missing`]).
+    pub seen: Vec<EntityId>,
     pub errors: Vec<String>,
 }
 
@@ -80,35 +87,115 @@ pub fn ingest(
                     }
                     e
                 }
-                None => {
-                    let e = store.create_entity(at)?;
-                    report.entities_created += 1;
-                    write(store, report, &e, "has_facet", Facet::Addressable.as_str(), at)?;
-                    if let Some(h) = &id_hex {
-                        write(store, report, &e, "file_id", h.as_str(), at)?;
+                None => match returning(store, c, tp)? {
+                    // Un documento de la papelera, con el mismo contenido y
+                    // otro `FileID`: lo copiaste de una copia de seguridad.
+                    Some(e) => {
+                        if let Some(a) = store.resolve(&e, "file_id", tp)? {
+                            store.retract(&a.id, at)?;
+                            report.assertions_retracted += 1;
+                        }
+                        if let Some(h) = &id_hex {
+                            write(store, report, &e, "file_id", h.as_str(), at)?;
+                        }
+                        e
                     }
-                    e
-                }
+                    None => {
+                        let e = store.create_entity(at)?;
+                        report.entities_created += 1;
+                        write(
+                            store,
+                            report,
+                            &e,
+                            "has_facet",
+                            Facet::Addressable.as_str(),
+                            at,
+                        )?;
+                        if let Some(h) = &id_hex {
+                            write(store, report, &e, "file_id", h.as_str(), at)?;
+                        }
+                        e
+                    }
+                },
             },
         };
 
+        // ── 1b · ¿volvía de la papelera? ──
+        if crate::ausentes::bring_back(store, &entity, at)? {
+            report.entities_returned += 1;
+        }
+        report.seen.push(entity.clone());
+
         // ── 2 · observaciones ──
         let path = c.path.to_string_lossy().to_string();
-        write_if_changed(store, report, &entity, "path_observed_at", Value::Text(path), tp, at)?;
-        write_if_changed(store, report, &entity, "file_size", Value::Number(c.size as f64), tp, at)?;
         write_if_changed(
-            store, report, &entity, "modified_at",
-            Value::Timestamp(c.modified_ms), tp, at,
+            store,
+            report,
+            &entity,
+            "path_observed_at",
+            Value::Text(path.clone()),
+            tp,
+            at,
+        )?;
+        // Las rutas de antes dejan de estar vigentes: el archivo ya no está
+        // ahí. Sin esto, un archivo movido seguía «observado» en su sitio
+        // viejo, y quien leía todas las rutas lo enseñaba en los dos
+        // (ADR-0025). Retractar y no borrar (I4): el log sigue sabiendo dónde
+        // estuvo y hasta cuándo.
+        for a in store.query(Some(&entity), Some("path_observed_at"), tp)? {
+            if a.object.as_text() != Some(path.as_str()) {
+                store.retract(&a.id, at)?;
+                report.assertions_retracted += 1;
+            }
+        }
+        write_if_changed(
+            store,
+            report,
+            &entity,
+            "file_size",
+            Value::Number(c.size as f64),
+            tp,
+            at,
         )?;
         write_if_changed(
-            store, report, &entity, "availability",
-            Value::Text(c.availability.as_str().to_string()), tp, at,
+            store,
+            report,
+            &entity,
+            "modified_at",
+            Value::Timestamp(c.modified_ms),
+            tp,
+            at,
+        )?;
+        write_if_changed(
+            store,
+            report,
+            &entity,
+            "availability",
+            Value::Text(c.availability.as_str().to_string()),
+            tp,
+            at,
         )?;
         if let Some(h) = &c.hash {
-            write_if_changed(store, report, &entity, "has_hash", Value::Text(h.clone()), tp, at)?;
+            write_if_changed(
+                store,
+                report,
+                &entity,
+                "has_hash",
+                Value::Text(h.clone()),
+                tp,
+                at,
+            )?;
         }
         if let Some(m) = mime_guess(&c.path) {
-            write_if_changed(store, report, &entity, "mime_guess", Value::Text(m.to_string()), tp, at)?;
+            write_if_changed(
+                store,
+                report,
+                &entity,
+                "mime_guess",
+                Value::Text(m.to_string()),
+                tp,
+                at,
+            )?;
         }
     }
     Ok(())
@@ -173,6 +260,28 @@ fn reconcile(
         }
     }
     Ok(Some(old.clone()))
+}
+
+/// El documento de la papelera que vuelve con **el mismo contenido**: el único
+/// que no está en el disco y tiene este hash (ADR-0025, §5).
+///
+/// Sólo entre lo que ya no está, y sólo si es uno: si dos documentos borrados
+/// tenían el mismo contenido, no hay forma de saber cuál de los dos es éste, y
+/// un documento nuevo es mejor que heredar las correcciones del equivocado.
+fn returning(store: &Store, c: &Candidate, tp: TimePoint) -> obrain_core::Result<Option<EntityId>> {
+    let Some(h) = &c.hash else {
+        return Ok(None);
+    };
+    let mut gone = Vec::new();
+    for e in store.find_subjects_by_value("has_hash", h, tp)? {
+        if crate::ausentes::is_missing(store, &e, tp)? {
+            gone.push(e);
+        }
+    }
+    Ok(match <[EntityId; 1]>::try_from(gone) {
+        Ok([e]) => Some(e),
+        Err(_) => None,
+    })
 }
 
 fn write(
@@ -244,6 +353,72 @@ fn mime_guess(path: &std::path::Path) -> Option<&'static str> {
     })
 }
 
+/// La ruta de una biblioteca **como la escriben los enlazadores**: sin
+/// separador final.
+///
+/// M3 identifica cada carpeta por la cadena que queda a la izquierda del último
+/// separador de la ruta de un archivo, así que `C:\Bóveda\` y `C:\Bóveda`
+/// serían dos carpetas distintas para él. Se recorta aquí para que la
+/// biblioteca y la carpeta que ve el enlazador sean la misma entidad.
+pub fn library_path(root: &std::path::Path) -> String {
+    let s = root.to_string_lossy();
+    let t = s.trim_end_matches(['\\', '/']);
+    if t.is_empty() {
+        s.into_owned()
+    } else {
+        t.to_string()
+    }
+}
+
+/// Marca `root` como **biblioteca**: una carpeta que el usuario eligió indexar.
+///
+/// Es la entidad de carpeta de siempre —la misma que crearía M3 para esa
+/// ruta— con la faceta `library` encima. Si ya existía, se reutiliza: una base
+/// antigua no gana una segunda carpeta con la misma ruta.
+///
+/// La faceta la afirma el **usuario** y no el escáner: elegir qué carpeta es
+/// tu bóveda es una decisión tuya (I5), no una observación del disco.
+///
+/// Idempotente. El llamante envuelve en transacción.
+pub fn register_library(
+    store: &Store,
+    root: &std::path::Path,
+    at: i64,
+) -> obrain_core::Result<EntityId> {
+    let path = library_path(root);
+    let tp = TimePoint::at(at);
+    let e = match store.find_subject_by_value("folder_path", &path, tp)? {
+        Some(e) => e,
+        None => {
+            let e = store.create_entity(at)?;
+            store.assert(
+                NewAssertion::new(
+                    e.clone(),
+                    "folder_path",
+                    path.as_str(),
+                    Method::Deterministic,
+                    at,
+                )
+                .source("scan:biblioteca"),
+            )?;
+            e
+        }
+    };
+    for (facet, method) in [
+        (Facet::Container, Method::Deterministic),
+        (Facet::Library, Method::User),
+    ] {
+        let v = Value::Text(facet.as_str().to_string());
+        if !store.has_assertion(&e, "has_facet", &v, tp)? {
+            store.assert(
+                NewAssertion::new(e.clone(), "has_facet", facet.as_str(), method, at)
+                    .source("scan:biblioteca"),
+            )?;
+        }
+    }
+    Ok(e)
+}
+
 /// Etiqueta legible para el informe.
 pub fn availability_label(a: Availability) -> &'static str {
     match a {
@@ -262,12 +437,8 @@ mod tests {
 
     /// Los dos `FileID` reales que dejó el caso que destapó el problema:
     /// editar `search.rs` para redactar un NIE y volver a escanear.
-    const ID_ANTES: [u8; 16] = [
-        0xb6, 0x70, 0, 0, 0, 0, 0, 0x55, 0x01, 0, 0, 0, 0, 0, 0, 0,
-    ];
-    const ID_DESPUES: [u8; 16] = [
-        0xe3, 0x32, 0x02, 0, 0, 0, 0, 0x22, 0, 0, 0, 0, 0, 0, 0, 0,
-    ];
+    const ID_ANTES: [u8; 16] = [0xb6, 0x70, 0, 0, 0, 0, 0, 0x55, 0x01, 0, 0, 0, 0, 0, 0, 0];
+    const ID_DESPUES: [u8; 16] = [0xe3, 0x32, 0x02, 0, 0, 0, 0, 0x22, 0, 0, 0, 0, 0, 0, 0, 0];
     const RUTA: &str = r"C:\Users\pacox\OneDrive\Documentos\GitHub\proyecto\src\search.rs";
 
     fn candidato(path: &str, file_id: [u8; 16], hash: &str) -> Candidate {
@@ -276,7 +447,10 @@ mod tests {
             availability: Availability::Local,
             size: 4096,
             modified_ms: 1_700_000_000_000,
-            identity: Some(FileIdentity { volume: 0x7838_c906_38c8_c3fa, file_id }),
+            identity: Some(FileIdentity {
+                volume: 0x7838_c906_38c8_c3fa,
+                file_id,
+            }),
             hash: Some(hash.to_string()),
         }
     }
@@ -304,16 +478,31 @@ mod tests {
         let store = Store::open_in_memory().unwrap();
         let mut r = IngestReport::default();
 
-        ingest(&store, &[candidato(RUTA, ID_ANTES, "hash-con-nie")], 1_000, &mut r).unwrap();
+        ingest(
+            &store,
+            &[candidato(RUTA, ID_ANTES, "hash-con-nie")],
+            1_000,
+            &mut r,
+        )
+        .unwrap();
         assert_eq!(r.entities_created, 1);
 
         // Se edita el archivo y se vuelve a escanear.
         let mut r2 = IngestReport::default();
-        ingest(&store, &[candidato(RUTA, ID_DESPUES, "hash-redactado")], 2_000, &mut r2).unwrap();
+        ingest(
+            &store,
+            &[candidato(RUTA, ID_DESPUES, "hash-redactado")],
+            2_000,
+            &mut r2,
+        )
+        .unwrap();
 
         assert_eq!(r2.entities_created, 0, "no es un archivo nuevo");
         assert_eq!(r2.entities_reconciled, 1);
-        assert_eq!(r2.assertions_retracted, 1, "el file_id viejo deja de estar vigente");
+        assert_eq!(
+            r2.assertions_retracted, 1,
+            "el file_id viejo deja de estar vigente"
+        );
 
         let n: i64 = store
             .conn()
@@ -337,7 +526,10 @@ mod tests {
         assert_eq!(r3.entities_recognised, 1);
         assert_eq!(r3.entities_reconciled, 0);
         assert_eq!(r3.entities_created, 0);
-        assert_eq!(r3.assertions_written, 0, "nada que decir, nada que escribir");
+        assert_eq!(
+            r3.assertions_written, 0,
+            "nada que decir, nada que escribir"
+        );
     }
 
     /// El error caro que la tercera condición evita: mover un archivo y poner
@@ -347,7 +539,13 @@ mod tests {
     fn mover_un_archivo_y_ocupar_su_hueco_no_fusiona_dos_documentos() {
         let store = Store::open_in_memory().unwrap();
         let mut r = IngestReport::default();
-        ingest(&store, &[candidato(RUTA, ID_ANTES, "el-de-siempre")], 1_000, &mut r).unwrap();
+        ingest(
+            &store,
+            &[candidato(RUTA, ID_ANTES, "el-de-siempre")],
+            1_000,
+            &mut r,
+        )
+        .unwrap();
 
         // El original se movió a otra carpeta y en su sitio hay otro archivo.
         let movido = candidato(r"C:\otra\carpeta\search.rs", ID_ANTES, "el-de-siempre");
@@ -356,9 +554,15 @@ mod tests {
         let mut r2 = IngestReport::default();
         ingest(&store, &[movido, intruso], 2_000, &mut r2).unwrap();
 
-        assert_eq!(r2.entities_reconciled, 0, "el archivo viejo sigue existiendo");
+        assert_eq!(
+            r2.entities_reconciled, 0,
+            "el archivo viejo sigue existiendo"
+        );
         assert_eq!(r2.entities_created, 1, "el intruso es un documento nuevo");
-        assert_eq!(r2.entities_recognised, 1, "el movido se reconoce por su FileID");
+        assert_eq!(
+            r2.entities_recognised, 1,
+            "el movido se reconoce por su FileID"
+        );
     }
 
     /// Sin cambios en el disco no se escribe nada. Es la propiedad que M1 midió
@@ -376,5 +580,35 @@ mod tests {
         assert_eq!(r2.entities_reconciled, 0);
         assert_eq!(r2.assertions_written, 0);
         assert_eq!(r2.assertions_retracted, 0);
+    }
+
+    /// La biblioteca es la carpeta de siempre con una faceta encima: registrar
+    /// dos veces no escribe dos veces, y un separador final no crea otra.
+    #[test]
+    fn registrar_una_biblioteca_es_idempotente() {
+        let store = Store::open_in_memory().unwrap();
+        let a =
+            register_library(&store, std::path::Path::new(r"C:\Users\jp\Bóveda\"), 1000).unwrap();
+        let antes = store.log_len().unwrap();
+        let b =
+            register_library(&store, std::path::Path::new(r"C:\Users\jp\Bóveda"), 2000).unwrap();
+        assert_eq!(a, b);
+        assert_eq!(
+            store.log_len().unwrap(),
+            antes,
+            "la segunda vez no escribe nada"
+        );
+
+        let tp = TimePoint::at(3000);
+        let ruta = store.resolve(&a, "folder_path", tp).unwrap().unwrap();
+        assert_eq!(ruta.object.as_text(), Some(r"C:\Users\jp\Bóveda"));
+        let facetas: Vec<String> = store
+            .query(Some(&a), Some("has_facet"), tp)
+            .unwrap()
+            .into_iter()
+            .filter_map(|x| x.object.as_text().map(str::to_string))
+            .collect();
+        assert!(facetas.contains(&"library".to_string()));
+        assert!(facetas.contains(&"container".to_string()));
     }
 }

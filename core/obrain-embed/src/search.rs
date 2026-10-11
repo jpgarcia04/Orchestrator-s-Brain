@@ -17,9 +17,10 @@
 //! más en la llamada a [`crate::fuse::rrf`].
 
 use crate::embedder::{Embedder, Role};
-use crate::fuse::{rrf, Fused, Ranking};
-use crate::{index, Result};
+use crate::fuse::{Fused, Ranking, rrf};
+use crate::{Result, index};
 use obrain_core::{EntityId, Store, TimePoint};
+use std::collections::HashSet;
 
 /// Un resultado de la búsqueda híbrida, con de dónde vino.
 #[derive(Debug, Clone)]
@@ -56,7 +57,9 @@ pub const CANDIDATES: usize = 50;
 fn snippet_of(store: &Store, chunk: i64, query: &str) -> String {
     let text: String = store
         .conn()
-        .query_row("SELECT text FROM chunks WHERE id = ?1", [chunk], |r| r.get(0))
+        .query_row("SELECT text FROM chunks WHERE id = ?1", [chunk], |r| {
+            r.get(0)
+        })
         .unwrap_or_default();
     match obrain_extract::evidence::pick(&text, query, obrain_extract::evidence::BUDGET) {
         // El tramo se guarda como rebanada exacta (I9) y se aplana sólo aquí,
@@ -66,13 +69,16 @@ fn snippet_of(store: &Store, chunk: i64, query: &str) -> String {
     }
 }
 
-fn path_of(store: &Store, e: &EntityId, at: TimePoint) -> String {
+fn live_path(store: &Store, e: &EntityId, at: TimePoint) -> Option<String> {
     store
         .resolve(e, "path_observed_at", at)
         .ok()
         .flatten()
         .and_then(|a| a.object.as_text().map(str::to_string))
-        .unwrap_or_else(|| format!("<{e}>"))
+}
+
+fn path_of(store: &Store, e: &EntityId, at: TimePoint) -> String {
+    live_path(store, e, at).unwrap_or_else(|| format!("<{e}>"))
 }
 
 /// Sólo la rama vectorial, **deduplicada por archivo**.
@@ -88,6 +94,18 @@ pub fn semantic(
     limit: usize,
     at: TimePoint,
 ) -> Result<Vec<Hit>> {
+    semantic_within(store, embedder, query, limit, at, None)
+}
+
+/// [`semantic`] sólo entre estos documentos (ADR-0031). `None` es todo.
+pub fn semantic_within(
+    store: &Store,
+    embedder: &dyn Embedder,
+    query: &str,
+    limit: usize,
+    at: TimePoint,
+    within: Option<&HashSet<EntityId>>,
+) -> Result<Vec<Hit>> {
     let model = embedder.model();
     let qv = embedder.embed(&[query], Role::Query)?;
     let Some(qv) = qv.first() else {
@@ -95,15 +113,19 @@ pub fn semantic(
     };
     // Se piden de sobra por la misma razón que en BM25: varios fragmentos del
     // mismo archivo colapsan en un solo resultado.
-    let neighbours = index::knn(store.conn(), qv, model, (limit * 10).max(200))?;
+    let neighbours = index::knn_within(store.conn(), qv, model, (limit * 10).max(200), within)?;
 
     let mut out: Vec<Hit> = Vec::new();
     for n in neighbours {
         if out.iter().any(|h| h.entity == n.entity) {
             continue;
         }
+        // Lo que está en la papelera no tiene ruta y no se busca (ADR-0025).
+        let Some(path) = live_path(store, &n.entity, at) else {
+            continue;
+        };
         out.push(Hit {
-            path: path_of(store, &n.entity, at),
+            path,
             snippet: snippet_of(store, n.chunk, query),
             entity: n.entity,
             score: n.score as f64,
@@ -128,13 +150,34 @@ pub fn hybrid(
     limit: usize,
     at: TimePoint,
 ) -> Result<(Vec<Hit>, Vec<obrain_extract::Hit>, Vec<Hit>)> {
-    let lexical = obrain_extract::search(store, query, CANDIDATES, at)?;
-    let vectorial = semantic(store, embedder, query, CANDIDATES, at)?;
+    hybrid_within(store, embedder, query, limit, at, None)
+}
+
+/// [`hybrid`] **sólo entre estos documentos**: los de una colección
+/// (ADR-0031). Las dos ramas filtran antes de cortar, así que la fusión ve
+/// los mejores de dentro y no los restos de una lista de todo. `None` es todo.
+#[allow(clippy::type_complexity)]
+pub fn hybrid_within(
+    store: &Store,
+    embedder: &dyn Embedder,
+    query: &str,
+    limit: usize,
+    at: TimePoint,
+    within: Option<&HashSet<EntityId>>,
+) -> Result<(Vec<Hit>, Vec<obrain_extract::Hit>, Vec<Hit>)> {
+    let lexical = obrain_extract::search_within(store, query, CANDIDATES, at, within)?;
+    let vectorial = semantic_within(store, embedder, query, CANDIDATES, at, within)?;
 
     let fused: Vec<Fused<EntityId>> = rrf(
         &[
-            Ranking { name: "bm25", items: lexical.iter().map(|h| h.entity.clone()).collect() },
-            Ranking { name: "knn", items: vectorial.iter().map(|h| h.entity.clone()).collect() },
+            Ranking {
+                name: "bm25",
+                items: lexical.iter().map(|h| h.entity.clone()).collect(),
+            },
+            Ranking {
+                name: "knn",
+                items: vectorial.iter().map(|h| h.entity.clone()).collect(),
+            },
         ],
         limit,
     );

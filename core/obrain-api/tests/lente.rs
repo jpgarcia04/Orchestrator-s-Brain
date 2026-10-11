@@ -5,7 +5,7 @@
 //! esconde que está enseñando una parte, o que coloca los nodos en un sitio
 //! distinto cada vez, ha fallado aunque renderice a 60 fps.
 
-use obrain_api::{lens, Brain};
+use obrain_api::{Brain, lens};
 use obrain_core::{EntityId, Method, NewAssertion, Sensitivity, Store, TimePoint, Value};
 
 const T: i64 = 1_000;
@@ -102,7 +102,11 @@ fn el_hub_aparece_aunque_solo_sea_objeto_de_sus_aristas() {
         l.nodes.iter().any(|n| n.id == hub.0),
         "la carpeta tiene que estar: es el vecino del archivo"
     );
-    assert_eq!(l.nodes.len(), 2, "radio 1 desde un archivo: el archivo y su carpeta");
+    assert_eq!(
+        l.nodes.len(),
+        2,
+        "radio 1 desde un archivo: el archivo y su carpeta"
+    );
 }
 
 /// Radio 2 desde un archivo llega a sus hermanos **a través** del hub, que es
@@ -114,10 +118,17 @@ fn radio_dos_alcanza_a_los_hermanos_por_el_hub() {
 
     let l = lens::open(&store, &[hijos[0].clone()], 2, 50, at()).unwrap();
 
-    assert_eq!(l.nodes.len(), 6, "los 5 archivos + la carpeta, y ninguno mas");
+    assert_eq!(
+        l.nodes.len(),
+        6,
+        "los 5 archivos + la carpeta, y ninguno mas"
+    );
     assert!(!l.truncated);
     let hermano = l.nodes.iter().find(|n| n.id == hijos[3].0).unwrap();
-    assert_eq!(hermano.distance, 2, "se llega a un hermano en dos saltos, no en uno");
+    assert_eq!(
+        hermano.distance, 2,
+        "se llega a un hermano en dos saltos, no en uno"
+    );
 }
 
 /// I2: **presupuesto duro**. Y cuando corta, lo dice.
@@ -129,7 +140,10 @@ fn el_presupuesto_corta_y_la_lente_lo_confiesa() {
     let l = lens::open(&store, &[hijos[0].clone()], 2, 10, at()).unwrap();
 
     assert_eq!(l.nodes.len(), 10, "el presupuesto es duro, no orientativo");
-    assert!(l.truncated, "hay mas grafo del que se ensena y hay que decirlo");
+    assert!(
+        l.truncated,
+        "hay mas grafo del que se ensena y hay que decirlo"
+    );
     assert!(
         l.reached > l.nodes.len(),
         "y hay que decir cuanto: {} alcanzados frente a {} dibujados",
@@ -207,8 +221,14 @@ fn ninguna_arista_apunta_fuera_de_lo_dibujado() {
 
     let dentro: Vec<&str> = l.nodes.iter().map(|n| n.id.as_str()).collect();
     for e in &l.edges {
-        assert!(dentro.contains(&e.from.as_str()), "arista desde un nodo que no se dibuja");
-        assert!(dentro.contains(&e.to.as_str()), "arista hacia un nodo que no se dibuja");
+        assert!(
+            dentro.contains(&e.from.as_str()),
+            "arista desde un nodo que no se dibuja"
+        );
+        assert!(
+            dentro.contains(&e.to.as_str()),
+            "arista hacia un nodo que no se dibuja"
+        );
     }
 }
 
@@ -225,7 +245,11 @@ fn el_grado_de_un_nodo_no_cambia_con_el_presupuesto() {
 
     let grado = |l: &lens::Lens| l.nodes.iter().find(|n| n.id == hub.0).unwrap().degree;
     assert_eq!(grado(&amplia), 60, "la carpeta tiene 60 aristas vivas");
-    assert_eq!(grado(&estrecha), 60, "y sigue teniendo 60 aunque solo se dibujen 3 nodos");
+    assert_eq!(
+        grado(&estrecha),
+        60,
+        "y sigue teniendo 60 aunque solo se dibujen 3 nodos"
+    );
 }
 
 /// Los canales visuales de `EXPERIENCE.md` §1 salen resueltos del núcleo: el
@@ -242,12 +266,20 @@ fn cada_arista_llega_con_su_metodo_y_su_confianza() {
 
     let l = lens::open(&store, std::slice::from_ref(&a), 1, 50, at()).unwrap();
 
-    let version = l.edges.iter().find(|e| e.predicate == "version_of").unwrap();
+    let version = l
+        .edges
+        .iter()
+        .find(|e| e.predicate == "version_of")
+        .unwrap();
     assert_eq!(version.method, "inferred", "punteada: es una heuristica");
     assert!((version.confidence - 0.75).abs() < 1e-9);
     assert_eq!(lens::stroke(Method::Inferred), "dashed");
 
-    let dup = l.edges.iter().find(|e| e.predicate == "duplicate_of").unwrap();
+    let dup = l
+        .edges
+        .iter()
+        .find(|e| e.predicate == "duplicate_of")
+        .unwrap();
     assert_eq!(dup.method, "deterministic", "solida: es un hash");
     assert_eq!(lens::stroke(Method::Deterministic), "solid");
 }
@@ -262,7 +294,9 @@ fn cada_arista_llega_con_su_metodo_y_su_confianza() {
 fn un_nodo_de_boveda_llega_marcado() {
     let store = base();
     let (_, hijos) = carpeta(&store, "Tramites", 3);
-    store.set_sensitivity(&hijos[1], Sensitivity::Vault).unwrap();
+    store
+        .set_sensitivity(&hijos[1], Sensitivity::Vault, 1)
+        .unwrap();
 
     let l = lens::open(&store, &[hijos[0].clone()], 2, 50, at()).unwrap();
 
@@ -308,10 +342,17 @@ fn el_panel_separa_el_hecho_de_la_sospecha() {
         !v.observed.iter().any(|c| c.predicate == "version_of"),
         "una heuristica no puede colarse en el bloque solido"
     );
-    // El vocabulario controlado trae su etiqueta: `version_of` → "version de".
-    let ver = v.inferred.iter().find(|c| c.predicate == "version_of").unwrap();
-    assert_eq!(ver.label, "version de");
-    assert!(ver.value_entity.is_some(), "el objeto es una entidad y se puede navegar");
+    // El vocabulario controlado trae su etiqueta: `version_of` → "versión de".
+    let ver = v
+        .inferred
+        .iter()
+        .find(|c| c.predicate == "version_of")
+        .unwrap();
+    assert_eq!(ver.label, "versión de");
+    assert!(
+        ver.value_entity.is_some(),
+        "el objeto es una entidad y se puede navegar"
+    );
 }
 
 /// I5 en la superficie: la corrección del usuario gana, aparece en el bloque
@@ -354,6 +395,119 @@ fn una_correccion_gana_y_no_borra_lo_que_corrige() {
     assert_eq!(ganadora.object, Value::Entity(c));
 }
 
+/// Lo leído y lo tuyo sobre un **dato** (no una relación), como lo ve el panel.
+fn filas(brain: &Brain, e: &EntityId, pred: &str) -> Vec<obrain_api::Claim> {
+    let v = brain.entity(e).unwrap();
+    v.observed
+        .into_iter()
+        .chain(v.inferred)
+        .filter(|c| c.predicate == pred)
+        .collect()
+}
+
+/// JP pulsó «es correcto» en la sensibilidad de su pasaporte más de una vez
+/// (2026-09-24) y se le amontonaron las filas: una por clic, y la lectura
+/// confirmada seguía debajo pidiendo que la confirmara. Decir lo mismo otra
+/// vez no escribe nada, y lo que ya contestaste es **una** fila que conserva
+/// el «¿por qué?» de lo que se leyó.
+#[test]
+fn confirmar_dos_veces_es_una_respuesta_y_una_fila() {
+    let store = base();
+    let a = archivo(&store, "C:\\x\\Pasaporte.pdf");
+    for (regla, conf) in [
+        ("nombre:pasaporte", 0.7),
+        ("contenido:nie fragmento=0", 0.95),
+    ] {
+        store
+            .assert(
+                NewAssertion::new(
+                    a.clone(),
+                    "sensitivity_level",
+                    "sensitive",
+                    Method::Inferred,
+                    T,
+                )
+                .confidence(conf)
+                .source("classifier@v1")
+                .evidence(&format!("regla={regla}")),
+            )
+            .unwrap();
+    }
+    let brain = Brain::from_store(store);
+    let si = || brain.correct(&a, "sensitivity_level", Value::Text("sensitive".into()));
+    let primera = si().unwrap();
+    for _ in 0..2 {
+        assert_eq!(
+            si().unwrap(),
+            primera,
+            "decir lo mismo otra vez es la misma respuesta"
+        );
+    }
+
+    let suyas = brain
+        .store()
+        .query(Some(&a), Some("sensitivity_level"), ahora())
+        .unwrap();
+    assert_eq!(suyas.iter().filter(|x| x.method == Method::User).count(), 1);
+    assert_eq!(suyas.len(), 3, "lo leído sigue en el log");
+
+    let f = filas(&brain, &a, "sensitivity_level");
+    assert_eq!(f.len(), 1, "una sola fila: {f:?}");
+    assert!(f[0].by_user);
+    assert_eq!(
+        f[0].evidence.as_deref(),
+        Some("regla=contenido:nie fragmento=0"),
+        "con el «¿por qué?» de la lectura más clara"
+    );
+}
+
+/// Una fecha tuya a la vez: cambiarla retracta la de antes (sin borrarla, I4)
+/// y la fila ya no lleva el «¿por qué?» de la lectura, que decía otra cosa.
+#[test]
+fn cambiar_la_fecha_deja_solo_la_ultima() {
+    let store = base();
+    let a = archivo(&store, "C:\\x\\Pasaporte.pdf");
+    store
+        .assert(
+            NewAssertion::new(a.clone(), "expires_on", "2036-07-28", Method::Inferred, T)
+                .confidence(0.7)
+                .source("expiry@v2")
+                .evidence("regla=plazo anios=10 bytes=10..20"),
+        )
+        .unwrap();
+    let brain = Brain::from_store(store);
+
+    brain.set_expiry(&a, Some("2036-07-28")).unwrap();
+    brain.set_expiry(&a, Some("2036-07-28")).unwrap();
+    let f = filas(&brain, &a, "expires_on");
+    assert_eq!(f.len(), 1, "confirmada, una fila: {f:?}");
+    assert!(f[0].by_user);
+    assert!(f[0].evidence.is_some());
+    assert_eq!(f[0].span, Some([10, 20]), "y el tramo que la explica");
+
+    brain.set_expiry(&a, Some("2031-01-15")).unwrap();
+    let f = filas(&brain, &a, "expires_on");
+    assert_eq!(f.len(), 1, "cambiada, una fila: {f:?}");
+    assert_eq!(f[0].value, "2031-01-15");
+    assert!(f[0].evidence.is_none());
+
+    let (escritas, retractadas): (i64, i64) = brain
+        .store()
+        .conn()
+        .query_row(
+            "SELECT COUNT(*), COUNT(retracted_at) FROM assertions
+             WHERE subject = ?1 AND predicate = 'expires_on' AND method = 'user'",
+            [a.as_str()],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        (escritas, retractadas),
+        (2, 1),
+        "la de antes, retractada y no borrada"
+    );
+}
+
 /// La contabilidad interna del pipeline no es información sobre el archivo.
 /// Enseñarla llenaría de ruido justo el sitio donde hay que confiar de un
 /// vistazo.
@@ -362,10 +516,22 @@ fn el_panel_no_ensena_la_fontaneria() {
     let store = base();
     let a = archivo(&store, "C:\\x\\doc.pdf");
     store
-        .assert(NewAssertion::new(a.clone(), "chunk_count", 12.0, Method::Deterministic, T))
+        .assert(NewAssertion::new(
+            a.clone(),
+            "chunk_count",
+            12.0,
+            Method::Deterministic,
+            T,
+        ))
         .unwrap();
     store
-        .assert(NewAssertion::new(a.clone(), "has_facet", "textual", Method::Deterministic, T))
+        .assert(NewAssertion::new(
+            a.clone(),
+            "has_facet",
+            "textual",
+            Method::Deterministic,
+            T,
+        ))
         .unwrap();
 
     let brain = Brain::from_store(store);
@@ -417,9 +583,15 @@ fn sin_modelo_la_barra_responde_igual_y_lo_admite() {
     let r = brain.search("Titulacion", 10).unwrap();
     assert_eq!(r.hits.len(), 1);
     assert_eq!(r.branches, vec!["bm25"]);
-    assert!(!r.semantic, "hay que decir que la mitad semantica no ha corrido");
+    assert!(
+        !r.semantic,
+        "hay que decir que la mitad semantica no ha corrido"
+    );
     assert_eq!(r.hits[0].ranks, vec![("bm25".to_string(), 1)]);
-    assert_eq!(r.hits[0].label, "matricula.pdf", "el nombre lo decide M3, no la interfaz");
+    assert_eq!(
+        r.hits[0].label, "matricula.pdf",
+        "el nombre lo decide M3, no la interfaz"
+    );
     assert_eq!(r.hits[0].sensitivity, "normal");
 }
 
@@ -447,11 +619,23 @@ fn el_sustrato_se_abre_sobre_los_resultados_de_la_consulta() {
     let brain = Brain::from_store(store);
     let g = brain.glance("expediente", 10).unwrap();
 
-    assert_eq!(g.answer.hits.len(), 1, "la lista y el sustrato salen de una sola busqueda");
-    assert_eq!(g.lens.focus, vec![hijos[0].0.clone()]);
-    assert!(g.lens.nodes.iter().any(|n| n.id == hub.0), "y su carpeta se enciende con el");
     assert_eq!(
-        g.lens.nodes.iter().find(|n| n.id == hijos[0].0).unwrap().distance,
+        g.answer.hits.len(),
+        1,
+        "la lista y el sustrato salen de una sola busqueda"
+    );
+    assert_eq!(g.lens.focus, vec![hijos[0].0.clone()]);
+    assert!(
+        g.lens.nodes.iter().any(|n| n.id == hub.0),
+        "y su carpeta se enciende con el"
+    );
+    assert_eq!(
+        g.lens
+            .nodes
+            .iter()
+            .find(|n| n.id == hijos[0].0)
+            .unwrap()
+            .distance,
         0
     );
 }
@@ -482,6 +666,6 @@ fn el_censo_ensena_quien_va_a_salir_grande() {
     // Y con su padre: cinco carpetas llamadas `src` serían cinco nodos
     // indistinguibles en el mapa.
     let hubs = lens::hubs(&store, 3, at()).unwrap();
-    assert_eq!(hubs[0], ("Docs/Grande".to_string(), 30));
-    assert_eq!(hubs[1], ("Docs/Pequena".to_string(), 2));
+    assert_eq!(hubs[0], ("Grande".to_string(), 30));
+    assert_eq!(hubs[1], ("Pequena".to_string(), 2));
 }

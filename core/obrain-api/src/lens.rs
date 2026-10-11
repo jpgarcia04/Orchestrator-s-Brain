@@ -128,9 +128,20 @@ struct Incident {
 /// sesión— es el *objeto* de sus 40 aristas y no el sujeto de ninguna. Mirar
 /// sólo hacia delante lo dejaría aislado justo a él, que es el nodo que más
 /// significa.
-fn incidents(store: &Store, e: &EntityId, at: TimePoint) -> obrain_core::Result<Vec<Incident>> {
+///
+/// Lo que está en la papelera (`fuera`) no es vecino de nadie: ya no está en tu
+/// bóveda (ADR-0025). Sus aristas siguen en el log.
+fn incidents(
+    store: &Store,
+    e: &EntityId,
+    at: TimePoint,
+    fuera: &HashSet<EntityId>,
+) -> obrain_core::Result<Vec<Incident>> {
     let mut out = Vec::new();
     let mut push = |a: Assertion, from: EntityId, to: EntityId, other: EntityId| {
+        if fuera.contains(&other) {
+            return;
+        }
         out.push(Incident {
             assertion: a.id,
             other,
@@ -178,6 +189,7 @@ pub fn open(
     let mut degree: HashMap<EntityId, usize> = HashMap::new();
     let mut truncated = false;
     let mut reached: HashSet<EntityId> = HashSet::new();
+    let fuera = obrain_scan::ausentes::missing_set(store, at)?;
 
     // ── capa 0 · el foco ──
     let mut layer: Vec<EntityId> = Vec::new();
@@ -203,7 +215,7 @@ pub fn open(
         let mut candidates: HashMap<EntityId, f64> = HashMap::new();
 
         for e in &layer {
-            for inc in incidents(store, e, at)? {
+            for inc in incidents(store, e, at, &fuera)? {
                 *degree.entry(e.clone()).or_insert(0) += 1;
                 edges.entry(inc.assertion).or_insert(inc.edge.clone());
                 reached.insert(inc.other.clone());
@@ -240,7 +252,7 @@ pub fn open(
     // igual: el tamaño de un nodo del borde tiene que decir cuánto grafo hay
     // detrás de él, que es justo la pista de por dónde seguir.
     for e in &layer {
-        let inc = incidents(store, e, at)?;
+        let inc = incidents(store, e, at, &fuera)?;
         degree.insert(e.clone(), inc.len());
         for i in inc {
             reached.insert(i.other);
@@ -359,7 +371,11 @@ pub fn edge_census(store: &Store, at: TimePoint) -> obrain_core::Result<Vec<(Str
 
 /// Las entidades con más aristas vivas. Es `--sample` para el mapa: enseña qué
 /// va a salir grande **antes** de dibujarlo.
-pub fn hubs(store: &Store, limit: usize, at: TimePoint) -> obrain_core::Result<Vec<(String, usize)>> {
+pub fn hubs(
+    store: &Store,
+    limit: usize,
+    at: TimePoint,
+) -> obrain_core::Result<Vec<(String, usize)>> {
     let mut degree: HashMap<EntityId, usize> = HashMap::new();
     for a in store.query(None, None, at)? {
         if let Value::Entity(o) = &a.object {
@@ -429,7 +445,10 @@ mod tests {
     fn la_posicion_cae_dentro_del_disco_unidad() {
         for i in 0..500 {
             let [x, y] = seed_position(&format!("entidad-{i}"));
-            assert!((x * x + y * y).sqrt() <= 1.0 + 1e-6, "fuera del disco: {x},{y}");
+            assert!(
+                (x * x + y * y).sqrt() <= 1.0 + 1e-6,
+                "fuera del disco: {x},{y}"
+            );
         }
     }
 }

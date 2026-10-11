@@ -12,7 +12,7 @@
 //! puede tocar es su etiqueta de disponibilidad. Si la miniatura aparece, es
 //! que alguien abrió un puntero de OneDrive.
 
-use obrain_api::{preview, Brain};
+use obrain_api::{Brain, preview};
 use obrain_core::{EntityId, Facet, Method, NewAssertion, Store, TimePoint, Value};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -50,7 +50,10 @@ fn ingerir(store: &Store, path: &Path, availability: &str) -> EntityId {
             .unwrap();
     };
     w("has_facet", Facet::Addressable.as_str().into());
-    w("path_observed_at", path.to_string_lossy().to_string().into());
+    w(
+        "path_observed_at",
+        path.to_string_lossy().to_string().into(),
+    );
     w("file_size", Value::Number(bytes.len() as f64));
     w("availability", availability.into());
     e
@@ -89,7 +92,10 @@ fn nunca_se_abre_una_imagen_que_no_esta_local() {
 
     let v = Brain::from_store(store).preview(&e, None).unwrap();
 
-    assert_eq!(v.kind, "none", "generó algo de un archivo que está en la nube");
+    assert_eq!(
+        v.kind, "none",
+        "generó algo de un archivo que está en la nube"
+    );
     assert!(v.image.is_none());
     assert!(!v.readable, "la guarda de M1 dijo que sí a un puntero");
     // §4.6: y se dice por qué, con las palabras que le sirven a quien mira.
@@ -133,9 +139,18 @@ fn una_imagen_local_se_ve() {
     assert_eq!(v.kind, "image");
     assert!(v.readable);
     let datos = v.image.expect("hay miniatura");
-    assert!(datos.starts_with("data:image/"), "{}", &datos[..40.min(datos.len())]);
+    assert!(
+        datos.starts_with("data:image/"),
+        "{}",
+        &datos[..40.min(datos.len())]
+    );
     assert!(datos.contains(";base64,"));
-    assert!(v.width <= preview::THUMB && v.height <= preview::THUMB, "{}×{}", v.width, v.height);
+    assert!(
+        v.width <= preview::THUMB && v.height <= preview::THUMB,
+        "{}×{}",
+        v.width,
+        v.height
+    );
     // Se redujo de verdad, y guardando la proporción.
     assert_eq!(v.width, preview::THUMB);
     assert_eq!(v.height, preview::THUMB * 900 / 1600);
@@ -194,7 +209,11 @@ fn con_consulta_el_documento_se_abre_donde_esta_la_respuesta() {
     let mut store = base();
     let relleno = "Texto de relleno perfectamente legible que no dice nada.\n\n".repeat(1_200);
     let p = dir.join("largo.txt");
-    std::fs::write(&p, format!("{relleno}El comprobante de ingresos del solicitante.\n\n{relleno}")).unwrap();
+    std::fs::write(
+        &p,
+        format!("{relleno}El comprobante de ingresos del solicitante.\n\n{relleno}"),
+    )
+    .unwrap();
     let e = ingerir(&store, &p, "local");
     extraer(&mut store);
 
@@ -202,14 +221,21 @@ fn con_consulta_el_documento_se_abre_donde_esta_la_respuesta() {
 
     let sin = brain.preview(&e, None).unwrap();
     assert_eq!(sin.offset, 0);
-    assert!(sin.truncated, "el documento no cabe entero, que es el caso a probar");
+    assert!(
+        sin.truncated,
+        "el documento no cabe entero, que es el caso a probar"
+    );
     assert!(!sin.text.unwrap().contains("comprobante"));
 
     let con = brain.preview(&e, Some("comprobante de ingresos")).unwrap();
     assert!(con.offset > 0, "no movió la ventana");
     let texto = con.text.expect("hay texto");
     let (s, f) = con.highlight.expect("hay tramo marcado");
-    assert!(texto[s..f].contains("comprobante"), "la marca apunta a otro sitio: {:?}", &texto[s..f]);
+    assert!(
+        texto[s..f].contains("comprobante"),
+        "la marca apunta a otro sitio: {:?}",
+        &texto[s..f]
+    );
     // El total es del documento entero, no del tramo: decir lo contrario sería
     // fingir que lo que se ve es todo lo que hay.
     assert!(con.chars > texto.chars().count());
@@ -232,7 +258,10 @@ fn un_archivo_sin_texto_explica_por_que() {
 
     let v = Brain::from_store(store).preview(&e, None).unwrap();
     assert_eq!(v.kind, "none");
-    assert!(v.reason.is_some_and(|r| r.contains("escaneado")), "no explicó el vacío");
+    assert!(
+        v.reason.is_some_and(|r| r.contains("escaneado")),
+        "no explicó el vacío"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }

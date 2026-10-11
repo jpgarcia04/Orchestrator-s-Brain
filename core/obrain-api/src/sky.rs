@@ -172,7 +172,10 @@ fn read_tree(store: &Store, at: TimePoint) -> Result<Tree> {
     // real son esos catorce.
     let mut es_registro: HashSet<EntityId> = HashSet::new();
     for a in store.query(None, Some("path_observed_at"), at)? {
-        if a.object.as_text().is_some_and(|p| p.to_ascii_lowercase().ends_with(".log")) {
+        if a.object
+            .as_text()
+            .is_some_and(|p| p.to_ascii_lowercase().ends_with(".log"))
+        {
             es_registro.insert(a.subject);
         }
     }
@@ -184,9 +187,16 @@ fn read_tree(store: &Store, at: TimePoint) -> Result<Tree> {
     }
 
     let mut projects: HashSet<EntityId> = HashSet::new();
+    let mut libraries: HashSet<EntityId> = HashSet::new();
     for a in store.query(None, Some("has_facet"), at)? {
-        if a.object.as_text() == Some("project") {
-            projects.insert(a.subject);
+        match a.object.as_text() {
+            Some("project") => {
+                projects.insert(a.subject);
+            }
+            Some("library") if folders.contains_key(&a.subject) => {
+                libraries.insert(a.subject);
+            }
+            _ => {}
         }
     }
 
@@ -196,7 +206,13 @@ fn read_tree(store: &Store, at: TimePoint) -> Result<Tree> {
     let mut home = HashMap::new();
 
     for a in store.query(None, Some("contained_by"), at)? {
-        let Value::Entity(up) = a.object else { continue };
+        let Value::Entity(up) = a.object else {
+            continue;
+        };
+        // Por encima de una biblioteca sólo está el camino del disco hasta ella.
+        if libraries.contains(&a.subject) {
+            continue;
+        }
         if folders.contains_key(&a.subject) {
             // carpeta dentro de carpeta
             parent.insert(a.subject.clone(), up.clone());
@@ -233,17 +249,19 @@ fn read_tree(store: &Store, at: TimePoint) -> Result<Tree> {
     let mut legible: HashMap<EntityId, usize> = HashMap::new();
     for h in order.iter().rev() {
         let own = direct.get(h).map_or(0, Vec::len);
-        let sub: usize = children
-            .get(h)
-            .map_or(0, |cs| cs.iter().map(|c| weight.get(c).copied().unwrap_or(0)).sum());
+        let sub: usize = children.get(h).map_or(0, |cs| {
+            cs.iter().map(|c| weight.get(c).copied().unwrap_or(0)).sum()
+        });
         weight.insert(h.clone(), own + sub);
 
-        let own_leg = direct
-            .get(h)
-            .map_or(0, |ds| ds.iter().filter(|d| con_formato.contains(*d)).count());
-        let sub_leg: usize = children
-            .get(h)
-            .map_or(0, |cs| cs.iter().map(|c| legible.get(c).copied().unwrap_or(0)).sum());
+        let own_leg = direct.get(h).map_or(0, |ds| {
+            ds.iter().filter(|d| con_formato.contains(*d)).count()
+        });
+        let sub_leg: usize = children.get(h).map_or(0, |cs| {
+            cs.iter()
+                .map(|c| legible.get(c).copied().unwrap_or(0))
+                .sum()
+        });
         legible.insert(h.clone(), own_leg + sub_leg);
     }
 
@@ -319,6 +337,35 @@ impl Tree {
     /// queda agregado en la carpeta de arriba, que sigue cubriéndolos.
     fn muda(&self, h: &EntityId) -> bool {
         self.sabe_formatos && self.legible.get(h).copied().unwrap_or(0) == 0
+    }
+
+    /// Las raíces que **tienen algo dentro**, ordenadas.
+    ///
+    /// Con bibliotecas, el camino del disco que quedaba por encima de ellas
+    /// (`C:\Users`, `Users\pacox`…) sigue en el log pero ya no cuelga nada de
+    /// él: son raíces vacías, y enseñarlas sería volver a poner el disco donde
+    /// tiene que estar tu bóveda.
+    fn roots(&self) -> Vec<EntityId> {
+        let mut v: Vec<EntityId> = self
+            .folders
+            .keys()
+            .filter(|f| !self.parent.contains_key(*f))
+            .filter(|f| self.weight.get(*f).copied().unwrap_or(0) > 0)
+            .cloned()
+            .collect();
+        v.sort();
+        v
+    }
+
+    /// El nombre de la carpeta madre, para desambiguar dos que se llaman igual.
+    fn parent_name(&self, h: &EntityId) -> Option<String> {
+        let up = self.parent.get(h)?;
+        let ruta = self.folders.get(up)?;
+        ruta.trim_end_matches(['\\', '/'])
+            .rsplit(['\\', '/'])
+            .next()
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
     }
 
     fn depth<'a>(&'a self, mut h: &'a EntityId) -> u8 {
@@ -413,7 +460,9 @@ pub fn audit(store: &Store, target: usize, at: TimePoint) -> Result<Vec<RegionAu
 
     let mut fecha: HashMap<EntityId, i64> = HashMap::new();
     for a in store.query(None, Some("modified_at"), at)? {
-        let Value::Timestamp(t) = a.object else { continue };
+        let Value::Timestamp(t) = a.object else {
+            continue;
+        };
         fecha.insert(a.subject, t);
     }
 
@@ -486,7 +535,11 @@ pub fn audit(store: &Store, target: usize, at: TimePoint) -> Result<Vec<RegionAu
                 files: reg.weight,
                 assertions: asr,
                 sessions: ses.len(),
-                span_days: if min == i64::MAX { 0 } else { (max - min) / 86_400_000 },
+                span_days: if min == i64::MAX {
+                    0
+                } else {
+                    (max - min) / 86_400_000
+                },
                 out_edges: fuera[i],
             }
         })
@@ -521,7 +574,12 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
             .filter(|c| !tree.muda(c))
             .cloned()
             .collect();
-        v.sort_by(|a, b| tree.weight.get(b).cmp(&tree.weight.get(a)).then_with(|| a.cmp(b)));
+        v.sort_by(|a, b| {
+            tree.weight
+                .get(b)
+                .cmp(&tree.weight.get(a))
+                .then_with(|| a.cmp(b))
+        });
         v
     };
 
@@ -540,13 +598,15 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
     };
 
     let mut open: Vec<Abierta> = tree
-        .folders
-        .keys()
-        .filter(|f| !tree.parent.contains_key(*f))
-        .cloned()
-        .map(|id| Abierta { id, zoom: Zoom::Subtree, nivel: 0, tomadas: 0 })
+        .roots()
+        .into_iter()
+        .map(|id| Abierta {
+            id,
+            zoom: Zoom::Subtree,
+            nivel: 0,
+            tomadas: 0,
+        })
         .collect();
-    open.sort_by(|a, b| a.id.cmp(&b.id));
 
     let peso = |a: &Abierta| -> usize {
         match a.zoom {
@@ -628,9 +688,13 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
         let sitio = cuantas.saturating_sub(open.len());
         let margen = sitio.min(tope);
         let todas = pendientes <= margen;
-        let promovidas = if todas { pendientes } else { margen.saturating_sub(1) };
+        let promovidas = if todas {
+            pendientes
+        } else {
+            margen.saturating_sub(1)
+        };
         if promovidas == 0 {
-            open.push(madre);       // no cabe ni una más: el reparto terminó
+            open.push(madre); // no cabe ni una más: el reparto terminó
             break;
         }
 
@@ -681,8 +745,12 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
     let mut reciente: HashMap<&EntityId, i64> = HashMap::new();
     let (mut oldest, mut newest) = (i64::MAX, 0i64);
     for a in store.query(None, Some("modified_at"), at)? {
-        let Value::Timestamp(t) = a.object else { continue };
-        let Some(r) = de_quien.get(&a.subject) else { continue };
+        let Value::Timestamp(t) = a.object else {
+            continue;
+        };
+        let Some(r) = de_quien.get(&a.subject) else {
+            continue;
+        };
         oldest = oldest.min(t);
         newest = newest.max(t);
         let e = reciente.entry(r).or_insert(0);
@@ -711,6 +779,12 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
         });
     }
     regions.sort_by(|a, b| b.weight.cmp(&a.weight).then_with(|| a.id.cmp(&b.id)));
+    desambiguar(
+        &mut regions,
+        |r| r.label.clone(),
+        |r, l| r.label = l,
+        |r| tree.parent_name(&EntityId(r.id.clone())),
+    );
 
     // La sensibilidad más restrictiva que haya dentro sube a la región.
     let mut peor: HashMap<String, &'static str> = HashMap::new();
@@ -730,7 +804,9 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
     // ── los puentes: las sesiones que cruzaron regiones ──
     let mut por_sesion: BTreeMap<EntityId, BTreeSet<String>> = BTreeMap::new();
     for a in store.query(None, Some("occurred_during"), at)? {
-        let Value::Entity(sesion) = a.object else { continue };
+        let Value::Entity(sesion) = a.object else {
+            continue;
+        };
         if let Some(r) = de_quien.get(&a.subject) {
             por_sesion.entry(sesion).or_default().insert(r.0.clone());
         }
@@ -768,6 +844,32 @@ pub fn regions(store: &Store, target: usize, at: TimePoint) -> Result<Sky> {
         oldest,
         newest,
     })
+}
+
+/// Dos cosas que se enseñan juntas y se llaman igual se distinguen por su
+/// carpeta madre: `Fotos (Viajes)` y `Fotos (Trabajo)`. **Sólo** ésas.
+///
+/// Es la otra mitad de que una carpeta se llame por su nombre a secas (ver
+/// `obrain_link`): el choque se resuelve en la vista que lo produce, y el resto
+/// de nombres no paga un prefijo que no necesita.
+fn desambiguar<T>(
+    cosas: &mut [T],
+    nombre: impl Fn(&T) -> String,
+    poner: impl Fn(&mut T, String),
+    madre: impl Fn(&T) -> Option<String>,
+) {
+    let mut veces: HashMap<String, usize> = HashMap::new();
+    for c in cosas.iter() {
+        *veces.entry(nombre(c)).or_insert(0) += 1;
+    }
+    for c in cosas.iter_mut() {
+        let n = nombre(c);
+        if veces.get(&n).copied().unwrap_or(0) > 1 {
+            if let Some(m) = madre(c) {
+                poner(c, format!("{n} ({m})"));
+            }
+        }
+    }
 }
 
 fn orden(s: &str) -> u8 {
@@ -920,6 +1022,12 @@ pub struct Listing {
     pub rows: Vec<Row>,
     pub folders: usize,
     pub files: usize,
+    /// La marca de sensibilidad que afecta a esta carpeta: la suya, o la de una
+    /// carpeta que la contiene ([ADR-0020]). Es lo que enseña el botón de la
+    /// cabecera.
+    ///
+    /// [ADR-0020]: ../../../docs/adr/0020-sensibilidad-por-carpeta.md
+    pub protection: Option<crate::Protection>,
 }
 
 /// Lee un predicado entero y lo indexa por sujeto. Una consulta por predicado y
@@ -933,112 +1041,343 @@ fn by_subject(store: &Store, pred: &str, at: TimePoint) -> Result<HashMap<Entity
     Ok(out)
 }
 
+/// Todo lo que hace falta para escribir filas, leído **de una vez**.
+///
+/// Lo comparten el explorador ([`children`]), los recientes ([`recent`]) y los
+/// sensibles ([`sensitive`]): tres listas de la misma cosa que no pueden
+/// discrepar en cómo se llama, cuánto pesa o si se puede leer una fila.
+struct Filas<'a> {
+    store: &'a Store,
+    at: TimePoint,
+    tree: Tree,
+    modificado: HashMap<EntityId, Value>,
+    ruta: HashMap<EntityId, Value>,
+    disponible: HashMap<EntityId, Value>,
+    nombres: obrain_link::Labels,
+    facetas: HashMap<EntityId, Vec<String>>,
+    sensible: HashMap<String, &'static str>,
+}
+
+impl<'a> Filas<'a> {
+    fn cargar(store: &'a Store, at: TimePoint) -> Result<Self> {
+        // Una faceta por fila sería otra consulta por fila. `has_facet` es el
+        // predicado más numeroso del log (1.919 sobre el corpus real) y aun así
+        // leerlo entero una vez cuesta menos que preguntarlo doscientas.
+        let mut facetas: HashMap<EntityId, Vec<String>> = HashMap::new();
+        for a in store.query(None, Some("has_facet"), at)? {
+            if let Some(t) = a.object.as_text() {
+                facetas.entry(a.subject).or_default().push(t.to_string());
+            }
+        }
+
+        // La sensibilidad no es una aserción sino una columna (ADR-0006), así
+        // que se lee de la tabla y de una vez, como hace `audit` más arriba.
+        let mut sensible: HashMap<String, &'static str> = HashMap::new();
+        {
+            let conn = store.conn();
+            let mut st = conn.prepare("SELECT id, sensitivity FROM entities")?;
+            let mut rows = st.query([])?;
+            while let Some(r) = rows.next()? {
+                let nivel: String = r.get(1)?;
+                sensible.insert(
+                    r.get::<_, String>(0)?,
+                    obrain_core::Sensitivity::parse(&nivel).map_or("vault", |s| s.as_str()),
+                );
+            }
+        }
+
+        Ok(Filas {
+            store,
+            at,
+            tree: read_tree(store, at)?,
+            modificado: by_subject(store, "modified_at", at)?,
+            ruta: by_subject(store, "path_observed_at", at)?,
+            disponible: by_subject(store, "availability", at)?,
+            nombres: obrain_link::Labels::load(store, at)?,
+            facetas,
+            sensible,
+        })
+    }
+
+    fn stamp(&self, e: &EntityId) -> i64 {
+        match self.modificado.get(e) {
+            Some(Value::Timestamp(t)) => *t,
+            _ => 0,
+        }
+    }
+
+    fn sitio(&self, e: &EntityId) -> String {
+        self.tree
+            .folders
+            .get(e)
+            .cloned()
+            .unwrap_or_else(|| match self.ruta.get(e) {
+                Some(Value::Text(p)) => p.clone(),
+                _ => String::new(),
+            })
+    }
+
+    fn nivel(&self, e: &EntityId) -> &'static str {
+        self.sensible.get(&e.0).copied().unwrap_or("vault")
+    }
+
+    fn fila(&self, e: &EntityId, carpeta: bool) -> Row {
+        Row {
+            // Sin nombre por ruta ni por carpeta sólo quedan las sesiones, que
+            // no aparecen como filas. Se paga la consulta suelta antes que
+            // enseñar un identificador.
+            label: self.nombres.get(e).map_or_else(
+                || obrain_link::label(self.store, e, self.at),
+                str::to_string,
+            ),
+            path: self.sitio(e),
+            kind: if carpeta { "folder" } else { "file" },
+            weight: if carpeta {
+                self.tree.weight.get(e).copied().unwrap_or(0)
+            } else {
+                0
+            },
+            sensitivity: self.nivel(e),
+            availability: match self.disponible.get(e) {
+                Some(Value::Text(t)) => Some(t.clone()),
+                _ => None,
+            },
+            recency: self.stamp(e),
+            facets: self.facetas.get(e).cloned().unwrap_or_default(),
+            id: e.0.clone(),
+        }
+    }
+}
+
+/// **Lo último que tocaste**: los archivos más recientes, del más nuevo al más
+/// viejo. Es el «Recientes» del inicio.
+pub fn recent(store: &Store, limit: usize, at: TimePoint) -> Result<Vec<Row>> {
+    let f = Filas::cargar(store, at)?;
+    let mut archivos: Vec<&EntityId> = f.tree.home.keys().collect();
+    archivos.sort_by(|a, b| f.stamp(b).cmp(&f.stamp(a)).then_with(|| a.cmp(b)));
+    Ok(archivos
+        .into_iter()
+        .take(limit)
+        .map(|e| f.fila(e, false))
+        .collect())
+}
+
+/// Un documento suelto con **dónde vive**: su fila, su carpeta y la cadena
+/// de carpetas por encima. Es lo que enseña una colección (ADR-0031), cuyos
+/// documentos vienen cada uno de un sitio.
+pub(crate) struct Suelto {
+    pub row: Row,
+    /// La carpeta donde está: `(id, nombre)`.
+    pub folder: (String, String),
+    /// Las carpetas por encima, de dentro hacia fuera: la estrella del mapa
+    /// que lo contiene es la primera de éstas que el cielo tenga abierta.
+    pub ancestors: Vec<String>,
+}
+
+/// Las filas de estos documentos, en el mismo orden, leyendo el árbol **una
+/// vez**. Lo que no está en el árbol (en la papelera, o no es un documento)
+/// no sale.
+pub(crate) fn loose(store: &Store, ids: &[EntityId], at: TimePoint) -> Result<Vec<Suelto>> {
+    let f = Filas::cargar(store, at)?;
+    let mut out = Vec::with_capacity(ids.len());
+    for e in ids {
+        let Some(casa) = f.tree.home.get(e) else {
+            continue;
+        };
+        let mut ancestors = vec![casa.0.clone()];
+        let mut cur = casa.clone();
+        while ancestors.len() < 32 {
+            let Some(up) = f.tree.parent.get(&cur) else {
+                break;
+            };
+            ancestors.push(up.0.clone());
+            cur = up.clone();
+        }
+        out.push(Suelto {
+            row: f.fila(e, false),
+            folder: (
+                casa.0.clone(),
+                f.nombres
+                    .get(casa)
+                    .map_or_else(|| obrain_link::label(store, casa, at), str::to_string),
+            ),
+            ancestors,
+        });
+    }
+    Ok(out)
+}
+
+/// **Lo sensible**: los archivos que la puerta de egreso retiene (`sensitive` o
+/// `vault`), por nombre. Es la vista «Sensibles» de la barra lateral.
+pub fn sensitive(store: &Store, at: TimePoint) -> Result<Vec<Row>> {
+    let f = Filas::cargar(store, at)?;
+    let mut filas: Vec<Row> = f
+        .tree
+        .home
+        .keys()
+        .filter(|e| f.nivel(e) != "normal")
+        .map(|e| f.fila(e, false))
+        .collect();
+    filas.sort_by(|a, b| {
+        a.label
+            .to_lowercase()
+            .cmp(&b.label.to_lowercase())
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    Ok(filas)
+}
+
+/// Un documento que caduca pronto, o que ya caducó: una fila de la tarjeta
+/// «Caduca pronto» del inicio ([ADR-0023]).
+///
+/// Es una [`Row`] como las de «Recientes» y «Sensibles» —mismo nombre, mismo
+/// nivel, misma carpeta— más lo que dice de su fecha.
+///
+/// [ADR-0023]: ../../../docs/adr/0023-vencimientos.md
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Expiring {
+    #[serde(flatten)]
+    pub row: Row,
+    /// El nombre legible de la carpeta donde vive. Es lo que da contexto
+    /// cuando el nombre lo puso una cámara (`IMG_2291.jpg`), y lo único que se
+    /// enseña, además del nombre, de lo sensible bloqueado.
+    pub folder: Option<String>,
+    /// `AAAA-MM-DD`. `None` si es sensible y el PIN lo tiene bloqueado: la
+    /// fecha sale del texto, y el texto de lo sensible no sale del núcleo
+    /// hasta desbloquear ([ADR-0021]).
+    ///
+    /// [ADR-0021]: ../../../docs/adr/0021-cifrado-en-reposo-y-pin.md
+    pub date: Option<String>,
+    /// Días de hoy (en UTC) a la fecha; negativo si ya caducó. `None` con la
+    /// fecha oculta.
+    pub days: Option<i64>,
+    /// La fecha la dijo el usuario (I5).
+    pub by_user: bool,
+    /// Es sensible y está bloqueado: se sabe que está aquí, no cuándo.
+    pub locked: bool,
+}
+
+/// **Lo que caduca pronto**: lo que vence en `ventana` días o menos y **todo
+/// lo que ya venció**, hasta que el usuario lo corrija (ADR-0023). Lo que dice
+/// «no caduca» no sale.
+///
+/// En orden de fecha, lo caducado arriba. Lo sensible bloqueado va al final y
+/// por nombre, para que ni el orden delate su fecha.
+pub fn expiring(
+    store: &Store,
+    at: TimePoint,
+    hoy: obrain_expiry::Fecha,
+    ventana: i64,
+    ocultar_sensibles: bool,
+) -> Result<Vec<Expiring>> {
+    let f = Filas::cargar(store, at)?;
+    let mut visibles = Vec::new();
+    let mut ocultas = Vec::new();
+    for v in obrain_expiry::resolved(store, at)? {
+        let Some(fecha) = v.vence.fecha() else {
+            continue;
+        };
+        // Sólo lo que vive en una biblioteca: es lo que enseña el explorador.
+        let Some(casa) = f.tree.home.get(&v.entity) else {
+            continue;
+        };
+        let dias = fecha.dias() - hoy.dias();
+        if dias > ventana {
+            continue;
+        }
+        let row = f.fila(&v.entity, false);
+        let folder = Some(
+            f.nombres
+                .get(casa)
+                .map_or_else(|| obrain_link::label(store, casa, at), str::to_string),
+        );
+        if ocultar_sensibles && row.sensitivity != "normal" {
+            ocultas.push(Expiring {
+                row,
+                folder,
+                date: None,
+                days: None,
+                by_user: false,
+                locked: true,
+            });
+        } else {
+            visibles.push((
+                fecha,
+                Expiring {
+                    row,
+                    folder,
+                    date: Some(fecha.iso()),
+                    days: Some(dias),
+                    by_user: v.by_user,
+                    locked: false,
+                },
+            ));
+        }
+    }
+    visibles.sort_by(|(a, x), (b, y)| a.cmp(b).then_with(|| x.row.label.cmp(&y.row.label)));
+    ocultas.sort_by(|x, y| {
+        x.row
+            .label
+            .to_lowercase()
+            .cmp(&y.row.label.to_lowercase())
+            .then_with(|| x.row.id.cmp(&y.row.id))
+    });
+    Ok(visibles
+        .into_iter()
+        .map(|(_, e)| e)
+        .chain(ocultas)
+        .collect())
+}
+
 /// **Qué hay dentro de esto.** El tercer corte del árbol de contención.
 ///
 /// Con `focus` a `None` devuelve las raíces, que es por donde se entra cuando
 /// nadie ha enfocado nada todavía.
 pub fn children(store: &Store, focus: Option<&EntityId>, at: TimePoint) -> Result<Listing> {
-    let tree = read_tree(store, at)?;
-    let modificado = by_subject(store, "modified_at", at)?;
-    let ruta = by_subject(store, "path_observed_at", at)?;
-    let disponible = by_subject(store, "availability", at)?;
-    let nombres = obrain_link::Labels::load(store, at)?;
-
-    // Una faceta por fila sería otra consulta por fila. `has_facet` es el
-    // predicado más numeroso del log (1.919 sobre este corpus) y aun así leerlo
-    // entero una vez cuesta menos que preguntarlo doscientas.
-    let mut facetas: HashMap<EntityId, Vec<String>> = HashMap::new();
-    for a in store.query(None, Some("has_facet"), at)? {
-        if let Some(t) = a.object.as_text() {
-            facetas.entry(a.subject).or_default().push(t.to_string());
-        }
-    }
-
-    // La sensibilidad no es una aserción sino una columna (ADR-0006), así que
-    // se lee de la tabla y de una vez, como hace `audit` un poco más arriba.
-    let mut sensible: HashMap<String, &'static str> = HashMap::new();
-    {
-        let conn = store.conn();
-        let mut st = conn.prepare("SELECT id, sensitivity FROM entities")?;
-        let mut rows = st.query([])?;
-        while let Some(r) = rows.next()? {
-            let nivel: String = r.get(1)?;
-            sensible.insert(
-                r.get::<_, String>(0)?,
-                obrain_core::Sensitivity::parse(&nivel).map_or("vault", |s| s.as_str()),
-            );
-        }
-    }
-
-    let stamp = |e: &EntityId| -> i64 {
-        match modificado.get(e) {
-            Some(Value::Timestamp(t)) => *t,
-            _ => 0,
-        }
+    let f = Filas::cargar(store, at)?;
+    let tree = &f.tree;
+    // Con una sola raíz —lo normal: tu bóveda—, entrar en el explorador es
+    // entrar en ella. Una lista de un único elemento es un clic de más.
+    let unica = match tree.roots().as_slice() {
+        [r] => Some(r.clone()),
+        _ => None,
     };
-    let sitio = |e: &EntityId| -> String {
-        tree.folders.get(e).cloned().unwrap_or_else(|| match ruta.get(e) {
-            Some(Value::Text(p)) => p.clone(),
-            _ => String::new(),
-        })
-    };
-
-    let fila = |e: &EntityId, carpeta: bool| -> Row {
-        Row {
-            // Sin nombre por ruta ni por carpeta sólo quedan las sesiones, que
-            // no aparecen como filas. Se paga la consulta suelta antes que
-            // enseñar un identificador.
-            label: nombres
-                .get(e)
-                .map_or_else(|| obrain_link::label(store, e, at), str::to_string),
-            path: sitio(e),
-            kind: if carpeta { "folder" } else { "file" },
-            weight: if carpeta {
-                tree.weight.get(e).copied().unwrap_or(0)
-            } else {
-                0
-            },
-            sensitivity: sensible.get(&e.0).copied().unwrap_or("vault"),
-            availability: match disponible.get(e) {
-                Some(Value::Text(t)) => Some(t.clone()),
-                _ => None,
-            },
-            recency: stamp(e),
-            facets: facetas.get(e).cloned().unwrap_or_default(),
-            id: e.0.clone(),
-        }
-    };
+    let focus = focus.or(unica.as_ref());
+    let nombres = &f.nombres;
+    let sitio = |e: &EntityId| f.sitio(e);
+    let fila = |e: &EntityId, carpeta: bool| f.fila(e, carpeta);
 
     // ── qué cuelga de aquí ──
     let (carpetas, archivos): (Vec<EntityId>, Vec<EntityId>) = match focus {
         // La raíz: las carpetas sin madre. No hay ninguna entidad que las
         // contenga, así que no hay nada que preguntar al log.
-        None => (
-            {
-                let mut v: Vec<EntityId> = tree
-                    .folders
-                    .keys()
-                    .filter(|f| !tree.parent.contains_key(*f))
-                    .cloned()
-                    .collect();
-                v.sort();
-                v
-            },
-            Vec::new(),
-        ),
+        None => (tree.roots(), Vec::new()),
+        // Una subcarpeta sin nada dentro no se enseña, igual que una raíz
+        // vacía: es el nombre viejo de una carpeta que se renombró, o una de
+        // la que todo se fue a la papelera (ADR-0025).
         Some(f) if tree.folders.contains_key(f) => (
-            tree.children.get(f).cloned().unwrap_or_default(),
+            tree.children
+                .get(f)
+                .map(|cs| {
+                    cs.iter()
+                        .filter(|c| tree.weight.get(*c).copied().unwrap_or(0) > 0)
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default(),
             tree.direct.get(f).cloned().unwrap_or_default(),
         ),
         // No es una carpeta: entonces es cualquier otra cosa que contenga, y lo
         // que contiene es lo que la señala. Aquí es donde entran las sesiones —
         // y donde entrarán las menciones de M6 sin tocar esta función.
         Some(f) => {
+            let fuera = obrain_scan::ausentes::missing_set(store, at)?;
             let mut v: Vec<EntityId> = store
                 .query_by_object(f, at)?
                 .into_iter()
                 .filter(|a| CONTAINMENT.contains(&a.predicate.as_str()))
                 .map(|a| a.subject)
+                .filter(|e| !fuera.contains(e))
                 .collect();
             v.sort();
             v.dedup();
@@ -1054,8 +1393,28 @@ pub fn children(store: &Store, focus: Option<&EntityId>, at: TimePoint) -> Resul
     let mut cs: Vec<Row> = carpetas.iter().map(|c| fila(c, true)).collect();
     cs.sort_by(|a, b| b.weight.cmp(&a.weight).then_with(|| a.label.cmp(&b.label)));
     let mut fs: Vec<Row> = archivos.iter().map(|a| fila(a, false)).collect();
-    fs.sort_by(|a, b| b.recency.cmp(&a.recency).then_with(|| a.label.cmp(&b.label)));
+    fs.sort_by(|a, b| {
+        b.recency
+            .cmp(&a.recency)
+            .then_with(|| a.label.cmp(&b.label))
+    });
     let (folders, files) = (cs.len(), fs.len());
+    // Dentro de una carpeta no puede haber dos hijas con el mismo nombre, pero
+    // en la raíz sí: dos bibliotecas llamadas `Documentos` en sitios distintos.
+    desambiguar(
+        &mut cs,
+        |r| r.label.clone(),
+        |r, l| r.label = l,
+        |r| {
+            let limpio = r.path.trim_end_matches(['\\', '/']);
+            let madre = &limpio[..limpio.rfind(['\\', '/'])?];
+            madre
+                .rsplit(['\\', '/'])
+                .next()
+                .filter(|m| !m.is_empty())
+                .map(str::to_string)
+        },
+    );
     rows.append(&mut cs);
     rows.append(&mut fs);
 
@@ -1066,7 +1425,9 @@ pub fn children(store: &Store, focus: Option<&EntityId>, at: TimePoint) -> Resul
         let mut cur = f.clone();
         let mut vistos = HashSet::new();
         while vistos.insert(cur.clone()) && trail.len() < 32 {
-            let Some(up) = tree.parent.get(&cur).cloned() else { break };
+            let Some(up) = tree.parent.get(&cur).cloned() else {
+                break;
+            };
             trail.push(Crumb {
                 label: nombres
                     .get(&up)
@@ -1078,8 +1439,19 @@ pub fn children(store: &Store, focus: Option<&EntityId>, at: TimePoint) -> Resul
         trail.reverse();
     }
 
+    let protection = match focus {
+        Some(f) if tree.folders.contains_key(f) => {
+            crate::marks::of_folder(store, &store.folder_marks(at)?, f, at)?
+        }
+        _ => None,
+    };
+
     Ok(Listing {
-        label: focus.map_or_else(|| "todo".to_string(), |f| obrain_link::label(store, f, at)),
+        protection,
+        label: focus.map_or_else(
+            || "inicio".to_string(),
+            |f| obrain_link::label(store, f, at),
+        ),
         path: focus.map_or_else(String::new, sitio),
         focus: focus.map(|f| f.0.clone()),
         trail,
@@ -1133,5 +1505,15 @@ pub fn cluster(store: &Store, hits: &[crate::Hit], at: TimePoint) -> Result<Vec<
     // los grupos sale de ahí: no hace falta una puntuación agregada, que
     // siempre acaba siendo una media que no significa nada.
     grupos.sort_by_key(|g| g.best);
+    desambiguar(
+        &mut grupos,
+        |g| g.label.clone(),
+        |g, l| g.label = l,
+        |g| {
+            g.ancestors
+                .first()
+                .map(|up| obrain_link::label(store, &EntityId(up.clone()), at))
+        },
+    );
     Ok(grupos)
 }

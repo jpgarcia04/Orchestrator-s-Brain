@@ -1,0 +1,31 @@
+[package]
+name = "obrain-keys"
+version = "0.0.1"
+description = "La llave de la base: DPAPI de Windows y clave de recuperación — ADR-0021 de Orchestrator's Brain"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# Sin una sola dependencia en C, a propósito: así su parte de Windows se puede
+# comprobar desde cualquier sistema con `cargo check --target
+# x86_64-pc-windows-msvc`, que es la única comprobación que tiene fuera de un
+# Windows de verdad.
+[dependencies]
+# La caja de recuperación: Argon2id para derivar, XChaCha20-Poly1305 para
+# cifrar. RustCrypto, Rust puro.
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+getrandom = "0.3"
+# Que la llave no se quede en la memoria cuando deja de usarse.
+zeroize = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+thiserror = "2"
+
+[target.'cfg(windows)'.dependencies]
+# DPAPI: `CryptProtectData` y `CryptUnprotectData`, en el ámbito del usuario.
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security_Cryptography",
+] }

@@ -40,8 +40,8 @@ pub mod rules;
 
 use obrain_core::rusqlite::Connection;
 use obrain_core::{
-    Assertion, AssertionId, EntityId, Method, NewAssertion, Result, Sensitivity, Store, TimePoint,
-    Value,
+    Assertion, AssertionId, CONTENTS_SENSITIVITY, EntityId, Error, Method, NewAssertion, Origin,
+    Result, Sensitivity, Store, TimePoint, Value,
 };
 use obrain_extract::FileRow;
 use rules::Signal;
@@ -78,7 +78,11 @@ impl Verdict {
     }
 
     pub fn source(&self) -> String {
-        let origen = if self.chunk.is_some() { "content" } else { "name" };
+        let origen = if self.chunk.is_some() {
+            "content"
+        } else {
+            "name"
+        };
         format!("{CLASSIFIER}:{origen}@{CLASSIFIER_VERSION}")
     }
 }
@@ -106,6 +110,22 @@ pub struct GuardReport {
     pub assertions_unchanged: usize,
     /// Entidades donde el usuario se pronunció y el clasificador no manda.
     pub user_overrides: usize,
+    /// Archivos que suben de nivel por estar dentro de una carpeta que el
+    /// usuario marcó ([ADR-0020]). Es la señal que rescata a la foto de la TIE,
+    /// que no tiene ni nombre útil ni texto.
+    ///
+    /// [ADR-0020]: ../../../docs/adr/0020-sensibilidad-por-carpeta.md
+    pub inherited: usize,
+    /// Paquetes que suben de nivel por lo que llevan dentro ([ADR-0030]): el
+    /// PDF de la visa que junta la carátula del pasaporte.
+    ///
+    /// [ADR-0030]: ../../../docs/adr/0030-un-documento-dentro-de-otro.md
+    pub from_parts: usize,
+    /// El nivel **efectivo** de los archivos mirados, después de aplicar al
+    /// usuario y a las carpetas: `[normal, sensitive, vault]`. Los tres campos
+    /// de arriba cuentan lo que dijo el clasificador; éste, lo que lee la
+    /// puerta.
+    pub effective: [usize; 3],
 
     /// Coste real de la política: fragmentos que M4 no podrá vectorizar.
     pub withheld_chunks: i64,
@@ -123,9 +143,18 @@ impl GuardReport {
 
 // ─────────────────────────────────────────────────────────────────── pipeline
 
-/// Clasifica todo el corpus y proyecta la columna. El llamante envuelve en
-/// transacción.
+/// Clasifica y revoca en un savepoint, anidable en la transacción de etapa.
 pub fn classify_all(
+    store: &Store,
+    files: &[FileRow],
+    at: i64,
+    dry_run: bool,
+    report: &mut GuardReport,
+) -> Result<Vec<Verdict>> {
+    store.atomic_write(|s| classify_inner(s, files, at, dry_run, report))
+}
+
+fn classify_inner(
     store: &Store,
     files: &[FileRow],
     at: i64,
@@ -139,8 +168,11 @@ pub fn classify_all(
     let por_contenido = scan_chunks(store.conn(), report)?;
     // Y una para lo que ya estaba dicho, para no reafirmar lo idéntico.
     let previas = previous_claims(store, tp)?;
+    // Las carpetas que marcó el usuario, una vez: son la herencia (ADR-0020).
+    let marcas = store.folder_marks(tp)?;
 
     let mut verdicts = Vec::new();
+    let mut levels = Vec::new();
     for file in files {
         let name = file.file_name();
         let por_nombre = rules::classify_name(name);
@@ -167,7 +199,7 @@ pub fn classify_all(
             // tiene que seguir a las reglas de hoy.
             if !dry_run {
                 retract_stale(store, &previas, &file.entity, None, at, report)?;
-                store.reproject_sensitivity(&file.entity, tp)?;
+                levels.push((&file.entity, None));
             }
             continue;
         };
@@ -193,19 +225,61 @@ pub fn classify_all(
 
         if !dry_run {
             write_claim(store, &previas, &verdict, at, report)?;
-            let efectivo = store.reproject_sensitivity(&file.entity, tp)?;
-            if efectivo != signal.level {
-                // La columna no coincide con lo que dijo el clasificador: sólo
-                // puede ser porque el usuario mandó otra cosa (I5).
-                report.user_overrides += 1;
-            }
+            levels.push((&file.entity, Some(signal.level)));
         }
         verdicts.push(verdict);
+    }
+
+    // Las carpetas no tienen texto ni pasan por las reglas, pero sí heredan: una
+    // subcarpeta que aparece dentro de una carpeta marcada tiene que enseñar su
+    // candado igual que sus archivos. Sólo se escribe lo que cambia.
+    if !dry_run {
+        // Todas las señales de esta pasada ya están en el log: el paquete ve
+        // la clasificación actual de sus partes, independientemente del orden.
+        for (entity, classifier) in levels {
+            project(store, entity, tp, &marcas, classifier, report)?;
+        }
+        for a in store.query(None, Some("folder_path"), tp)? {
+            let nivel = store.resolve_sensitivity(&a.subject, tp, &marcas)?.level;
+            if store.sensitivity(&a.subject)? != nivel {
+                store.set_sensitivity(&a.subject, nivel, at)?;
+            }
+        }
+        store.purge_vault_embeddings(at)?;
     }
 
     report.withheld_chunks = gate::withheld_chunks(store.conn())?;
     report.census = store.sensitivity_census()?;
     Ok(verdicts)
+}
+
+/// Escribe el nivel efectivo de un archivo y cuenta **por qué** es ése.
+///
+/// Es [`Store::reproject_sensitivity_under`] desplegada: hace lo mismo, pero
+/// quiere saber de dónde salió el nivel para que el informe distinga lo que
+/// dijo el clasificador, lo que corrigió el usuario y lo que heredó de una
+/// carpeta.
+fn project(
+    store: &Store,
+    entity: &EntityId,
+    tp: TimePoint,
+    marcas: &obrain_core::FolderMarks,
+    clasificador: Option<Sensitivity>,
+    report: &mut GuardReport,
+) -> Result<()> {
+    let r = store.resolve_sensitivity(entity, tp, marcas)?;
+    store.reproject_sensitivity_under(entity, tp, marcas)?;
+    let dijo = clasificador.unwrap_or(Sensitivity::Normal);
+    match r.origin {
+        // La columna no coincide con lo que dijo el clasificador: el usuario
+        // mandó otra cosa (I5).
+        Origin::User if clasificador.is_some() && r.level != dijo => report.user_overrides += 1,
+        Origin::Folder(_) if r.level > dijo => report.inherited += 1,
+        Origin::Part { .. } if r.level > dijo => report.from_parts += 1,
+        _ => {}
+    }
+    report.effective[r.level as usize] += 1;
+    Ok(())
 }
 
 /// Escanea el texto ya indexado. Devuelve, por entidad, la señal más fuerte y
@@ -214,7 +288,8 @@ fn scan_chunks(
     conn: &Connection,
     report: &mut GuardReport,
 ) -> Result<HashMap<EntityId, (Signal, i64)>> {
-    let mut stmt = conn.prepare("SELECT entity, ordinal, text FROM chunks ORDER BY entity, ordinal")?;
+    let mut stmt =
+        conn.prepare("SELECT entity, ordinal, text FROM chunks ORDER BY entity, ordinal")?;
     let mut rows = stmt.query([])?;
     let mut mejor: HashMap<EntityId, (Signal, i64)> = HashMap::new();
     let mut vistas: std::collections::HashSet<EntityId> = std::collections::HashSet::new();
@@ -225,7 +300,10 @@ fn scan_chunks(
         vistas.insert(entity.clone());
 
         // Una entidad ya marcada como bóveda no puede subir de nivel.
-        if mejor.get(&entity).is_some_and(|(s, _)| s.level == Sensitivity::Vault) {
+        if mejor
+            .get(&entity)
+            .is_some_and(|(s, _)| s.level == Sensitivity::Vault)
+        {
             continue;
         }
         let texto: String = row.get(2)?;
@@ -325,18 +403,140 @@ fn parent_dir(path: &str) -> Option<&str> {
 /// Marca un archivo a mano. Es el canal de corrección del usuario (I5) y la
 /// operación que la barra de comandos expondrá como «esto es privado».
 pub fn mark_by_user(store: &Store, entity: &EntityId, level: Sensitivity, at: i64) -> Result<()> {
-    store.assert(
-        NewAssertion::new(
-            entity.clone(),
-            "sensitivity_level",
-            Value::Text(level.as_str().to_string()),
-            Method::User,
-            at,
-        )
-        .source("user:manual"),
-    )?;
-    store.reproject_sensitivity(entity, TimePoint::at(at))?;
-    Ok(())
+    store.atomic_write(|store| {
+        store.assert_by_user(
+            NewAssertion::new(
+                entity.clone(),
+                "sensitivity_level",
+                Value::Text(level.as_str().to_string()),
+                Method::User,
+                at,
+            )
+            .source("user:manual"),
+        )?;
+        store.reproject_sensitivity(entity, TimePoint::at(at))?;
+        Ok(())
+    })
+}
+
+// ─────────────────────────────────────────────────────────── carpetas (0020)
+
+/// Lo que pasó al marcar o desmarcar una carpeta.
+#[derive(Debug, Default, Clone)]
+pub struct FolderMarkReport {
+    /// Entidades dentro de la carpeta —archivos y subcarpetas, ella incluida—
+    /// cuyo nivel se ha vuelto a calcular.
+    pub under: usize,
+    /// De ellas, las que han cambiado de nivel.
+    pub changed: usize,
+    /// El nivel de la marca que queda puesta, o `None` si se quitó.
+    pub level: Option<Sensitivity>,
+}
+
+/// **Marca una carpeta** —todo lo que tiene dentro hereda el nivel, también lo
+/// que llegue después— o, con `None`, le quita la marca.
+///
+/// Es una aserción del usuario (I5) sobre la carpeta, así que ningún reescaneo
+/// la pisa: el clasificador sólo retracta lo que escribió él. Quitarla sí la
+/// retracta, y es el usuario quien lo hace: la marca queda en el log con su
+/// fecha de alta y de baja, que es lo que responde *«¿qué protegía yo en
+/// marzo?»* (I4, I6).
+///
+/// Sólo sube: `normal` no es una marca. Para que un archivo concreto de una
+/// carpeta marcada deje de ser sensible, se corrige **ese archivo**
+/// ([`mark_by_user`]), y como es posterior a la marca, gana ([ADR-0020]).
+///
+/// La marca, las proyecciones y las revocaciones comparten un savepoint;
+/// el llamante puede envolverlo en su transacción de etapa.
+///
+/// [ADR-0020]: ../../../docs/adr/0020-sensibilidad-por-carpeta.md
+pub fn mark_folder(
+    store: &Store,
+    folder: &EntityId,
+    level: Option<Sensitivity>,
+    at: i64,
+) -> Result<FolderMarkReport> {
+    store.atomic_write(|s| mark_folder_inner(s, folder, level, at))
+}
+
+fn mark_folder_inner(
+    store: &Store,
+    folder: &EntityId,
+    level: Option<Sensitivity>,
+    at: i64,
+) -> Result<FolderMarkReport> {
+    let tp = TimePoint::at(at);
+    let ruta = store
+        .resolve(folder, "folder_path", tp)?
+        .and_then(|a| a.object.as_text().map(str::to_string))
+        .ok_or_else(|| Error::NotAFolder(folder.to_string()))?;
+    if level == Some(Sensitivity::Normal) {
+        return Err(Error::InvalidMark(Sensitivity::Normal.as_str().to_string()));
+    }
+
+    // Cardinalidad `one`: la marca anterior, si la hay, deja de estar vigente
+    // antes de poner la nueva. Sólo las del usuario, que son las únicas que
+    // cuentan.
+    let vigentes: Vec<AssertionId> = store
+        .query(Some(folder), Some(CONTENTS_SENSITIVITY), tp)?
+        .into_iter()
+        .filter(|a| a.method == Method::User)
+        .map(|a| a.id)
+        .collect();
+    let misma = level.is_some_and(|l| {
+        store
+            .resolve(folder, CONTENTS_SENSITIVITY, tp)
+            .ok()
+            .flatten()
+            .is_some_and(|a| a.method == Method::User && a.object.as_text() == Some(l.as_str()))
+    });
+    if !misma {
+        for id in &vigentes {
+            store.retract(id, at)?;
+        }
+        if let Some(l) = level {
+            store.assert(
+                NewAssertion::new(
+                    folder.clone(),
+                    CONTENTS_SENSITIVITY,
+                    Value::Text(l.as_str().to_string()),
+                    Method::User,
+                    at,
+                )
+                .source("user:carpeta"),
+            )?;
+        }
+    }
+
+    // Todo lo que está **ahora** debajo de su ruta, a cualquier profundidad:
+    // archivos por su ruta observada, subcarpetas por la suya.
+    let marcas = store.folder_marks(tp)?;
+    let mut report = FolderMarkReport {
+        level,
+        ..Default::default()
+    };
+    let mut vistos = std::collections::HashSet::new();
+    for pred in ["path_observed_at", "folder_path"] {
+        for a in store.query(None, Some(pred), tp)? {
+            if !vistos.insert(a.subject.clone()) {
+                continue;
+            }
+            // La ruta vigente, no una antigua: `query` trae todas.
+            let Some(donde) = store.location(&a.subject, tp)? else {
+                continue;
+            };
+            if !obrain_core::sensitivity::path_within(&donde, &ruta) {
+                continue;
+            }
+            let antes = store.sensitivity(&a.subject)?;
+            let ahora = store.reproject_sensitivity_under(&a.subject, tp, &marcas)?;
+            report.under += 1;
+            if antes != ahora {
+                report.changed += 1;
+            }
+        }
+    }
+    Ok(report)
 }
 
 #[cfg(test)]
@@ -345,7 +545,10 @@ mod tests {
 
     #[test]
     fn el_padre_es_solo_la_carpeta_inmediata() {
-        assert_eq!(parent_dir(r"C:\Users\a\Visados\solicitud.pdf"), Some("Visados"));
+        assert_eq!(
+            parent_dir(r"C:\Users\a\Visados\solicitud.pdf"),
+            Some("Visados")
+        );
         assert_eq!(parent_dir("suelto.txt"), None);
     }
 
@@ -360,18 +563,30 @@ mod tests {
 
         store
             .assert(
-                NewAssertion::new(e.clone(), "sensitivity_level", "vault", Method::Inferred, at)
-                    .source("guard:name@1"),
+                NewAssertion::new(
+                    e.clone(),
+                    "sensitivity_level",
+                    "vault",
+                    Method::Inferred,
+                    at,
+                )
+                .source("guard:name@1"),
             )
             .unwrap();
-        assert_eq!(store.reproject_sensitivity(&e, tp).unwrap(), Sensitivity::Vault);
+        assert_eq!(
+            store.reproject_sensitivity(&e, tp).unwrap(),
+            Sensitivity::Vault
+        );
 
         mark_by_user(&store, &e, Sensitivity::Normal, at + 1).unwrap();
         assert_eq!(store.sensitivity(&e).unwrap(), Sensitivity::Normal);
 
         // Y una reproyección posterior no lo revierte.
         let despues = TimePoint::at(at + 2);
-        assert_eq!(store.reproject_sensitivity(&e, despues).unwrap(), Sensitivity::Normal);
+        assert_eq!(
+            store.reproject_sensitivity(&e, despues).unwrap(),
+            Sensitivity::Normal
+        );
     }
 
     /// Sin usuario de por medio, entre dos señales gana la que no filtra.
@@ -390,7 +605,10 @@ mod tests {
                 )
                 .unwrap();
         }
-        assert_eq!(store.reproject_sensitivity(&e, tp).unwrap(), Sensitivity::Vault);
+        assert_eq!(
+            store.reproject_sensitivity(&e, tp).unwrap(),
+            Sensitivity::Vault
+        );
     }
 
     #[test]

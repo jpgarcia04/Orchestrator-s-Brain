@@ -90,7 +90,8 @@ Esto no es negociable:
 |-----------|-----------------|
 | **Local primero** | Tus datos viven en tu computadora. El procesamiento ocurre en tu máquina. |
 | **Nada sale sin tu permiso** | Cada archivo tiene un nivel de sensibilidad. Los documentos sensibles nunca se envían a ningún servicio externo. |
-| **Cifrado en reposo** | Tu base de conocimiento está cifrada en tu disco. |
+| **Cifrado en reposo** | Tu base de conocimiento está cifrada en tu disco (SQLCipher), y la llave la guarda Windows para tu cuenta. Una copia de la base no se puede leer. Te damos una clave de recuperación por si Windows pierde la llave. **No cifra tus archivos originales**: para eso está el Cifrado de dispositivo de Windows. |
+| **Un PIN para ver** | Si pones un PIN, lo sensible no se enseña —ni en la vista previa ni en la búsqueda— hasta escribirlo. Lo impone el núcleo, no la ventana. |
 | **Sin cuenta, sin nube obligatoria** | Funciona completamente offline. La sincronización entre dispositivos es opcional y cifrada de extremo a extremo. |
 
 Si vas a guardar tu pasaporte, tus contratos y tus documentos médicos en un sistema, ese sistema **no puede tener acceso a tus datos**. Esta es la razón por la que el procesamiento es local — no por dogma, sino por responsabilidad.
@@ -104,10 +105,16 @@ Orchestrator's Brain trabaja en capas, como un cerebro real:
 ### 1. 👀 Observar — *Ver tu disco*
 El sistema recorre las carpetas que le indiques y **reconoce** cada archivo — no por su nombre o ubicación (que pueden cambiar), sino por su **contenido**. Si mueves o renombras un archivo, sigue siendo el mismo.
 
+> Y si **borras** un documento, sale de todas partes y pasa a la **Papelera** de la app durante 30 días; después se olvida lo que se leyó de él (o antes, si la vacías). Tus archivos no se tocan: la papelera de obrain sólo guarda lo que obrain leyó. Si lo sacas de la Papelera de Windows, vuelve con todo lo que sabías.
+
 > Inteligencia incluida: detecta archivos que están "en la nube" y no los descarga sin tu permiso. No va a llenar tu disco ni saturar tu internet.
 
 ### 2. 📖 Leer — *Entender el contenido*
 Extrae el texto de cada documento (PDFs, documentos de Office, notas, código) y lo organiza para poder buscarlo.
+
+> Las **fotos y los PDF escaneados** —la foto de tu TIE, el pasaporte escaneado— se leen con el reconocedor de texto (OCR) que **ya trae Windows**, sin conexión: nada sale de tu computadora.
+
+> Y de ese texto saca **cuándo caduca** cada documento —«VALIDEZ 15 11 2026» en la TIE, «vigencia hasta el 31 de agosto de 2027» en la póliza, las líneas `P<MEX<<…` del pasaporte, o la expedición más diez años aunque el OCR no haya leído la palabra «caducidad»—: el Inicio te avisa en **«Caduca pronto»** de lo que vence en los próximos 90 días. Cada fecha dice por qué la leyó, y si se equivoca la corriges en un clic —o se la pones tú si el documento no la dice—; lo que digas tú gana siempre.
 
 ### 3. 🔗 Relacionar — *Conectar sin adivinar*
 Antes de usar cualquier inteligencia artificial, el sistema ya puede descubrir **miles de relaciones** usando solo señales que existen en tus archivos:
@@ -115,6 +122,7 @@ Antes de usar cualquier inteligencia artificial, el sistema ya puede descubrir *
 | Lo que encuentra | Cómo lo sabe |
 |------------------|--------------|
 | Archivos duplicados | Mismo contenido, aunque tengan diferente nombre |
+| Un documento dentro de otro | Sus párrafos aparecen seguidos dentro de otro: el PDF que armaste para un trámite juntando tus estados de cuenta (y si tienes copias con el mismo texto, cuentan todas) |
 | Versiones de un documento | Nombres similares con marcadores como "v2", "final", "rev" |
 | Sesiones de trabajo | Archivos modificados en la misma ventana de tiempo |
 | Origen web | La URL de donde descargaste un archivo (sí, Windows guarda eso) |
@@ -126,6 +134,11 @@ Con un modelo de inteligencia artificial **que corre en tu máquina** —se desc
 > Ejemplo real de este disco: buscar **"universidad"** devuelve un formulario de matrícula que **no contiene esa palabra** en ningún sitio. Dice "Titulación", "Centro Docente", "Año académico". La búsqueda por texto no puede encontrarlo; ésta sí.
 >
 > Y lo que marcaste como privado **no entra** en el índice de significado. Eso no es una opción de configuración: es una comprobación que el sistema aplica y que tiene tests.
+>
+> Puedes marcar **una carpeta entera** —por ejemplo, la de tus documentos de identidad— y todo lo que tenga dentro será sensible, también lo que metas después: la foto de tu TIE no necesita tener texto ni un nombre que la delate. Si luego la renombras o la mueves a otro sitio del mismo disco, la marca va con ella.
+
+### 🗂️ Y tú también relacionas: *tus colecciones*
+Junta a mano lo que va junto aunque viva en carpetas distintas —**«Trámite de la visa»**: el pasaporte, la póliza, la matrícula y los estados de cuenta— sin mover nada de su sitio. Un documento puede estar en varias, sigue en ellas aunque lo muevas o lo renombres, y si lo borras y lo recuperas, vuelve solo. Puedes buscar sólo dentro de una colección, y en el mapa se encienden las estrellas donde están sus documentos, sin mover ninguna. Para juntar, **arrastra**: suelta un documento (o varios elegidos) en una colección de la barra lateral, o en «Nueva colección». De una colección a otra se mueve —con Ctrl, se queda en las dos—, y en tus carpetas de Windows no cambia nada: una colección es como una playlist.
 
 ### 5. 🌌 Visualizar — *El mapa*
 Todo ese conocimiento cobra vida en una visualización interactiva — tu galaxia personal de conocimiento, donde puedes explorar, navegar y descubrir conexiones que habías olvidado.
@@ -140,6 +153,8 @@ Y cuando llegas a un archivo, **lo ves**: el texto que ya se había extraído �
 
 El proyecto está en desarrollo activo. Cada hito se valida contra la pregunta del inicio: *"¿Puede responder dónde estaba el documento de la visa?"*
 
+> **2026-09-22 — replanteamiento.** El objetivo inmediato deja de ser *entender todo el disco* y pasa a ser **una bóveda de documentos personales que eliges tú**: pasaporte, seguros, matrícula, contratos. Dónde está todo y cómo usarlo hoy: [`docs/ESTADO.md`](docs/ESTADO.md).
+
 | Hito | Descripción | Estado |
 |------|-------------|--------|
 | **M0** — Cimientos | Modelo de datos y almacenamiento | ✅ Completo |
@@ -151,7 +166,11 @@ El proyecto está en desarrollo activo. Cada hito se valida contra la pregunta d
 | **M5a** — La barra | Buscar desde una barra, con el mapa vivo detrás | ✅ Completo |
 | **M5b** — Llegar y ver | Explorador por columnas y panel de entidad con previsualización | ✅ Completo |
 | **M5d** — Manejarlo | Cámara del mapa —zoom y arrastre— y saber qué nodo vas a abrir antes de abrirlo | ✅ Completo |
-| **M5c** — Enterarse | Vigilancia continua: lo nuevo aparece sin lanzar nada | ⏳ Planificado |
+| **Fase 1** — Tu bóveda | Bibliotecas: el explorador empieza en tu carpeta, nombres limpios, `obrain indexar`, la app se pone al día sola | ✅ Completo |
+| **M5c** — Enterarse | Lo nuevo aparece sin lanzar nada | ✅ Completo: al abrir la app, con «actualizar» y vigilando tus carpetas en vivo |
+| **Fase 2** — La interfaz nueva | Svelte 5: escritorio tipo sistema operativo con vista previa (cada apartado se pliega desde su título y se queda como lo dejaste), buscador `Ctrl K`, la galaxia como vista «Mapa» enlazada, aspecto de noche y de día | ✅ Completo |
+| **Fase 3** — Documentos personales | Sensibilidad por carpeta ✅ · cifrado en reposo y PIN ✅ · OCR ✅ · vencimientos ✅ · vigilar la carpeta en vivo ✅ · papelera ✅ | ✅ Completo y probado en Windows (2026-09-23) |
+| **Después de la 3** — Tu bóveda, relacionada | Un documento dentro de otro ✅: el paquete dice qué lleva, cada documento suelto en qué paquete está, el paquete hereda la sensibilidad de lo que lleva (de todas sus copias) y la búsqueda los agrupa · tus colecciones ✅: juntar a mano sin mover nada, buscar dentro, verlas en el mapa, y arrastrando a la barra lateral | ✅ Hecho en el banco de pruebas (2026-09-25); falta verlo en Windows |
 | **M6** — Construir conocimiento | Inferencia de procesos y enriquecimiento | ⏳ Planificado |
 | **M7** — La pregunta | Responder la pregunta de la visa | 🎯 Meta final |
 
@@ -198,7 +217,7 @@ Esta es la parte que más importa. Orchestrator's Brain no es una herramienta qu
 
 - **Núcleo:** Rust — rendimiento predecible, memoria controlada, sin pausa de recolector de basura. Ideal para un proceso que corre todo el día en segundo plano.
 - **Persistencia:** SQLite — un solo archivo, cero instalación. Todo índice es una proyección reconstruible desde un log maestro.
-- **Interfaz:** Tauri v2 + TypeScript — ~10 MB contra ~150 MB de Electron, usa el webview del sistema.
+- **Interfaz:** Tauri v2 + Svelte 5 + TypeScript — ~10 MB contra ~150 MB de Electron, usa el webview del sistema. Tipografías e iconos van dentro de la app: funciona sin conexión.
 - **Visualización:** PixiJS (WebGL2) — renderizado verificado a 0.6 ms para 500 nodos en GPU integrada Intel.
 
 ### Modelo de datos
@@ -220,21 +239,29 @@ El repositorio contiene un registro formal de decisiones arquitectónicas (ADRs)
 ```
 Orchestrator's-Brain/
 ├── core/                          # Núcleo del sistema (Rust)
-│   ├── obrain-core/               #   Modelo de datos y almacenamiento
+│   ├── obrain-keys/               #   La llave de la base (DPAPI) y la clave de recuperación
+│   ├── obrain-core/               #   Modelo de datos y almacenamiento (cifrado con SQLCipher)
 │   ├── obrain-scan/               #   Descubrimiento e identidad de archivos
+│   ├── obrain-ocr/                #   Leer fotos y escaneos con el OCR de Windows
 │   ├── obrain-extract/            #   Extracción de texto y búsqueda léxica
 │   ├── obrain-link/               #   Relaciones automáticas entre archivos
 │   ├── obrain-guard/              #   Sensibilidad y control de egreso
+│   ├── obrain-expiry/             #   Vencimientos: la fecha de caducidad, leída del texto
 │   ├── obrain-embed/              #   Embeddings locales y búsqueda semántica
 │   └── obrain-api/                #   La superficie: buscar, mirar y recorrer
-├── ui/                            # Aplicación de escritorio (Tauri + TypeScript)
-│   ├── src/                       #   La barra, el mapa (PixiJS), el explorador y el panel
+├── ui/                            # Aplicación de escritorio (Tauri + Svelte 5)
+│   ├── src/
+│   │   ├── vistas/                #   Inicio, Carpeta, Mapa, Colecciones, Sensibles y Papelera
+│   │   ├── componentes/           #   Barra lateral, cabecera, buscador, vista previa…
+│   │   ├── lib/                   #   Estado de la app, nombres legibles, el mapa (PixiJS)
+│   │   └── estilos/               #   El tema: noche y día
 │   └── src-tauri/                 #   El puente al núcleo
 ├── docs/                          # Documentación de diseño
+│   ├── ESTADO.md                  #   Empieza aquí: dónde estamos y cómo usarlo
 │   ├── PROJECT-MASTER.md          #   Documento maestro del proyecto
 │   ├── EXPERIENCE.md              #   Diseño de experiencia y lenguaje visual
 │   ├── adr/                       #   Registro de decisiones arquitectónicas
-│   └── prompts/                   #   Prompts de diseño usados durante el proceso
+│   └── archivo/                   #   Bitácora de agosto y prompts de diseño
 └── prototypes/                    # Prototipos y pruebas de concepto
     └── 01-graph-render/           #   Benchmark de renderizado WebGL
 ```
@@ -257,6 +284,6 @@ Y el día que pueda, la arquitectura habrá demostrado que funciona.
 
 *Construido con la convicción de que tu computadora debería conocerte mejor — sin necesidad de contarle nada a nadie más.*
 
-**[📖 Documento Maestro](docs/PROJECT-MASTER.md)** · **[🎨 Diseño de Experiencia](docs/EXPERIENCE.md)** · **[📋 Decisiones Arquitectónicas](docs/adr/)**
+**[🧭 Estado](docs/ESTADO.md)** · **[📖 Documento Maestro](docs/PROJECT-MASTER.md)** · **[🎨 Diseño de Experiencia](docs/EXPERIENCE.md)** · **[📋 Decisiones Arquitectónicas](docs/adr/)**
 
 </div>

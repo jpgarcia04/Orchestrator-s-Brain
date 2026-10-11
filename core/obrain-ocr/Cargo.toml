@@ -1,0 +1,28 @@
+[package]
+name = "obrain-ocr"
+version = "0.0.1"
+description = "OCR local con el reconocedor de Windows — Fase 3 de Orchestrator's Brain"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# Sin dependencias en C, igual que `obrain-keys`: la parte de Windows se puede
+# comprobar desde cualquier sistema con `cargo check --target
+# x86_64-pc-windows-msvc`. Fuera de Windows este crate sólo define el contrato.
+[dependencies]
+
+[target.'cfg(windows)'.dependencies]
+# `Windows.Media.Ocr`: el reconocedor que trae Windows, local, sin descargar
+# nada ni mandar nada fuera. `Windows.Data.Pdf` pinta las páginas de un PDF
+# escaneado para poder leerlas.
+windows = { version = "0.61", features = [
+    "Foundation",
+    "Foundation_Collections",
+    "Globalization",
+    "Graphics_Imaging",
+    "Media_Ocr",
+    "Storage_Streams",
+    "Data_Pdf",
+    "Win32_System_WinRT",
+] }
+windows-future = "0.2"

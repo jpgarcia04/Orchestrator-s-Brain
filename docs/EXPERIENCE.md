@@ -120,6 +120,8 @@ Contiene, en este orden:
 3. **Inferido** — bloque desaturado, visualmente distinto. Cada línea con un **"¿por qué?"** que resalta el fragmento exacto del documento origen del que salió.
 4. **Corrección** — en todo lo inferido, siempre.
 
+**Cada apartado se pliega desde su título** (decidido por el usuario, 2026-09-23): el documento, «Lo que sé de este documento», «Relacionado» y «Detalles técnicos» (éste nace plegado, igual que el texto reconocido de una foto). Lo que pliegas **se recuerda** para todos los documentos y al cerrar la app: el panel se queda como lo dejaste. Plegado, el título sigue ahí —«Relacionado» dice cuántos hay—, y un «¿por qué?» que marca un tramo del texto abre lo que haga falta para verlo. Lo largo y técnico se dice corto: **«Descargado de: chatgpt.com»**, no los 240 caracteres de la dirección de descarga, que se quedan al pasar el ratón y en «Detalles técnicos».
+
 ### 4.5 La corrección es de primera clase
 
 Consecuencia directa del invariante I5, y probablemente el detalle de UX que más decide si confías en este sistema con tu pasaporte.
@@ -146,6 +148,12 @@ Son dos intenciones distintas, no dos estéticas:
 | «sé exactamente qué quiero, déjame bajar por la jerarquía» | **Explorador** |
 
 Forzar una sola metáfora sobre las dos es cómo un usuario acaba peleándose con su propia herramienta.
+
+> **Actualizado el 2026-09-22 — [ADR-0019](adr/0019-el-explorador-es-el-escritorio.md).**
+> Con la bóveda personal el orden se invirtió: **el explorador es el escritorio**
+> donde abre la aplicación, y la galaxia es la vista «Mapa», que se invoca. Lo
+> que sigue se conserva como se escribió; la continuidad de estado en los dos
+> sentidos y «enseña lo que un gestor de archivos no puede» siguen en pie.
 
 **Cómo se comporta**
 

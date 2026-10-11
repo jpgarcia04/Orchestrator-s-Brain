@@ -271,6 +271,21 @@ pub enum Facet {
     ///
     /// [ADR-0015]: ../../../docs/adr/0015-el-cielo-reparte-por-anchura-no-por-peso.md
     Project,
+    /// Una carpeta que el usuario **eligió** indexar: la raíz de su bóveda.
+    ///
+    /// Lo que hay por encima de ella —`C:\Users\pacox\OneDrive`…— no es
+    /// conocimiento del usuario sino el camino hasta él. Por eso el árbol de
+    /// contención se corta aquí: el explorador empieza en la biblioteca y las
+    /// migas no arrastran la ruta entera del disco.
+    Library,
+    /// Una **colección** del usuario: documentos que él junta a mano —«Trámite
+    /// de la visa»— vengan de la carpeta que vengan, y un documento puede
+    /// estar en varias. No tiene archivo ni ruta; sólo la crea el usuario (I5).
+    ///
+    /// Se llama `region` porque es la palabra del modelo (§10: *regiones del
+    /// usuario*); en la interfaz es «colección». No es una región del cielo,
+    /// que es una carpeta. Ver `docs/adr/0031-tus-colecciones.md`.
+    Region,
 }
 
 impl Facet {
@@ -286,6 +301,8 @@ impl Facet {
             Facet::Confidential => "confidential",
             Facet::Container => "container",
             Facet::Project => "project",
+            Facet::Library => "library",
+            Facet::Region => "region",
         }
     }
 }
