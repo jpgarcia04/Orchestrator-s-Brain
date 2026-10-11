@@ -71,28 +71,6 @@ CREATE INDEX IF NOT EXISTS idx_vectors_entity ON vectors(entity);
 CREATE INDEX IF NOT EXISTS idx_vectors_model  ON vectors(model_id, model_ver);
 "#;
 
-/// Saca del índice lo que la puerta **ya no concede**: las entidades que han
-/// subido a bóveda después de vectorizarse. Devuelve cuáles eran.
-///
-/// Clasificar no borra vectores —la puerta no conoce esta tabla, y no debe—,
-/// así que es cada pasada de vectorización la que hace que la proyección siga
-/// a la puerta. Sin esto, una foto que el usuario mete en una carpeta marcada
-/// como bóveda seguiría saliendo por significado hasta reconstruir el índice a
-/// mano.
-pub fn purge_withheld(conn: &Connection) -> Result<Vec<EntityId>> {
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT v.entity FROM vectors v JOIN entities e ON e.id = v.entity
-          WHERE e.sensitivity = 'vault' ORDER BY v.entity",
-    )?;
-    let fuera: Vec<EntityId> = stmt
-        .query_map([], |r| Ok(EntityId(r.get(0)?)))?
-        .collect::<obrain_core::rusqlite::Result<_>>()?;
-    for e in &fuera {
-        conn.execute("DELETE FROM vectors WHERE entity = ?1", [e.as_str()])?;
-    }
-    Ok(fuera)
-}
-
 pub fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(DDL)?;
     Ok(())
@@ -239,7 +217,8 @@ pub fn knn_within(
     };
     let mut stmt = conn.prepare(&format!(
         "SELECT chunk, entity, vec FROM vectors
-          WHERE model_id = ?1 AND model_ver = ?2 AND dim = ?3 {filtro}"
+          WHERE model_id = ?1 AND model_ver = ?2 AND dim = ?3
+          AND entity IN (SELECT id FROM entities WHERE sensitivity != 'vault') {filtro}"
     ))?;
     let dim = model.dim as i64;
     let mut valores: Vec<&dyn ToSql> = vec![&model.id, &model.version, &dim];
@@ -355,6 +334,28 @@ mod tests {
         let vecinos = knn(store.conn(), &[1.0, 0.0, 0.0], M, 5).unwrap();
         assert_eq!(vecinos.len(), 1);
         assert!((vecinos[0].score - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn el_knn_no_usa_vectores_vault_aunque_la_purga_no_haya_ocurrido() {
+        let store = base();
+        let p = fragmento(&store, 1, "SINTETICO");
+        insert(store.conn(), &p, M, &[1.0, 0.0, 0.0]).unwrap();
+        assert_eq!(knn(store.conn(), &[1.0, 0.0, 0.0], M, 5).unwrap().len(), 1);
+        // Residuo histórico sintético: omite a propósito el setter seguro.
+        store
+            .conn()
+            .execute(
+                "UPDATE entities SET sensitivity = 'vault' WHERE id = ?1",
+                [p.entity.as_str()],
+            )
+            .unwrap();
+        assert_eq!(count(store.conn(), M).unwrap(), 1);
+        assert!(
+            knn(store.conn(), &[1.0, 0.0, 0.0], M, 5)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     /// Buscar dentro de una colección (ADR-0031): el filtro va antes de

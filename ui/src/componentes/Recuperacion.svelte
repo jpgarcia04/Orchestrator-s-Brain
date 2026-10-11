@@ -6,6 +6,8 @@
   pulsando fuera: es lo único de la app que hay que leer antes de seguir.
 -->
 <script lang="ts">
+  import { onMount } from "svelte";
+  import { pinSession } from "../lib/pin-session";
   import Check from "@lucide/svelte/icons/check";
   import Copy from "@lucide/svelte/icons/copy";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
@@ -17,6 +19,7 @@
   let clave = $state<string | null>(null);
   let guardada = $state(false);
   let copiada = $state(false);
+  onMount(() => pinSession.subscribe(() => { clave = null; copiada = false; }));
   let error = $state("");
 
   claveRecuperacion()

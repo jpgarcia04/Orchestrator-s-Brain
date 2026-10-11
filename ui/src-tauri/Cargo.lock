@@ -3198,6 +3198,7 @@ dependencies = [
  "obrain-core",
  "obrain-extract",
  "obrain-scan",
+ "url",
 ]
 
 [[package]]

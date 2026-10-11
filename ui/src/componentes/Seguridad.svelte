@@ -8,6 +8,8 @@
   para abrir la carpeta—.
 -->
 <script lang="ts">
+  import { onMount } from "svelte";
+  import { pinSession } from "../lib/pin-session";
   import Copy from "@lucide/svelte/icons/copy";
   import KeyRound from "@lucide/svelte/icons/key-round";
   import Lock from "@lucide/svelte/icons/lock";
@@ -23,6 +25,7 @@
 
   let clave = $state<string | null>(null);
   let copiada = $state(false);
+  onMount(() => pinSession.subscribe(() => { clave = null; copiada = false; }));
 
   /** Qué formulario del PIN está abierto. */
   let forma = $state<"" | "poner" | "cambiar" | "quitar">("");
@@ -160,7 +163,7 @@
               previa ni en la búsqueda— hasta escribirlo. No cifra nada: protege ver.
             </p>
           {:else if s.desbloqueada}
-            <p>Desbloqueado: lo sensible se ve hasta 5 minutos después de la última vez que lo miras.</p>
+            <p>Desbloqueado: lo sensible se ve durante 5 minutos desde que escribes el PIN.</p>
           {:else}
             <p>Bloqueado: lo sensible pide el PIN antes de enseñarse.</p>
           {/if}
@@ -226,6 +229,9 @@
         {#if error}<p class="error-campo">{error}</p>{/if}
       {/if}
     </section>
+  {:else}
+    <p class="tenue">No se pudo comprobar la seguridad. El contenido protegido se ha retirado.</p>
+    <button class="boton-prim hov" onclick={() => (app.pidiendoPin = true)}>Comprobar con PIN</button>
   {/if}
 </Modal>
 

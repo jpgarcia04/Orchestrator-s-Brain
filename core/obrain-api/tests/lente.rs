@@ -295,7 +295,7 @@ fn un_nodo_de_boveda_llega_marcado() {
     let store = base();
     let (_, hijos) = carpeta(&store, "Tramites", 3);
     store
-        .set_sensitivity(&hijos[1], Sensitivity::Vault)
+        .set_sensitivity(&hijos[1], Sensitivity::Vault, 1)
         .unwrap();
 
     let l = lens::open(&store, &[hijos[0].clone()], 2, 50, at()).unwrap();

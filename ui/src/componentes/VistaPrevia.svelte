@@ -13,9 +13,11 @@
 -->
 <script lang="ts" module>
   import { SvelteSet } from "svelte/reactivity";
+  import { pinSession } from "../lib/pin-session";
 
   /** Lo sensible que has pedido ver en esta sesión. No se recuerda al cerrar. */
   const revelados = new SvelteSet<string>();
+  pinSession.subscribe(() => revelados.clear());
 </script>
 
 <script lang="ts">
@@ -38,7 +40,7 @@
   import { app } from "../lib/app.svelte";
   import {
     abrir,
-    corregir,
+    confirmar as confirmarAsercion,
     corregirVencimiento,
     desdeBytes,
     entidad,
@@ -253,7 +255,7 @@
       ["extraction_status", "lectura"],
       ["embedded_with", "significado"],
       ["has_hash", "huella"],
-      // Arriba sólo sale el sitio; la dirección entera, aquí.
+      // Origen web saneado por el núcleo; nunca la URL de acceso original.
       ["downloaded_from", "descargado de"],
     ] as const) {
       const c = buscar(p);
@@ -290,8 +292,8 @@
 
   /**
    * De dónde se descargó, dicho por su sitio: `chatgpt.com`, no los 240
-   * caracteres de la dirección de descarga (JP, 2026-09-23). La dirección
-   * entera sale al pasar el ratón y en «Detalles técnicos».
+   * caracteres de la dirección de descarga. El núcleo conserva sólo el origen
+   * HTTP(S), también para el tooltip y los detalles técnicos.
    */
   function sitio(url: string): string {
     try {
@@ -411,7 +413,7 @@
   }
 
   function confirmar(c: Claim): void {
-    corregir(id, c.predicate, c.value)
+    confirmarAsercion(id, c.assertion)
       .then(() => {
         recarga++;
         if (c.predicate === "expires_on") app.version++; // la tarjeta del inicio
@@ -672,7 +674,7 @@
                 {:else if c.method === "inferred"}
                   <span class="acciones-hecho">
                     <button class="enlace" onclick={() => alternarPorque(c)}>¿por qué?</button>
-                    <button class="enlace" onclick={() => confirmar(c)}>es correcto</button>
+                    {#if c.correctable && !bloqueado}<button class="enlace" onclick={() => confirmar(c)}>es correcto</button>{/if}
                     {#if c.predicate === "expires_on" && cambiando === null}
                       <button class="enlace" onclick={() => empezarCambio(c)}>cambiar</button>
                     {/if}

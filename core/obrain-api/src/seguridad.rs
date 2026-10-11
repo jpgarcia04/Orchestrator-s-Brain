@@ -34,6 +34,8 @@ pub struct Estado {
     pub desbloqueada: bool,
     /// Con PIN y tras varios fallos: cuánto falta para poder volver a probar.
     pub espera_ms: i64,
+    /// Caducidad monotónica del desbloqueo. Las lecturas no la renuevan.
+    pub restante_ms: Option<u64>,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -287,6 +289,7 @@ pub fn estado(conn: &Connection, ahora_ms: i64) -> Result<Estado> {
         pin: leer(conn, "pin")?.is_some(),
         desbloqueada: false,
         espera_ms: espera,
+        restante_ms: None,
     })
 }
 

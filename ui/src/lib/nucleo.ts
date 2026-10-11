@@ -1,11 +1,10 @@
 /**
- * El puente al núcleo. **Tipos y nada más.**
+ * El puente al núcleo: tipos, transporte y revocación del PIN.
  *
  * Todo lo que hay aquí es el reflejo exacto de lo que `core/obrain-api`
- * serializa. No hay una sola decisión en este archivo: ni qué es relevante, ni
- * qué es un hecho, ni cómo se llama un nodo. Si algo de eso apareciera aquí,
- * habría dos definiciones —una en Rust y otra en TypeScript— y el día que
- * discreparan el mapa mentiría sin que nadie lo notara.
+ * serializa. El dominio y la autorización viven en Rust. La sesión del
+ * cliente sólo puede retirar contenido y descartar respuestas caducadas;
+ * no concede autorización adicional al núcleo.
  *
  * Es la respuesta concreta a por qué M5 empezó por un crate y no por una
  * ventana.
@@ -13,6 +12,10 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { pinSession } from "./pin-session";
+
+const read = <T>(command: string, args?: Record<string, unknown>): Promise<T> =>
+  pinSession.read(() => invoke<T>(command, args), () => invoke<Seguridad>("seguridad"));
 
 /** `(rama, puesto)` — la procedencia de I9 en cada resultado. */
 export type Rama = [string, number];
@@ -94,6 +97,7 @@ export interface Lente {
 }
 
 export interface Claim {
+  correctable: boolean;
   assertion: string;
   predicate: string;
   label: string;
@@ -455,6 +459,7 @@ export interface Seguridad {
   desbloqueada: boolean;
   /** Tras varios fallos: cuánto falta para volver a probar. */
   espera_ms: number;
+  restante_ms: number | null;
 }
 
 /** Lo que hizo un reindexado. Ver `obrain_api::IndexReport`. */
@@ -503,7 +508,7 @@ export interface Vistazo {
  * ejecutaría la búsqueda dos veces por tecla.
  */
 export const vistazo = (query: string, limit = 12, coleccion: string | null = null) =>
-  invoke<Vistazo>("vistazo", { query, limit, coleccion });
+  read<Vistazo>("vistazo", { query, limit, coleccion });
 
 // ── tus colecciones (ADR-0031): identificadores, nunca rutas; ningún archivo se toca ──
 
@@ -544,7 +549,7 @@ export const moverEntreColecciones = (desde: string, hacia: string, docs: string
   invoke<Movidos>("mover_entre_colecciones", { desde, hacia, docs });
 
 export const lente = (focus: string[], radius = 2, budget = 300) =>
-  invoke<Lente>("lente", { focus, radius, budget });
+  read<Lente>("lente", { focus, radius, budget });
 
 /** Lo que se ve al abrir: el grafo entero a poca escala. */
 export const cielo = (target = 30) => invoke<Cielo>("cielo", { target });
@@ -566,7 +571,7 @@ export const recientes = (limit = 8) => invoke<Fila[]>("recientes", { limit });
 export const sensibles = () => invoke<Fila[]>("sensibles");
 
 /** Lo que caduca en 90 días o ya caducó: la tarjeta del inicio. */
-export const vencimientos = () => invoke<Vencimiento[]>("vencimientos");
+export const vencimientos = () => read<Vencimiento[]>("vencimientos");
 
 /**
  * «cambiar» en la vista previa: cuándo caduca un documento (`AAAA-MM-DD`), o
@@ -595,7 +600,7 @@ export const carpetasMarcadas = () => invoke<CarpetaMarcada[]>("carpetas_marcada
 export const marcarCarpeta = (carpeta: string, nivel: "sensitive" | "vault" | null) =>
   invoke<Marcado>("marcar_carpeta", { carpeta, nivel });
 
-export const entidad = (id: string) => invoke<VistaEntidad>("entidad", { id });
+export const entidad = (id: string) => read<VistaEntidad>("entidad", { id });
 
 /**
  * Qué se ve del archivo.
@@ -609,7 +614,7 @@ export const entidad = (id: string) => invoke<VistaEntidad>("entidad", { id });
  * abre; el tramo —dónde está algo que lleva dentro (ADR-0030)— manda.
  */
 export const previsualizar = (id: string, consulta?: string, tramo?: [number, number] | null) =>
-  invoke<Vista>("previsualizar", { id, consulta: consulta ?? null, tramo: tramo ?? null });
+  read<Vista>("previsualizar", { id, consulta: consulta ?? null, tramo: tramo ?? null });
 
 /**
  * Abre el archivo con el programa del sistema.
@@ -625,17 +630,33 @@ export const abrir = (id: string) => invoke<void>("abrir", { id });
 export const revelar = (id: string) => invoke<void>("revelar", { id });
 
 /** La corrección de I5. Gana para siempre y ningún reescaneo la pisa. */
-export const corregir = (subject: string, predicate: string, object: string) =>
+export const corregir = (subject: string, predicate: string, object: { kind: "text" | "entity"; value: string }) =>
   invoke<string>("corregir", { subject, predicate, object });
+
+export const confirmar = (subject: string, assertion: string) => invoke<string>("confirmar", { subject, assertion });
 
 export const estado = () => invoke<Estado>("estado");
 
 // ── seguridad (ADR-0021) ──
 
-export const seguridad = () => invoke<Seguridad>("seguridad");
+export async function seguridad(): Promise<Seguridad> {
+  if (pinSession.held) throw new Error("Cambio de seguridad pendiente de confirmar");
+  const epoch = pinSession.epoch;
+  const start = performance.now();
+  try {
+    const state = await invoke<Seguridad>("seguridad");
+    if (epoch !== pinSession.epoch) throw new Error("Consulta de seguridad revocada");
+    pinSession.apply(state, performance.now() - start);
+    if (pinSession.state === null) throw new Error("Desbloqueo caducado");
+    return state;
+  } catch (e) {
+    if (epoch === pinSession.epoch) pinSession.suspend();
+    throw e;
+  }
+}
 
 /** La clave de recuperación, para enseñarla. Con PIN, sólo desbloqueado. */
-export const claveRecuperacion = () => invoke<string | null>("clave_recuperacion");
+export const claveRecuperacion = () => read<string | null>("clave_recuperacion");
 
 /** «Ya la guardé»: la app deja de enseñarla al abrir. */
 export const recuperacionGuardada = () => invoke<void>("recuperacion_guardada");
@@ -643,14 +664,26 @@ export const recuperacionGuardada = () => invoke<void>("recuperacion_guardada");
 /** Abre la base con la clave de recuperación cuando Windows no tiene su llave. */
 export const recuperar = (codigo: string) => invoke<void>("recuperar", { codigo });
 
-export const pinDesbloquear = (pin: string) => invoke<void>("pin_desbloquear", { pin });
-export const pinBloquear = () => invoke<void>("pin_bloquear");
-export const pinPoner = (nuevo: string, actual: string | null) => invoke<void>("pin_poner", { nuevo, actual });
-export const pinQuitar = (actual: string) => invoke<void>("pin_quitar", { actual });
+async function cambiarPin(command: string, args?: Record<string, unknown>): Promise<void> {
+  pinSession.beginChange();
+  try {
+    await invoke<void>(command, args);
+  } catch (e) {
+    if (command !== "pin_bloquear") pinSession.finishChange();
+    throw e;
+  }
+  // Si falla el bloqueo se conserva la revocación local hasta una acción
+  // explícita correcta: una consulta atrasada no vuelve a abrir la ventana.
+  pinSession.finishChange();
+}
+export const pinDesbloquear = (pin: string) => cambiarPin("pin_desbloquear", { pin });
+export const pinBloquear = () => cambiarPin("pin_bloquear");
+export const pinPoner = (nuevo: string, actual: string | null) => cambiarPin("pin_poner", { nuevo, actual });
+export const pinQuitar = (actual: string) => cambiarPin("pin_quitar", { actual });
 
 /** Olvidé el PIN: con la clave de recuperación se pone otro (o ninguno, con `null`). */
 export const pinRestablecer = (codigo: string, nuevo: string | null) =>
-  invoke<void>("pin_restablecer", { codigo, nuevo });
+  cambiarPin("pin_restablecer", { codigo, nuevo });
 
 /**
  * Vuelve a leer tus bibliotecas. Vuelve al instante —`false` si ya había un

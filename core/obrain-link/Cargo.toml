@@ -13,3 +13,4 @@ obrain-extract = { path = "../obrain-extract" }
 # Lo que está en la papelera no se compara (ADR-0025).
 obrain-scan = { path = "../obrain-scan" }
 blake3 = "1"
+url = "2"

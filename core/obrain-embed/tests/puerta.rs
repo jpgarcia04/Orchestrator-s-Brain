@@ -171,10 +171,8 @@ fn la_boveda_tampoco_deja_procedencia() {
 }
 
 /// Clasificar algo como bóveda **después** de vectorizarlo es el caso
-/// desagradable: los vectores ya existen. Que la clasificación no los borre es
-/// correcto —I1 dice que el índice es una proyección y quien lo reconstruye es
-/// quien lo mantiene—, pero entonces la reconstrucción **tiene** que dejarlo
-/// fuera, o la bóveda sería una etiqueta sin efecto.
+/// desagradable: los vectores ya existen. El cambio de sensibilidad los revoca
+/// inmediatamente; reconstruir después tampoco puede volver a introducirlos.
 #[test]
 fn reclasificar_a_boveda_saca_del_indice_al_reconstruir() {
     let store = base();
@@ -186,6 +184,7 @@ fn reclasificar_a_boveda_saca_del_indice_al_reconstruir() {
     assert_eq!(vectores_de(&store, &e), 1);
 
     a_la_boveda(&store, &e, at + 1);
+    assert_eq!(vectores_de(&store, &e), 0);
 
     // Reconstruir la proyección es la operación normal de I1.
     store.conn().execute("DELETE FROM vectors", []).unwrap();
@@ -196,10 +195,9 @@ fn reclasificar_a_boveda_saca_del_indice_al_reconstruir() {
     assert_eq!(r2.vectors_written, 0);
 }
 
-/// Y sin reconstruir nada: la pasada siguiente de vectorización ya lo saca.
+/// Y sin reconstruir nada: el cambio de sensibilidad ya lo saca.
 /// Es el caso de una foto que se mete en una carpeta marcada como bóveda
-/// (ADR-0020): la marca no conoce la tabla de vectores, pero quien la mantiene
-/// sí conoce la puerta.
+/// (ADR-0020): la pasada siguiente no tiene que esperar a purgarlo.
 #[test]
 fn la_pasada_siguiente_saca_del_indice_lo_que_subio_a_boveda() {
     let store = base();
@@ -218,12 +216,24 @@ fn la_pasada_siguiente_saca_del_indice_lo_que_subio_a_boveda() {
     );
 
     a_la_boveda(&store, &e, at + 1);
+    assert_eq!(vectores_de(&store, &e), 0);
+    for p in ["embedded_with", "vector_count"] {
+        assert!(
+            store
+                .resolve(&e, p, TimePoint::at(at + 1))
+                .unwrap()
+                .is_none()
+        );
+    }
     let mut r2 = EmbedReport::default();
     obrain_embed::embed_all(&store, &Juguete::default(), at + 2, &mut r2).unwrap();
 
     assert_eq!(vectores_de(&store, &e), 0);
     assert_eq!(vectores_de(&store, &otro), 1, "lo demás no se toca");
-    assert_eq!(r2.entities_purged, 1);
+    assert_eq!(
+        r2.entities_purged, 0,
+        "ya se revocó al cambiar sensibilidad"
+    );
     let tp = TimePoint::at(at + 2);
     assert!(store.resolve(&e, "embedded_with", tp).unwrap().is_none());
     assert!(store.resolve(&e, "vector_count", tp).unwrap().is_none());

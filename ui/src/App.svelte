@@ -42,6 +42,7 @@
 
   onMount(() => {
     void app.arrancar();
+    return app.vigilarSeguridad();
   });
 
   function escribiendo(t: EventTarget | null): boolean {
@@ -97,6 +98,7 @@
 
   <div class="centro">
     <Cabecera />
+    {#key app.securityEpoch}
     <div class="cuerpo">
       <div class="zona">
         <main>
@@ -130,10 +132,13 @@
         {/key}
       {/if}
     </div>
+    {/key}
   </div>
 
   {#if app.buscando}
+    {#key app.securityEpoch}
     <Buscador />
+    {/key}
   {/if}
 
   {#if app.mostrarRecuperacion}

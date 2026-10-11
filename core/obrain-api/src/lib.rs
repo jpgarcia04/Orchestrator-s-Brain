@@ -88,6 +88,12 @@ pub enum Error {
 
     #[error(transparent)]
     Coleccion(#[from] colecciones::Error),
+
+    #[error("el predicado «{0}» no admite correcciones")]
+    CorreccionProhibida(String),
+
+    #[error("tipo o valor incorrecto para «{0}»")]
+    CorreccionInvalida(String),
 }
 
 impl Error {
@@ -106,8 +112,7 @@ impl Error {
     }
 }
 
-/// Cuánto dura un desbloqueo con PIN desde la última vez que se enseñó algo
-/// sensible (ADR-0021).
+/// Cuánto dura un desbloqueo con PIN desde que se autentica (ADR-0034).
 pub const DESBLOQUEO: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 
 /// Un resultado de búsqueda, ya con todo lo que hace falta para enseñarlo.
@@ -211,9 +216,9 @@ pub struct Brain {
     /// Es la restricción que hace posible que [`Brain::warm`] no sea una espera
     /// delante del usuario.
     embedder: Option<Box<dyn Embedder + Send>>,
-    /// Con PIN: cuándo se usó por última vez el desbloqueo. `Cell` porque
-    /// enseñar algo sensible lo renueva, y enseñar es una lectura (`&self`).
+    /// Con PIN: momento de autenticación. Las lecturas nunca lo renuevan.
     desbloqueo: std::cell::Cell<Option<Instant>>,
+    clock: fn() -> Instant,
 }
 
 impl Brain {
@@ -284,6 +289,7 @@ impl Brain {
             store,
             embedder: None,
             desbloqueo: std::cell::Cell::new(None),
+            clock: Instant::now,
         }
     }
 
@@ -518,7 +524,9 @@ impl Brain {
             None => None,
         };
         let (now, _) = Self::now();
-        let id = obrain_expiry::set_by_user(&self.store, id, fecha, now)?;
+        let id = self
+            .store
+            .atomic_write(|s| obrain_expiry::set_by_user(s, id, fecha, now))?;
         Ok(id.0)
     }
 
@@ -535,6 +543,9 @@ impl Brain {
     /// con `None` («Vaciar papelera»). No toca tus archivos: borra el texto y
     /// los vectores que obrain guardaba de ellos. El log se queda (I4).
     pub fn forget(&mut self, id: Option<&EntityId>) -> Result<usize> {
+        if !self.contenido_visible()? {
+            return Err(Error::Bloqueado);
+        }
         let (now, _) = Self::now();
         self.store
             .transaction(|s| papelera::forget(s, id, Method::User, now))
@@ -572,6 +583,9 @@ impl Brain {
         folder: &EntityId,
         level: Option<Sensitivity>,
     ) -> Result<FolderMarked> {
+        if !self.contenido_visible()? {
+            return Err(Error::Bloqueado);
+        }
         let (now, _) = Self::now();
         let r = self
             .store
@@ -631,6 +645,9 @@ impl Brain {
     /// **Borra una colección.** Tus documentos no se tocan. Devuelve cuántos
     /// tenía.
     pub fn delete_collection(&mut self, id: &EntityId) -> Result<usize> {
+        if !self.contenido_visible()? {
+            return Err(Error::Bloqueado);
+        }
         let (now, _) = Self::now();
         self.store.transaction(|s| colecciones::borrar(s, id, now))
     }
@@ -642,6 +659,9 @@ impl Brain {
         docs: &[EntityId],
         source: &str,
     ) -> Result<usize> {
+        for doc in docs {
+            self.authorize_document(doc)?;
+        }
         let (now, _) = Self::now();
         self.store
             .transaction(|s| colecciones::meter(s, id, docs, now, source))
@@ -649,6 +669,9 @@ impl Brain {
 
     /// **Saca documentos** de una colección; devuelve cuántos salieron.
     pub fn remove_from_collection(&mut self, id: &EntityId, docs: &[EntityId]) -> Result<usize> {
+        for doc in docs {
+            self.authorize_document(doc)?;
+        }
         let (now, _) = Self::now();
         self.store
             .transaction(|s| colecciones::sacar(s, id, docs, now))
@@ -663,6 +686,9 @@ impl Brain {
         docs: &[EntityId],
         source: &str,
     ) -> Result<Movidos> {
+        for doc in docs {
+            self.authorize_document(doc)?;
+        }
         let (now, _) = Self::now();
         self.store
             .transaction(|s| colecciones::mover(s, desde, hacia, docs, now, source))
@@ -672,13 +698,27 @@ impl Brain {
     /// Es `obrain paquetes`.
     pub fn packages(&self) -> Result<Vec<Paquete>> {
         let (_, at) = Self::now();
-        Ok(dentro::packages(&self.store, at)?)
+        let mut packages = dentro::packages(&self.store, at)?;
+        if !self.contenido_visible()? {
+            for p in &mut packages {
+                if p.sensitivity != "normal" {
+                    p.parts.clear();
+                }
+            }
+        }
+        Ok(packages)
     }
 
     /// Abre la lente sobre una entidad. Ver [`lens`].
     pub fn lens(&self, focus: &[EntityId], radius: u8, budget: usize) -> Result<Lens> {
         let (_, at) = Self::now();
-        Ok(lens::open(&self.store, focus, radius, budget, at)?)
+        let mut lens = lens::open(&self.store, focus, radius, budget, at)?;
+        if !self.contenido_visible()? {
+            for edge in &mut lens.edges {
+                edge.source.clear();
+            }
+        }
+        Ok(lens)
     }
 
     /// Una consulta y **lo que enciende**: la lista de resultados y el sustrato
@@ -727,13 +767,49 @@ impl Brain {
             .sensitivity(id)
             .map_err(|_| Error::UnknownEntity(id.0.clone()))?;
         let mut v = entity::view(&self.store, id, at)?;
+        // Las correcciones históricas tampoco pueden decidir qué archivo
+        // abre la aplicación: la ruta procede de una observación determinista.
+        v.path = self
+            .store
+            .query(Some(id), Some("path_observed_at"), at)?
+            .into_iter()
+            .find(|a| a.method == Method::Deterministic)
+            .and_then(|a| a.object.as_text().map(str::to_string));
+        let locked = nivel != Sensitivity::Normal && !self.contenido_visible()?;
+        // Lista pública explícita; cualquier literal nuevo queda protegido.
+        // La procedencia/evidencia libre puede contener contenido documental.
+        for claims in [&mut v.observed, &mut v.inferred] {
+            claims.retain(|c| !locked || c.public);
+            for c in claims {
+                if c.predicate == "downloaded_from" {
+                    c.value = obrain_link::provenance::safe_origin(&c.value).unwrap_or_default();
+                    c.evidence = None;
+                    c.source = "linker:zone-identifier".into();
+                }
+                let target_locked = if let Some(target) = &c.value_entity {
+                    self.store.sensitivity(&EntityId(target.clone()))? != Sensitivity::Normal
+                        && !self.contenido_visible()?
+                } else {
+                    false
+                };
+                if locked || target_locked {
+                    c.evidence = None;
+                    c.source.clear();
+                    c.span = None;
+                    c.target_span = None;
+                }
+            }
+        }
+        if locked {
+            v.parts.clear();
+        }
         // Un documento caduca una vez: se enseña **la fecha que manda** —la
         // tuya si la corregiste (I5)— y no también la inferencia corregida,
         // que sigue en el log pero ya no es lo que el sistema sostiene
         // (EXPERIENCE §4.5: de pálida a sólida). Y la fecha sale del texto del
         // documento: con el PIN bloqueado, la de lo sensible no sale del
         // núcleo (ADR-0023).
-        let manda = if nivel != Sensitivity::Normal && !self.contenido_visible()? {
+        let manda = if locked {
             None
         } else {
             self.store
@@ -782,9 +858,6 @@ impl Brain {
             .map_err(|_| Error::UnknownEntity(id.0.clone()))?;
         let visible = self.contenido_visible()?;
         let p = preview::of(&self.store, id, query, tramo, at, !visible)?;
-        if visible && p.sensitivity != "normal" && self.tiene_pin()? {
-            self.tocar();
-        }
         Ok(p)
     }
 
@@ -798,10 +871,10 @@ impl Brain {
         Ok(seguridad::tiene_pin(self.store.conn())?)
     }
 
-    /// ¿Está desbloqueado? Caduca a los [`DESBLOQUEO`] sin enseñar nada.
+    /// ¿Está desbloqueado? Caduca a los [`DESBLOQUEO`] desde autenticación.
     fn desbloqueada(&self) -> bool {
         match self.desbloqueo.get() {
-            Some(t) if t.elapsed() < DESBLOQUEO => true,
+            Some(t) if (self.clock)().saturating_duration_since(t) < DESBLOQUEO => true,
             Some(_) => {
                 self.desbloqueo.set(None);
                 false
@@ -811,7 +884,7 @@ impl Brain {
     }
 
     fn tocar(&self) {
-        self.desbloqueo.set(Some(Instant::now()));
+        self.desbloqueo.set(Some((self.clock)()));
     }
 
     /// ¿Puede salir del núcleo el contenido de lo sensible? Sin PIN, sí: se
@@ -829,18 +902,38 @@ impl Brain {
             .map_err(|_| Error::UnknownEntity(id.0.clone()))?
             != Sensitivity::Normal;
         if !sensible || self.contenido_visible()? {
-            if sensible && self.tiene_pin()? {
-                self.tocar();
-            }
             return Ok(true);
         }
         Ok(false)
+    }
+
+    /// Autoriza abrir/revelar y resuelve sólo rutas observadas por el escáner.
+    pub fn path_to_open(&self, id: &EntityId) -> Result<Option<String>> {
+        if !self.may_open(id)? {
+            return Err(Error::Bloqueado);
+        }
+        let (_, at) = Self::now();
+        Ok(self
+            .store
+            .query(Some(id), Some("path_observed_at"), at)?
+            .into_iter()
+            .find(|a| a.method == Method::Deterministic)
+            .and_then(|a| a.object.as_text().map(str::to_string)))
     }
 
     /// Cómo está la seguridad de la base, para enseñarlo.
     pub fn security(&self) -> Result<seguridad::Estado> {
         let mut e = seguridad::estado(self.store.conn(), Self::ahora_ms())?;
         e.desbloqueada = e.pin && self.desbloqueada();
+        e.restante_ms = if e.desbloqueada {
+            self.desbloqueo.get().map(|t| {
+                DESBLOQUEO
+                    .saturating_sub((self.clock)().saturating_duration_since(t))
+                    .as_millis() as u64
+            })
+        } else {
+            None
+        };
         Ok(e)
     }
 
@@ -911,11 +1004,96 @@ impl Brain {
     /// un «es correcto» pulsado tres veces amontonaba tres filas en la vista
     /// previa (JP, 2026-09-24).
     pub fn correct(&self, subject: &EntityId, predicate: &str, object: Value) -> Result<String> {
+        if !entity::correctable(predicate) {
+            return Err(Error::CorreccionProhibida(predicate.into()));
+        }
+        self.authorize_document(subject)?;
+        match (predicate, &object) {
+            ("expires_on", Value::Text(t)) if t == "nunca" => {}
+            ("expires_on", Value::Text(t)) if obrain_expiry::Fecha::parse_iso(t).is_some() => {}
+            ("sensitivity_level", Value::Text(t)) if Sensitivity::parse(t).is_some() => {}
+            ("version_of" | "occurred_during", Value::Entity(target)) if target != subject => {
+                self.authorize_document(target)?;
+            }
+            _ => return Err(Error::CorreccionInvalida(predicate.into())),
+        }
         let (now, _) = Self::now();
-        let id = self.store.assert_by_user(
-            NewAssertion::new(subject.clone(), predicate, object, Method::User, now)
-                .source("user@ui"),
-        )?;
+        let id = self.store.atomic_write(|s| -> Result<_> {
+            let id = s.assert_by_user(
+                NewAssertion::new(subject.clone(), predicate, object, Method::User, now)
+                    .source("user@ui"),
+            )?;
+            if predicate == "sensitivity_level" {
+                s.reproject_sensitivity(subject, TimePoint::at(now))?;
+            }
+            Ok(id)
+        })?;
         Ok(id.0)
+    }
+
+    fn authorize_document(&self, id: &EntityId) -> Result<()> {
+        let level = self.store.sensitivity(id)?;
+        if level != Sensitivity::Normal && !self.contenido_visible()? {
+            return Err(Error::Bloqueado);
+        }
+        Ok(())
+    }
+
+    /// Confirma una aserción vigente recuperando su objeto tipado del log.
+    pub fn confirm(&self, subject: &EntityId, assertion: &str) -> Result<String> {
+        self.authorize_document(subject)?;
+        let (_, at) = Self::now();
+        let a = self
+            .store
+            .query(Some(subject), None, at)?
+            .into_iter()
+            .find(|a| a.id.as_str() == assertion)
+            .ok_or_else(|| obrain_core::Error::UnknownAssertion(assertion.into()))?;
+        self.correct(subject, &a.predicate, a.object)
+    }
+}
+
+#[cfg(test)]
+mod pin_clock_tests {
+    use super::*;
+    thread_local! {
+        static CLOCK: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) };
+    }
+    fn clock() -> Instant {
+        CLOCK.with(|c| c.get().unwrap())
+    }
+
+    #[test]
+    fn caduca_sin_esperar_y_ninguna_lectura_renueva_el_pin() {
+        let t = Instant::now();
+        CLOCK.with(|c| c.set(Some(t)));
+        let mut b = Brain::from_store(Store::open_in_memory().unwrap());
+        b.clock = clock;
+        let e = b.store.create_entity(1).unwrap();
+        b.store
+            .set_sensitivity(&e, Sensitivity::Sensitive, 1)
+            .unwrap();
+        b.set_pin("2468", None).unwrap();
+        assert_eq!(b.security().unwrap().restante_ms, Some(300_000));
+        CLOCK.with(|c| c.set(Some(t + DESBLOQUEO - std::time::Duration::from_millis(1))));
+        assert!(b.may_open(&e).unwrap());
+        b.preview(&e, None).unwrap();
+        b.entity(&e).unwrap();
+        b.search("sintetico", 10).unwrap();
+        assert_eq!(b.security().unwrap().restante_ms, Some(1));
+        CLOCK.with(|c| c.set(Some(t + DESBLOQUEO)));
+        assert!(!b.security().unwrap().desbloqueada);
+        assert_eq!(b.security().unwrap().restante_ms, None);
+        assert!(!b.may_open(&e).unwrap());
+        assert!(b.preview(&e, None).unwrap().locked);
+        assert!(matches!(
+            b.correct(&e, "expires_on", "2030-01-01".into()),
+            Err(Error::Bloqueado)
+        ));
+        assert!(matches!(
+            b.set_expiry(&e, Some("2030-01-01")),
+            Err(Error::Bloqueado)
+        ));
+        assert!(matches!(b.recovery_code(), Err(Error::Bloqueado)));
     }
 }

@@ -176,16 +176,67 @@ impl Store {
         Sensitivity::parse(&s).ok_or_else(|| Error::Corrupt(format!("sensibilidad '{s}'")))
     }
 
-    /// Cambiar sensibilidad es una operación de seguridad, no una aserción.
-    pub fn set_sensitivity(&self, id: &EntityId, s: Sensitivity) -> Result<()> {
-        let n = self.conn.execute(
-            "UPDATE entities SET sensitivity = ?2 WHERE id = ?1",
-            rusqlite::params![id.as_str(), s.as_str()],
+    /// Escribe el control de seguridad y revoca el estado de embeddings al
+    /// entrar o salir de `vault`, en el mismo savepoint y con el tiempo del llamante.
+    /// También reconcilia un `vault` ya proyectado con residuos anteriores.
+    pub fn set_sensitivity(&self, id: &EntityId, s: Sensitivity, at: i64) -> Result<()> {
+        self.atomic_write(|store| {
+            let previous = store.sensitivity(id)?;
+            let n = store.conn.execute(
+                "UPDATE entities SET sensitivity = ?2 WHERE id = ?1",
+                rusqlite::params![id.as_str(), s.as_str()],
+            )?;
+            if n == 0 {
+                return Err(Error::UnknownEntity(id.to_string()));
+            }
+            if s == Sensitivity::Vault || previous == Sensitivity::Vault {
+                store.revoke_embeddings(id, at)?;
+            }
+            Ok(())
+        })
+    }
+
+    /// Revoca la proyección opcional y su procedencia actual. No carga un
+    /// modelo ni crea tablas de M4 en un Store que sólo tiene el esquema core.
+    /// El historial permanece consultable con un `known` anterior a `at`.
+    fn revoke_embeddings(&self, id: &EntityId, at: i64) -> Result<bool> {
+        let has_vectors: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'vectors')",
+            [],
+            |r| r.get(0),
         )?;
-        if n == 0 {
-            return Err(Error::UnknownEntity(id.to_string()));
-        }
-        Ok(())
+        let vectors = if has_vectors {
+            self.conn
+                .execute("DELETE FROM vectors WHERE entity = ?1", [id.as_str()])?
+        } else {
+            0
+        };
+        let claims = self.conn.execute(
+            "UPDATE assertions SET retracted_at = ?2 WHERE subject = ?1
+             AND predicate IN ('embedded_with', 'vector_count')
+             AND retracted_at IS NULL AND asserted_at <= ?2",
+            rusqlite::params![id.as_str(), at],
+        )?;
+        Ok(vectors > 0 || claims > 0)
+    }
+
+    /// Reconcilia residuos de versiones anteriores, incluso procedencia sin
+    /// vectores. Se usa también al clasificar sin modelo. No sanea el historial.
+    pub fn purge_vault_embeddings(&self, at: i64) -> Result<Vec<EntityId>> {
+        self.atomic_write(|store| {
+            let ids: Vec<EntityId> = store
+                .conn
+                .prepare("SELECT id FROM entities WHERE sensitivity = 'vault' ORDER BY id")?
+                .query_map([], |r| Ok(EntityId(r.get(0)?)))?
+                .collect::<rusqlite::Result<_>>()?;
+            let mut purged = Vec::new();
+            for id in ids {
+                if store.revoke_embeddings(&id, at)? {
+                    purged.push(id);
+                }
+            }
+            Ok(purged)
+        })
     }
 
     /// Recalcula la columna `sensitivity` desde las aserciones `sensitivity_level`
@@ -328,7 +379,13 @@ impl Store {
     /// de opinión, y el log lo cuenta. Lo inferido no se toca nunca: la
     /// precedencia ya hace que mande lo suyo.
     pub fn assert_by_user(&self, a: NewAssertion) -> Result<AssertionId> {
-        debug_assert_eq!(a.method, Method::User);
+        if a.method != Method::User {
+            return Err(Error::Corrupt("assert_by_user exige método user".into()));
+        }
+        self.atomic_write(|s| s.assert_user_inner(a))
+    }
+
+    fn assert_user_inner(&self, a: NewAssertion) -> Result<AssertionId> {
         let suyas: Vec<Assertion> = self
             .query(
                 Some(&a.subject),
@@ -342,12 +399,48 @@ impl Store {
         if let Some(ultima) = suyas.first().filter(|x| x.object == a.object) {
             return Ok(ultima.id.clone());
         }
-        if self.cardinality(&a.predicate)? == Cardinality::One {
+        // Las señales de sensibilidad son many, pero la decisión del usuario
+        // es única: dos cambios en el mismo milisegundo no pueden dejar que
+        // mande la respuesta anterior por el orden accidental de SQLite.
+        if a.predicate == "sensitivity_level" || self.cardinality(&a.predicate)? == Cardinality::One
+        {
             for x in &suyas {
                 self.retract(&x.id, a.asserted_at)?;
             }
         }
         self.assert(a)
+    }
+
+    /// Agrupa una escritura de dominio, también dentro de una transacción de
+    /// etapa. Un fallo no deja retractaciones ni proyecciones a medias.
+    pub fn atomic_write<T, E>(
+        &self,
+        f: impl FnOnce(&Store) -> std::result::Result<T, E>,
+    ) -> std::result::Result<T, E>
+    where
+        E: From<Error>,
+    {
+        self.conn
+            .execute_batch("SAVEPOINT domain_write")
+            .map_err(|e| E::from(Error::from(e)))?;
+        let result = f(self);
+        match result {
+            Ok(value) => {
+                if let Err(e) = self.conn.execute_batch("RELEASE domain_write") {
+                    let _ = self
+                        .conn
+                        .execute_batch("ROLLBACK TO domain_write; RELEASE domain_write");
+                    return Err(E::from(Error::from(e)));
+                }
+                Ok(value)
+            }
+            Err(e) => {
+                let _ = self
+                    .conn
+                    .execute_batch("ROLLBACK TO domain_write; RELEASE domain_write");
+                Err(e)
+            }
+        }
     }
 
     /// Retracta una aserción. **No la borra** (I4): la marca como no vigente
