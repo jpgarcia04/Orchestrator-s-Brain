@@ -14,8 +14,19 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { pinSession } from "./pin-session";
 
-const read = <T>(command: string, args?: Record<string, unknown>): Promise<T> =>
-  pinSession.read(() => invoke<T>(command, args), () => invoke<Seguridad>("seguridad"));
+let lecturaEpoch = 0;
+
+/** Descarta respuestas iniciadas antes de que una indexación cambie identidades. */
+export const invalidarLecturas = (): void => { lecturaEpoch++; };
+
+const read = <T>(command: string, args?: Record<string, unknown>): Promise<T> => {
+  const epoch = lecturaEpoch;
+  return pinSession.read(() => invoke<T>(command, args), () => invoke<Seguridad>("seguridad"))
+    .then((value) => {
+      if (epoch !== lecturaEpoch) throw new Error("La vista cambió durante la actualización");
+      return value;
+    });
+};
 
 /** `(rama, puesto)` — la procedencia de I9 en cada resultado. */
 export type Rama = [string, number];
@@ -466,6 +477,8 @@ export interface Seguridad {
 export interface Informe {
   libraries: string[];
   missing: string[];
+  errors: string[];
+  deferred: string[];
   files_seen: number;
   files_new: number;
   edges_new: number;
@@ -512,9 +525,9 @@ export const vistazo = (query: string, limit = 12, coleccion: string | null = nu
 
 // ── tus colecciones (ADR-0031): identificadores, nunca rutas; ningún archivo se toca ──
 
-export const colecciones = () => invoke<Coleccion[]>("colecciones");
+export const colecciones = () => read<Coleccion[]>("colecciones");
 
-export const coleccion = (id: string) => invoke<Abierta>("coleccion", { id });
+export const coleccion = (id: string) => read<Abierta>("coleccion", { id });
 
 /** Crea una colección vacía; devuelve su identificador. */
 export const crearColeccion = (nombre: string) => invoke<string>("crear_coleccion", { nombre });
@@ -552,7 +565,7 @@ export const lente = (focus: string[], radius = 2, budget = 300) =>
   read<Lente>("lente", { focus, radius, budget });
 
 /** Lo que se ve al abrir: el grafo entero a poca escala. */
-export const cielo = (target = 30) => invoke<Cielo>("cielo", { target });
+export const cielo = (target = 30) => read<Cielo>("cielo", { target });
 
 /**
  * Qué hay dentro de esto. El explorador de ADR-0014.
@@ -562,13 +575,13 @@ export const cielo = (target = 30) => invoke<Cielo>("cielo", { target });
  * pertenece un archivo.
  */
 export const explorar = (foco: string | null = null) =>
-  invoke<Listado>("explorar", { foco });
+  read<Listado>("explorar", { foco });
 
 /** Lo último que tocaste: el «Recientes» del inicio. */
-export const recientes = (limit = 8) => invoke<Fila[]>("recientes", { limit });
+export const recientes = (limit = 8) => read<Fila[]>("recientes", { limit });
 
 /** Lo que la puerta de egreso retiene: la vista «Sensibles». */
-export const sensibles = () => invoke<Fila[]>("sensibles");
+export const sensibles = () => read<Fila[]>("sensibles");
 
 /** Lo que caduca en 90 días o ya caducó: la tarjeta del inicio. */
 export const vencimientos = () => read<Vencimiento[]>("vencimientos");
@@ -581,7 +594,7 @@ export const corregirVencimiento = (id: string, fecha: string | null) =>
   invoke<string>("corregir_vencimiento", { id, fecha });
 
 /** Lo que ya no está en tu bóveda y aún no se ha olvidado (ADR-0025). */
-export const papelera = () => invoke<EnPapelera[]>("papelera");
+export const papelera = () => read<EnPapelera[]>("papelera");
 
 /**
  * «Olvidar ya» (con `id`) o «Vaciar papelera» (con `null`): borra el texto y
@@ -590,7 +603,7 @@ export const papelera = () => invoke<EnPapelera[]>("papelera");
 export const olvidar = (id: string | null) => invoke<number>("olvidar", { id });
 
 /** Las carpetas que marcaste como sensibles. */
-export const carpetasMarcadas = () => invoke<CarpetaMarcada[]>("carpetas_marcadas");
+export const carpetasMarcadas = () => read<CarpetaMarcada[]>("carpetas_marcadas");
 
 /**
  * Marca una carpeta como sensible —todo lo que tenga dentro lo hereda, también
@@ -713,11 +726,7 @@ export async function alIndexar(f: (i: Indexado) => void): Promise<void> {
   }
 }
 
-/**
- * Avisa cuando **empieza** una pasada que no pediste: la del vigía, al ver
- * que algo cambió en tus bibliotecas (ADR-0024). Las que pides tú ya las
- * sabe la ventana.
- */
+/** Avisa cuando empieza cualquier pasada, incluida la pedida por la ventana. */
 export async function alEmpezarIndexado(f: () => void): Promise<void> {
   try {
     await listen("indexando", () => f());

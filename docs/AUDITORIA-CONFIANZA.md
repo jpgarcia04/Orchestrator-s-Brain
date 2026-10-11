@@ -61,7 +61,7 @@ los originales. Sin PIN se conserva el gesto de mostrar el contenido borroso.
 
 | Prioridad | Hallazgo | Estado / evidencia reproducible que debe conservarse |
 |---|---|---|
-| P1 | Identidad entre bibliotecas | Pendiente aquí; auditoría previa reprodujo mover `A/a.txt` a `B/moved.txt`, reemplazar `A/a.txt` e indexar A antes de B. Puede transferir marcas/correcciones. Probar ambos órdenes, raíces solapadas y guardado atómico |
+| P1 | Identidad entre bibliotecas | Corregida en `codex/identidad-entre-bibliotecas`, pendiente de revisión. Inventario global, aplazamiento de identidades ambiguas y regresiones A→B/B→A; ver ADR-0036 |
 | P1 | Publicación durante indexación | Deducido: extracción se confirma antes de clasificar; nuevas entidades normales. Publicar después de clasificar sin transacción gigante de OCR |
 | P2 | Duplicados obsoletos | Pendiente aquí; relación sigue tras cambiar hash. Reconciliar inferencias conservando relaciones del usuario; revisar versiones y sesiones |
 | P2 | Completitud de búsqueda | Pendiente aquí; demasiados fragmentos de entidad retirada ocultan un documento vigente. Elegibilidad antes del límite y suficientes documentos distintos en BM25/kNN; probar colecciones y documentos largos |

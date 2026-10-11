@@ -264,7 +264,8 @@ pub fn meter(
     existe(store, id, at)?;
     for d in docs {
         // Una colección o una carpeta no tienen ruta de archivo: esto basta.
-        let es_doc = store.resolve(d, "path_observed_at", at)?.is_some()
+        let es_doc = !crate::identity::pending(store, d, at)?
+            && store.resolve(d, "path_observed_at", at)?.is_some()
             && store.resolve(d, "folder_path", at)?.is_none();
         if !es_doc {
             return Err(Error::NoEsDocumento(obrain_link::label(store, d, at)).into());
@@ -369,20 +370,25 @@ pub fn en_la_boveda(
     at: TimePoint,
 ) -> obrain_core::Result<HashSet<EntityId>> {
     let fuera = obrain_scan::ausentes::missing_set(store, at)?;
+    let pendientes = crate::identity::pending_set(store, at)?;
     Ok(miembros(store, id, at)?
         .into_iter()
-        .filter(|e| !fuera.contains(e))
+        .filter(|e| !fuera.contains(e) && !pendientes.contains(e))
         .collect())
 }
 
 /// Todas tus colecciones, por nombre.
 pub fn todas(store: &Store, at: TimePoint) -> crate::Result<Vec<Coleccion>> {
     let fuera = obrain_scan::ausentes::missing_set(store, at)?;
+    let pendientes = crate::identity::pending_set(store, at)?;
     let mut out = Vec::new();
     for (c, since) in vivas(store, at)? {
         let mut documents = 0;
         let mut in_trash = 0;
         for m in miembros(store, &c, at)? {
+            if pendientes.contains(&m) {
+                continue;
+            }
             if !fuera.contains(&m) {
                 documents += 1;
             } else if crate::papelera::of(store, &m, at)?.is_some() {
@@ -408,6 +414,9 @@ pub fn todas(store: &Store, at: TimePoint) -> crate::Result<Vec<Coleccion>> {
 
 /// Las colecciones vivas donde está un documento, por nombre.
 pub fn de(store: &Store, doc: &EntityId, at: TimePoint) -> obrain_core::Result<Vec<Pertenece>> {
+    if crate::identity::pending(store, doc, at)? {
+        return Ok(Vec::new());
+    }
     let mut out = Vec::new();
     for a in store.query(Some(doc), Some(MEMBER_OF), at)? {
         let Some(c) = a.object.as_entity() else {
@@ -434,7 +443,11 @@ pub fn de(store: &Store, doc: &EntityId, at: TimePoint) -> obrain_core::Result<V
 pub fn abrir(store: &Store, id: &EntityId, at: TimePoint) -> crate::Result<Abierta> {
     existe(store, id, at)?;
     let fuera = obrain_scan::ausentes::missing_set(store, at)?;
-    let todos = miembros(store, id, at)?;
+    let pendientes = crate::identity::pending_set(store, at)?;
+    let todos: Vec<_> = miembros(store, id, at)?
+        .into_iter()
+        .filter(|e| !pendientes.contains(e))
+        .collect();
     let (vivos, idos): (Vec<EntityId>, Vec<EntityId>) =
         todos.into_iter().partition(|e| !fuera.contains(e));
 
@@ -532,10 +545,16 @@ pub fn documento_en(
     at: TimePoint,
 ) -> obrain_core::Result<Option<EntityId>> {
     if let Some(e) = store.find_subject_by_value("path_observed_at", ruta, at)? {
-        return Ok(Some(e));
+        if !crate::identity::pending(store, &e, at)? {
+            return Ok(Some(e));
+        }
     }
+    let pendientes = crate::identity::pending_set(store, at)?;
     let buscada = ruta.to_lowercase().replace('/', "\\");
     for a in store.query(None, Some("path_observed_at"), at)? {
+        if pendientes.contains(&a.subject) {
+            continue;
+        }
         if a.object
             .as_text()
             .is_some_and(|t| t.to_lowercase().replace('/', "\\") == buscada)

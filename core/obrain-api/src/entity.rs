@@ -148,6 +148,10 @@ fn tamano(bytes: f64) -> String {
 /// `confidence == 1.0` daría casi el mismo resultado hoy y sería frágil: basta
 /// que un clasificador se declare seguro para colarse en el bloque sólido.
 pub fn view(store: &Store, id: &EntityId, at: TimePoint) -> Result<EntityView> {
+    if crate::identity::pending(store, id, at)? {
+        return Err(obrain_core::Error::UnknownEntity(id.0.clone()));
+    }
+    let pendientes = crate::identity::pending_set(store, at)?;
     let all = store.query(Some(id), None, at)?;
 
     // Lo que ya contestaste (I5): de cada dato —la fecha de caducidad, la
@@ -165,6 +169,9 @@ pub fn view(store: &Store, id: &EntityId, at: TimePoint) -> Result<EntityView> {
     let mut observed = Vec::new();
     let mut inferred = Vec::new();
     for a in &all {
+        if a.object.as_entity().is_some_and(|e| pendientes.contains(e)) {
+            continue;
+        }
         if PLUMBING.contains(&a.predicate.as_str()) {
             continue;
         }
@@ -211,6 +218,7 @@ pub fn view(store: &Store, id: &EntityId, at: TimePoint) -> Result<EntityView> {
     }
 
     let (protection, by_part) = crate::marks::deciding(store, id, at)?;
+    let by_part = by_part.filter(|p| !pendientes.contains(&EntityId(p.part.clone())));
     Ok(EntityView {
         label: obrain_link::label(store, id, at),
         path: store

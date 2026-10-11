@@ -651,6 +651,12 @@ fn informe(r: &IndexReport, db: &std::path::Path) {
     for b in &r.missing {
         println!("✗ {b} — no está en el disco; se deja como estaba");
     }
+    for e in &r.errors {
+        println!("✗ {e} — recorrido aplazado; se deja como estaba");
+    }
+    for path in &r.deferred {
+        println!("? {path} — identidad sin resolver; se reintentará al actualizar");
+    }
     println!();
     println!("  archivos vistos        {}", r.files_seen);
     println!("  nuevos                 {}", r.files_new);

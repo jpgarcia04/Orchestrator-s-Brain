@@ -89,8 +89,15 @@ fn parte(store: &Store, a: &Assertion, at: TimePoint) -> Result<Parte> {
 /// encabeza la que sigue en tu bóveda y, de ésas, **la más protegida**: si una
 /// copia tapa el paquete, es la que se nombra, igual que en su «¿por qué?».
 pub fn parts(store: &Store, id: &EntityId, at: TimePoint) -> Result<Vec<Parte>> {
+    if crate::identity::pending(store, id, at)? {
+        return Ok(Vec::new());
+    }
+    let pendientes = crate::identity::pending_set(store, at)?;
     let mut sueltas = Vec::new();
     for a in store.pointing_at(id, Some(PART_OF), at)? {
+        if pendientes.contains(&a.subject) {
+            continue;
+        }
         let texto = store
             .resolve(&a.subject, "text_hash", at)?
             .and_then(|t| t.object.as_text().map(str::to_string))
@@ -144,6 +151,9 @@ pub fn packages(store: &Store, at: TimePoint) -> Result<Vec<Paquete>> {
     ids.dedup();
     let mut out = Vec::new();
     for id in ids {
+        if crate::identity::pending(store, &id, at)? {
+            continue;
+        }
         out.push(Paquete {
             label: obrain_link::label(store, &id, at),
             path: store

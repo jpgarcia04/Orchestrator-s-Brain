@@ -27,8 +27,9 @@
 use crate::Result;
 use obrain_core::{Store, TimePoint};
 use obrain_embed::embedder::Embedder;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Instant, UNIX_EPOCH};
 
 /// Lo que hizo una pasada, en las palabras que se le enseñan a una persona.
 #[derive(Debug, Default, Clone, serde::Serialize)]
@@ -38,6 +39,10 @@ pub struct IndexReport {
     /// Bibliotecas registradas que ya no están en el disco (un USB
     /// desconectado, una carpeta movida). No se tocan: siguen en el log.
     pub missing: Vec<String>,
+    /// El recorrido no fue fiable; no se escribió ni se publicó una pasada parcial.
+    pub errors: Vec<String>,
+    /// Archivos cuya identidad no bastó para decidir. Se reintentan al actualizar.
+    pub deferred: Vec<String>,
     /// Archivos vistos en el disco.
     pub files_seen: usize,
     /// De ésos, los que el sistema no conocía.
@@ -112,9 +117,15 @@ pub fn index_with(
     // apuntan después de enlazar, cuando el enlazador ya ha creado las nuevas.
     let mut carpetas: Vec<obrain_scan::FolderCandidate> = Vec::new();
 
-    // ── M1 · escanear, una biblioteca cada vez ──
-    for root in roots {
-        let root = absoluta(root);
+    // M1 tiene dos fases: inventariar todas las bibliotecas y sólo después
+    // reconciliar. Un `indexar <nueva>` también incluye las ya registradas.
+    let mut all_roots: Vec<PathBuf> = libraries(store)?.into_iter().map(PathBuf::from).collect();
+    all_roots.extend(roots.iter().map(|r| absoluta(r)));
+    let mut unique = HashSet::new();
+    all_roots.retain(|r| unique.insert(obrain_scan::library_path(r)));
+    let mut observations: Vec<obrain_scan::Candidate> = Vec::new();
+    let mut candidate_paths: HashMap<PathBuf, usize> = HashMap::new();
+    for root in all_roots {
         let ruta = obrain_scan::library_path(&root);
         if !root.is_dir() {
             r.missing.push(ruta);
@@ -124,35 +135,101 @@ pub fn index_with(
         let (mut candidatos, mut informe) = scanner.scan(&root);
         scanner.hash_all(&mut candidatos, &mut informe);
         r.files_seen += informe.files_seen;
-
-        let at = obrain_scan::now_ms();
-        let mut ingesta = obrain_scan::IngestReport::default();
-        let (ausentes, mudadas) =
-            store.transaction(|s| -> obrain_core::Result<(usize, usize)> {
-                obrain_scan::ingest(s, &candidatos, at, &mut ingesta)?;
-                obrain_scan::register_library(s, &root, at)?;
-                // Una carpeta que el recorrido ve con su `FileID` en otra ruta se
-                // renombró o se movió: se muda antes de enlazar, para que el
-                // enlazador la encuentre y no cree otra (ADR-0027).
-                let mudadas = obrain_scan::carpetas::follow(s, &informe.folders, at)?;
-                // Lo que el log cree que hay aquí y el disco dice que ya no existe
-                // pasa a la papelera (ADR-0025). Después de hashear: el hueco de un
-                // guardado atómico ya se ha cerrado.
-                let ausentes = obrain_scan::ausentes::mark_missing(
-                    s,
-                    &root,
-                    &ingesta.seen,
-                    obrain_scan::now_ms(),
-                )?;
-                Ok((ausentes, mudadas))
-            })?;
+        if !informe.complete && informe.errors.is_empty() {
+            r.errors
+                .push(format!("{}: recorrido parcial", root.display()));
+        }
+        r.errors.extend(informe.errors);
+        // Raíces solapadas producen la misma ruta dos veces. Dos FileID
+        // distintos para la misma ruta significan que cambió durante la pasada.
+        for c in candidatos {
+            if let Some(index) = candidate_paths.get(&c.path) {
+                let previous = &observations[*index];
+                if previous.identity != c.identity
+                    || previous.size != c.size
+                    || previous.modified_ms != c.modified_ms
+                    || previous.hash != c.hash
+                    || previous.availability != c.availability
+                {
+                    r.errors
+                        .push(format!("{} cambió durante el recorrido", c.path.display()));
+                }
+            } else {
+                candidate_paths.insert(c.path.clone(), observations.len());
+                observations.push(c);
+            }
+        }
         carpetas.append(&mut informe.folders);
-        r.folders_moved += mudadas;
-        r.files_new += ingesta.entities_created;
-        r.trashed += ausentes;
-        r.returned += ingesta.entities_returned;
         r.libraries.push(ruta);
     }
+    r.files_seen = observations.len();
+    // Una biblioteca ausente o una lectura fallida impide afirmar que el FileID
+    // antiguo desapareció. La pasada queda aplazada sin tocar el log.
+    if !r.missing.is_empty() || !r.errors.is_empty() {
+        r.elapsed_ms = started.elapsed().as_millis() as u64;
+        return Ok(r);
+    }
+    let mut folder_paths = HashSet::new();
+    carpetas.retain(|folder| folder_paths.insert(folder.path.clone()));
+    // Verificación optimista fuera de la transacción: un rename entre el
+    // inventario y el commit se reintentará en la siguiente pasada.
+    for c in &observations {
+        if let Err(error) = verify_candidate(c) {
+            r.errors.push(error);
+        }
+    }
+    if !r.errors.is_empty() {
+        r.elapsed_ms = started.elapsed().as_millis() as u64;
+        return Ok(r);
+    }
+    let mut absent = Vec::new();
+    for root in &r.libraries {
+        let root = Path::new(root);
+        if !root.is_dir() {
+            r.errors.push(format!(
+                "{} dejó de estar disponible durante el recorrido",
+                root.display()
+            ));
+            break;
+        }
+        absent.extend(obrain_scan::ausentes::observe_missing(
+            store,
+            root,
+            obrain_scan::now_ms(),
+        )?);
+    }
+    if !r.errors.is_empty() {
+        r.elapsed_ms = started.elapsed().as_millis() as u64;
+        return Ok(r);
+    }
+
+    let at = obrain_scan::now_ms();
+    let mut ingesta = obrain_scan::IngestReport::default();
+    let (ausentes, mudadas) = store.transaction(|s| -> obrain_core::Result<(usize, usize)> {
+        obrain_scan::ingest(s, &observations, at, &mut ingesta)?;
+        for root in roots {
+            obrain_scan::register_library(s, &absoluta(root), at)?;
+        }
+        // Una carpeta que el recorrido ve con su `FileID` en otra ruta se
+        // renombró o se movió: se muda antes de enlazar, para que el
+        // enlazador la encuentre y no cree otra (ADR-0027).
+        let mudadas = obrain_scan::carpetas::follow(s, &carpetas, at)?;
+        // Lo que el log cree que hay aquí y el disco dice que ya no existe
+        // pasa a la papelera (ADR-0025). Después de hashear: el hueco de un
+        // guardado atómico ya se ha cerrado.
+        let ausentes = if ingesta.deferred.is_empty() {
+            obrain_scan::ausentes::apply_missing(s, &absent, &ingesta.seen, at)?
+        } else {
+            obrain_scan::ausentes::hold_missing(s, &absent, &ingesta.seen, at)?;
+            0
+        };
+        Ok((ausentes, mudadas))
+    })?;
+    r.folders_moved = mudadas;
+    r.files_new = ingesta.entities_created;
+    r.trashed = ausentes;
+    r.returned = ingesta.entities_returned;
+    r.deferred = ingesta.deferred;
 
     // ── M3 · enlazar ──
     let at = obrain_scan::now_ms();
@@ -237,4 +314,49 @@ pub fn libraries(store: &Store) -> Result<Vec<String>> {
 /// misma biblioteca, porque la ruta de cada archivo **es** su carpeta para M3.
 fn absoluta(p: &Path) -> PathBuf {
     std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf())
+}
+
+fn verify_candidate(c: &obrain_scan::Candidate) -> std::result::Result<(), String> {
+    let changed = || format!("{} cambió durante el recorrido", c.path.display());
+    let meta = std::fs::symlink_metadata(&c.path).map_err(|e| format!("{}: {e}", changed()))?;
+    let modified_ms = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    if !meta.is_file()
+        || meta.len() != c.size
+        || (c.modified_ms != 0 && modified_ms != c.modified_ms)
+    {
+        return Err(changed());
+    }
+    if let Some(id) = c.identity {
+        if obrain_scan::identity::file_identity(&c.path).ok() != Some(id) {
+            return Err(changed());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod inventory_tests {
+    use super::*;
+
+    #[test]
+    fn reemplazo_durante_el_recorrido_invalida_el_inventario() {
+        let dir = std::env::temp_dir().join(format!(
+            "obrain-race-{}-{}",
+            std::process::id(),
+            obrain_scan::now_ms()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("doc.txt");
+        std::fs::write(&path, "antes").unwrap();
+        let (candidates, _) = obrain_scan::Scanner::new().scan(&dir);
+        std::fs::remove_file(&path).unwrap();
+        std::fs::write(&path, "despues y con otro tamaño").unwrap();
+        assert!(verify_candidate(&candidates[0]).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

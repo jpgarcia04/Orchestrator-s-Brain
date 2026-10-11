@@ -185,6 +185,15 @@ pub const SEED_PREDICATES: &[(&str, &str, &str, &str, Option<&str>)] = &[
         "deterministic",
         None,
     ),
+    // Ruta retirada de las vistas porque la identidad no pudo verificarse.
+    // Permite reintentar el guardado atómico sin publicar una entidad ambigua.
+    (
+        "identity_pending_path",
+        "ruta pendiente de identidad",
+        "one",
+        "deterministic",
+        None,
+    ),
     ("has_facet", "tiene faceta", "many", "deterministic", None),
     // ── sistema de archivos · determinista (M1) ──
     (

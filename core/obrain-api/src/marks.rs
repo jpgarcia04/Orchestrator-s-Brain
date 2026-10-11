@@ -170,8 +170,12 @@ pub fn marked(store: &Store, at: TimePoint) -> Result<Vec<MarkedFolder>> {
     }
     // La ruta vigente de cada archivo: la primera por sujeto es la más
     // reciente (`query` ordena por precedencia y luego por fecha).
+    let pendientes = crate::identity::pending_set(store, at)?;
     let mut rutas: std::collections::HashMap<EntityId, String> = std::collections::HashMap::new();
     for a in store.query(None, Some("path_observed_at"), at)? {
+        if pendientes.contains(&a.subject) {
+            continue;
+        }
         if let Some(t) = a.object.as_text() {
             rutas.entry(a.subject).or_insert_with(|| t.to_string());
         }

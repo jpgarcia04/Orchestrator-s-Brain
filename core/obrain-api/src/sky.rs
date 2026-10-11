@@ -153,6 +153,7 @@ struct Tree {
 }
 
 fn read_tree(store: &Store, at: TimePoint) -> Result<Tree> {
+    let pendientes = crate::identity::pending_set(store, at)?;
     let mut folders: HashMap<EntityId, String> = HashMap::new();
     for a in store.query(None, Some("folder_path"), at)? {
         if let Some(p) = a.object.as_text() {
@@ -181,7 +182,7 @@ fn read_tree(store: &Store, at: TimePoint) -> Result<Tree> {
     }
     let mut con_formato: HashSet<EntityId> = HashSet::new();
     for a in store.query(None, Some("mime_guess"), at)? {
-        if !es_registro.contains(&a.subject) {
+        if !es_registro.contains(&a.subject) && !pendientes.contains(&a.subject) {
             con_formato.insert(a.subject);
         }
     }
@@ -206,6 +207,9 @@ fn read_tree(store: &Store, at: TimePoint) -> Result<Tree> {
     let mut home = HashMap::new();
 
     for a in store.query(None, Some("contained_by"), at)? {
+        if pendientes.contains(&a.subject) {
+            continue;
+        }
         let Value::Entity(up) = a.object else {
             continue;
         };
@@ -1334,6 +1338,11 @@ pub fn expiring(
 /// Con `focus` a `None` devuelve las raíces, que es por donde se entra cuando
 /// nadie ha enfocado nada todavía.
 pub fn children(store: &Store, focus: Option<&EntityId>, at: TimePoint) -> Result<Listing> {
+    if let Some(id) = focus {
+        if crate::identity::pending(store, id, at)? {
+            return Err(obrain_core::Error::UnknownEntity(id.0.clone()));
+        }
+    }
     let f = Filas::cargar(store, at)?;
     let tree = &f.tree;
     // Con una sola raíz —lo normal: tu bóveda—, entrar en el explorador es
@@ -1372,12 +1381,13 @@ pub fn children(store: &Store, focus: Option<&EntityId>, at: TimePoint) -> Resul
         // y donde entrarán las menciones de M6 sin tocar esta función.
         Some(f) => {
             let fuera = obrain_scan::ausentes::missing_set(store, at)?;
+            let pendientes = crate::identity::pending_set(store, at)?;
             let mut v: Vec<EntityId> = store
                 .query_by_object(f, at)?
                 .into_iter()
                 .filter(|a| CONTAINMENT.contains(&a.predicate.as_str()))
                 .map(|a| a.subject)
-                .filter(|e| !fuera.contains(e))
+                .filter(|e| !fuera.contains(e) && !pendientes.contains(e))
                 .collect();
             v.sort();
             v.dedup();
@@ -1469,9 +1479,13 @@ pub fn children(store: &Store, focus: Option<&EntityId>, at: TimePoint) -> Resul
 /// enseñarlos en fila obliga a la persona a reconstruir a mano una agrupación
 /// que el sistema ya conocía.
 pub fn cluster(store: &Store, hits: &[crate::Hit], at: TimePoint) -> Result<Vec<Cluster>> {
+    let pendientes = crate::identity::pending_set(store, at)?;
     let mut orden_de: Vec<(Option<EntityId>, usize, String)> = Vec::with_capacity(hits.len());
     for (i, h) in hits.iter().enumerate() {
         let e = EntityId(h.entity.clone());
+        if pendientes.contains(&e) {
+            continue;
+        }
         let casa = store
             .resolve(&e, "contained_by", at)?
             .and_then(|a| a.object.as_entity().cloned());

@@ -560,6 +560,7 @@ fn actualizar(
         .lock()
         .ok()
         .and_then(|mut g| g.as_mut().and_then(Brain::take_embedder));
+    let _ = app.emit("indexando", ());
     std::thread::spawn(move || indexar_en_fondo(&app, None, modelo, false));
     true
 }
@@ -608,6 +609,7 @@ async fn anadir_biblioteca(app: AppHandle) -> Result<bool, String> {
         .lock()
         .ok()
         .and_then(|mut g| g.as_mut().and_then(Brain::take_embedder));
+    let _ = app.emit("indexando", ());
     std::thread::spawn(move || indexar_en_fondo(&app, Some(vec![ruta]), modelo, false));
     Ok(true)
 }

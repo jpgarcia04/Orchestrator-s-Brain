@@ -39,6 +39,7 @@
 pub mod colecciones;
 pub mod dentro;
 pub mod entity;
+mod identity;
 pub mod indexar;
 pub mod lens;
 pub mod marks;
@@ -76,6 +77,9 @@ pub enum Error {
 
     #[error("no hay ninguna entidad con identificador {0}")]
     UnknownEntity(String),
+
+    #[error("la identidad del documento {0} está pendiente de confirmar")]
+    IdentityPending(String),
 
     #[error(transparent)]
     Seguridad(#[from] seguridad::Error),
@@ -404,6 +408,8 @@ impl Brain {
         // Con el PIN puesto y sin desbloquear, lo sensible sale en la lista
         // —su nombre ya está en el explorador— pero sin su fragmento de texto.
         let mut hits = hits;
+        let pendientes = identity::pending_set(&self.store, at)?;
+        hits.retain(|h| !pendientes.contains(&EntityId(h.entity.clone())));
         if !self.contenido_visible()? {
             for h in hits.iter_mut().filter(|h| h.sensitivity != "normal") {
                 h.snippet.clear();
@@ -472,6 +478,11 @@ impl Brain {
     /// [ADR-0014]: ../../../docs/adr/0014-dos-vistas-un-solo-estado.md
     pub fn children(&self, focus: Option<&EntityId>) -> Result<Listing> {
         let (_, at) = Self::now();
+        if let Some(id) = focus {
+            if identity::pending(&self.store, id, at)? {
+                return Err(Error::IdentityPending(id.0.clone()));
+            }
+        }
         Ok(sky::children(&self.store, focus, at)?)
     }
 
@@ -759,6 +770,9 @@ impl Brain {
     /// Todo lo que se sabe de una entidad. Ver [`entity`].
     pub fn entity(&self, id: &EntityId) -> Result<EntityView> {
         let (_, at) = Self::now();
+        if identity::pending(&self.store, id, at)? {
+            return Err(Error::IdentityPending(id.0.clone()));
+        }
         // Que exista se comprueba aquí y no dentro: una entidad desconocida es
         // un error del llamante, no una vista vacía que parezca un archivo sin
         // datos.
@@ -853,6 +867,9 @@ impl Brain {
         tramo: Option<(usize, usize)>,
     ) -> Result<Preview> {
         let (_, at) = Self::now();
+        if identity::pending(&self.store, id, at)? {
+            return Err(Error::IdentityPending(id.0.clone()));
+        }
         self.store
             .sensitivity(id)
             .map_err(|_| Error::UnknownEntity(id.0.clone()))?;
@@ -896,6 +913,9 @@ impl Brain {
     /// ¿Se puede abrir este archivo con su programa? Lo sensible, con el PIN
     /// puesto, sólo desbloqueado: abrirlo fuera sería saltarse el PIN.
     pub fn may_open(&self, id: &EntityId) -> Result<bool> {
+        if identity::pending(&self.store, id, Self::now().1)? {
+            return Ok(false);
+        }
         let sensible = self
             .store
             .sensitivity(id)
@@ -909,6 +929,9 @@ impl Brain {
 
     /// Autoriza abrir/revelar y resuelve sólo rutas observadas por el escáner.
     pub fn path_to_open(&self, id: &EntityId) -> Result<Option<String>> {
+        if identity::pending(&self.store, id, Self::now().1)? {
+            return Ok(None);
+        }
         if !self.may_open(id)? {
             return Err(Error::Bloqueado);
         }

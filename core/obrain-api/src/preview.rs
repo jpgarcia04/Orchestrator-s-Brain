@@ -23,7 +23,8 @@
 //! 1. **El texto no abre nada.** Sale de `chunks`, la proyección que M2 ya
 //!    escribió ([ADR-0005]). Un archivo en la nube no tiene fragmentos porque
 //!    M2 tampoco lo abrió; el que los tiene es porque estaba local cuando se
-//!    extrajo. No hace falta ninguna guarda aquí — no hay nada que guardar.
+//!    extrajo. Una identidad pendiente sí puede conservar chunks históricos:
+//!    se rechaza antes de consultarlos.
 //! 2. **La miniatura sí abre un archivo**, y por eso
 //!    [`Availability::may_read_content`] va **delante** de `File::open` y no
 //!    dentro. La guarda es la de M1, importada; no una copia con las mismas
@@ -41,7 +42,7 @@
 //! [ADR-0005]: ../../../docs/adr/0005-donde-vive-el-texto-extraido.md
 
 use base64::Engine as _;
-use obrain_core::{EntityId, Result, Store, TimePoint};
+use obrain_core::{EntityId, Store, TimePoint};
 use obrain_scan::Availability;
 use std::path::Path;
 
@@ -120,8 +121,11 @@ pub fn of(
     tramo: Option<(usize, usize)>,
     at: TimePoint,
     locked: bool,
-) -> Result<Preview> {
-    let texto_de = |p: &str| -> Result<Option<String>> {
+) -> crate::Result<Preview> {
+    if crate::identity::pending(store, id, at)? {
+        return Err(crate::Error::IdentityPending(id.0.clone()));
+    }
+    let texto_de = |p: &str| -> crate::Result<Option<String>> {
         Ok(store
             .resolve(id, p, at)?
             .and_then(|a| a.object.as_text().map(str::to_string)))

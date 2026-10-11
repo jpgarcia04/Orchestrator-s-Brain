@@ -1,5 +1,27 @@
 # Progreso — 2026-10-11
 
+**Actualización:** la PR #2 quedó fusionada en `main` (`48f73f5`). Las
+referencias más abajo a la rama previa y a la base del PR documentan el
+estado de aquella entrega, no el estado actual. La identidad entre bibliotecas
+se trabaja desde `main` en `codex/identidad-entre-bibliotecas` (ADR-0036).
+
+## P1 identidad entre bibliotecas
+
+Dos regresiones nuevas de pipeline con archivos sintéticos y base en memoria
+fallaron antes del arreglo: A→B y B→A daban al archivo movido otro `EntityId`
+porque el reemplazo de la ruta heredaba el original. Las pruebas comparan
+también sensibilidad, corrección de caducidad, colección, relación, historial,
+papelera e idempotencia. Pasan después del inventario global. Otros casos
+cubren raíz ausente, raíces solapadas, candidato sin `FileID`, `FileID`
+duplicado, recorrido limitado, salida de búsqueda/presentación y recuperación
+tras aplazamiento, además de un reemplazo entre recorrido y verificación. El guardado atómico y la recuperación desde papelera siguen
+cubiertos por las pruebas existentes.
+
+En esta rama se ejecutaron `cargo test --locked --workspace`, `cargo clippy
+--locked --workspace --all-targets -- -D warnings`, `cargo check --locked
+--manifest-path ../ui/src-tauri/Cargo.toml`, `npm test`, `npm run check` y
+`npm run build` sobre fixtures o compilación, sin abrir la bóveda personal.
+
 ## Alcance y decisiones
 
 Checkout inicial `c183f3c`, limpio, en la rama de desarrollo existente.
