@@ -328,7 +328,13 @@ impl Store {
     /// de opinión, y el log lo cuenta. Lo inferido no se toca nunca: la
     /// precedencia ya hace que mande lo suyo.
     pub fn assert_by_user(&self, a: NewAssertion) -> Result<AssertionId> {
-        debug_assert_eq!(a.method, Method::User);
+        if a.method != Method::User {
+            return Err(Error::Corrupt("assert_by_user exige método user".into()));
+        }
+        self.atomic_write(|s| s.assert_user_inner(a))
+    }
+
+    fn assert_user_inner(&self, a: NewAssertion) -> Result<AssertionId> {
         let suyas: Vec<Assertion> = self
             .query(
                 Some(&a.subject),
@@ -342,12 +348,48 @@ impl Store {
         if let Some(ultima) = suyas.first().filter(|x| x.object == a.object) {
             return Ok(ultima.id.clone());
         }
-        if self.cardinality(&a.predicate)? == Cardinality::One {
+        // Las señales de sensibilidad son many, pero la decisión del usuario
+        // es única: dos cambios en el mismo milisegundo no pueden dejar que
+        // mande la respuesta anterior por el orden accidental de SQLite.
+        if a.predicate == "sensitivity_level" || self.cardinality(&a.predicate)? == Cardinality::One
+        {
             for x in &suyas {
                 self.retract(&x.id, a.asserted_at)?;
             }
         }
         self.assert(a)
+    }
+
+    /// Agrupa una escritura de dominio, también dentro de una transacción de
+    /// etapa. Un fallo no deja retractaciones ni proyecciones a medias.
+    pub fn atomic_write<T, E>(
+        &self,
+        f: impl FnOnce(&Store) -> std::result::Result<T, E>,
+    ) -> std::result::Result<T, E>
+    where
+        E: From<Error>,
+    {
+        self.conn
+            .execute_batch("SAVEPOINT domain_write")
+            .map_err(|e| E::from(Error::from(e)))?;
+        let result = f(self);
+        match result {
+            Ok(value) => {
+                if let Err(e) = self.conn.execute_batch("RELEASE domain_write") {
+                    let _ = self
+                        .conn
+                        .execute_batch("ROLLBACK TO domain_write; RELEASE domain_write");
+                    return Err(E::from(Error::from(e)));
+                }
+                Ok(value)
+            }
+            Err(e) => {
+                let _ = self
+                    .conn
+                    .execute_batch("ROLLBACK TO domain_write; RELEASE domain_write");
+                Err(e)
+            }
+        }
     }
 
     /// Retracta una aserción. **No la borra** (I4): la marca como no vigente

@@ -13,6 +13,8 @@ use obrain_core::{Assertion, EntityId, Method, Result, Store, TimePoint, Value};
 /// Una afirmación sobre la entidad, lista para enseñarse.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Claim {
+    #[serde(skip)]
+    pub(crate) public: bool,
     /// Identificador de la aserción. Es lo que permite corregirla o retractarla
     /// de forma concreta en vez de "borrar esta línea".
     pub assertion: String,
@@ -49,6 +51,7 @@ pub struct Claim {
     /// El tramo en el texto **del objeto**: dónde está este documento dentro
     /// del paquete de `part_of` (ADR-0030). Es a donde lleva «Está dentro de».
     pub target_span: Option<[usize; 2]>,
+    pub correctable: bool,
 }
 
 /// Todo lo que el sistema sabe de una entidad, ordenado como se enseña.
@@ -181,6 +184,8 @@ pub fn view(store: &Store, id: &EntityId, at: TimePoint) -> Result<EntityView> {
         }
         let (value, value_entity, value_time) = render(store, a, at);
         let claim = Claim {
+            public: public_assertion(a),
+            correctable: correctable(&a.predicate),
             assertion: a.id.0.clone(),
             label: store
                 .predicate_label(&a.predicate)?
@@ -222,6 +227,30 @@ pub fn view(store: &Store, id: &EntityId, at: TimePoint) -> Result<EntityView> {
         collections: crate::colecciones::de(store, id, at)?,
         id: id.0.clone(),
     })
+}
+
+/// Sólo datos que el producto permite corregir hoy; el vocabulario futuro no
+/// concede autoridad de escritura por el mero hecho de estar registrado.
+pub fn correctable(predicate: &str) -> bool {
+    matches!(
+        predicate,
+        "expires_on" | "sensitivity_level" | "version_of" | "occurred_during"
+    )
+}
+
+fn public_assertion(a: &Assertion) -> bool {
+    match (a.predicate.as_str(), &a.object) {
+        ("path_observed_at" | "folder_path", Value::Text(_)) => a.method == Method::Deterministic,
+        ("file_size", Value::Number(n)) => n.is_finite() && *n >= 0.0,
+        ("modified_at", Value::Timestamp(_)) => true,
+        ("sensitivity_level", Value::Text(t)) => obrain_core::Sensitivity::parse(t).is_some(),
+        ("availability", Value::Text(t)) => obrain_scan::Availability::parse(t).is_some(),
+        (
+            "contained_by" | "duplicate_of" | "version_of" | "occurred_during" | "part_of",
+            Value::Entity(_),
+        ) => true,
+        _ => false,
+    }
 }
 
 /// El tramo que explica una aserción, si se sabe. Ver [`Claim::span`].

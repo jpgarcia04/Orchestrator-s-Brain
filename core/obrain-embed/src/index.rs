@@ -239,7 +239,8 @@ pub fn knn_within(
     };
     let mut stmt = conn.prepare(&format!(
         "SELECT chunk, entity, vec FROM vectors
-          WHERE model_id = ?1 AND model_ver = ?2 AND dim = ?3 {filtro}"
+          WHERE model_id = ?1 AND model_ver = ?2 AND dim = ?3
+          AND entity IN (SELECT id FROM entities WHERE sensitivity != 'vault') {filtro}"
     ))?;
     let dim = model.dim as i64;
     let mut valores: Vec<&dyn ToSql> = vec![&model.id, &model.version, &dim];
@@ -355,6 +356,23 @@ mod tests {
         let vecinos = knn(store.conn(), &[1.0, 0.0, 0.0], M, 5).unwrap();
         assert_eq!(vecinos.len(), 1);
         assert!((vecinos[0].score - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn el_knn_no_usa_vectores_vault_aunque_la_purga_no_haya_ocurrido() {
+        let store = base();
+        let p = fragmento(&store, 1, "SINTETICO");
+        insert(store.conn(), &p, M, &[1.0, 0.0, 0.0]).unwrap();
+        assert_eq!(knn(store.conn(), &[1.0, 0.0, 0.0], M, 5).unwrap().len(), 1);
+        store
+            .set_sensitivity(&p.entity, obrain_core::Sensitivity::Vault)
+            .unwrap();
+        assert_eq!(count(store.conn(), M).unwrap(), 1);
+        assert!(
+            knn(store.conn(), &[1.0, 0.0, 0.0], M, 5)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     /// Buscar dentro de una colección (ADR-0031): el filtro va antes de

@@ -1,4 +1,4 @@
-//! `downloaded_from` — la URL de origen de cada archivo descargado.
+//! `downloaded_from` — el origen web de cada archivo descargado.
 //!
 //! Windows guarda en un **flujo alternativo NTFS** llamado `:Zone.Identifier`
 //! la procedencia de todo lo que se descarga. Es un dato exacto, gratuito, que
@@ -21,8 +21,18 @@
 use crate::{Edge, FileView, LinkReport, write_edge};
 use obrain_core::{Method, Result, Store, Value};
 
-/// Extrae la mejor URL disponible. `HostUrl` es la del archivo en sí;
-/// `ReferrerUrl` es la página desde la que se pinchó. Se prefiere la primera.
+/// Conserva sólo esquema, host y puerto. La ruta también puede ser un enlace
+/// de acceso firmado; no intentamos adivinar qué parámetros son secretos.
+pub fn safe_origin(value: &str) -> Option<String> {
+    let url = url::Url::parse(value).ok()?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        return None;
+    }
+    Some(url.origin().ascii_serialization())
+}
+
+/// Extrae el origen web de la mejor URL disponible, sin conservar acceso ni
+/// rutas. Se prefiere `HostUrl` y se usa `ReferrerUrl` como alternativa.
 pub fn parse_zone_identifier(contents: &str) -> Option<String> {
     let mut referrer = None;
     for line in contents.lines() {
@@ -30,12 +40,14 @@ pub fn parse_zone_identifier(contents: &str) -> Option<String> {
         if let Some(v) = line.strip_prefix("HostUrl=") {
             let v = v.trim();
             if !v.is_empty() && v != "about:internet" {
-                return Some(v.to_string());
+                if let Some(origin) = safe_origin(v) {
+                    return Some(origin);
+                }
             }
         } else if let Some(v) = line.strip_prefix("ReferrerUrl=") {
             let v = v.trim();
             if !v.is_empty() {
-                referrer = Some(v.to_string());
+                referrer = safe_origin(v);
             }
         }
     }
@@ -95,6 +107,59 @@ pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport)
 mod tests {
     use super::parse_zone_identifier;
 
+    #[cfg(windows)]
+    #[test]
+    fn la_observacion_nueva_guarda_solo_el_origen() {
+        use obrain_core::{Store, TimePoint};
+        let path =
+            std::env::temp_dir().join(format!("obrain-zone-{}.txt", obrain_core::EntityId::new()));
+        std::fs::write(&path, "fixture").unwrap();
+        std::fs::write(format!("{}:Zone.Identifier", path.display()), "HostUrl=https://user:password@portal.example/acceso/SINTETICO?token=SINTETICO#SINTETICO").unwrap();
+        let store = Store::open_in_memory().unwrap();
+        let e = store.create_entity(1).unwrap();
+        let file = crate::FileView {
+            entity: e.clone(),
+            path: path.to_string_lossy().into(),
+            hash: None,
+            modified_ms: 1,
+            size: 7,
+            availability: "local".into(),
+        };
+        let mut report = crate::LinkReport::default();
+        super::link(&store, &[file], 1, &mut report).unwrap();
+        let a = store
+            .resolve(&e, "downloaded_from", TimePoint::at(1))
+            .unwrap()
+            .unwrap();
+        assert_eq!(a.object.as_text(), Some("https://portal.example"));
+        assert!(a.evidence.is_none());
+        assert_eq!(report.downloaded_from, 1);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn no_persiste_acceso_ni_rutas_y_rechaza_esquemas_ajenos() {
+        assert_eq!(
+            parse_zone_identifier(
+                "HostUrl=https://user:password@portal.example:8443/acceso/SINTETICO?token=SINTETICO#SINTETICO"
+            ),
+            Some("https://portal.example:8443".into())
+        );
+        for url in [
+            "file:///fixtures/documento.txt",
+            "javascript:alert(1)",
+            "no-url",
+        ] {
+            assert_eq!(parse_zone_identifier(&format!("HostUrl={url}")), None);
+        }
+        assert_eq!(
+            parse_zone_identifier(
+                "HostUrl=about:internet\nReferrerUrl=https://portal.example/ref?token=SINTETICO"
+            ),
+            Some("https://portal.example".into())
+        );
+    }
+
     #[test]
     fn prefiere_hosturl_sobre_referrer() {
         let ini = "[ZoneTransfer]\r\nZoneId=3\r\n\
@@ -102,7 +167,7 @@ mod tests {
                    HostUrl=https://banco.example/nomina.pdf\r\n";
         assert_eq!(
             parse_zone_identifier(ini).as_deref(),
-            Some("https://banco.example/nomina.pdf")
+            Some("https://banco.example")
         );
     }
 
@@ -111,7 +176,7 @@ mod tests {
         let ini = "[ZoneTransfer]\r\nZoneId=3\r\nReferrerUrl=https://consulado.example/visados\r\n";
         assert_eq!(
             parse_zone_identifier(ini).as_deref(),
-            Some("https://consulado.example/visados")
+            Some("https://consulado.example")
         );
     }
 

@@ -337,15 +337,18 @@ fn previsualizar(
 
 /// La ruta de una entidad, según el log. **La pone el núcleo, no la ventana**,
 /// y sólo si se puede abrir: con PIN, lo sensible pide desbloquear antes.
-fn ruta_para_abrir(cerebro: &State<'_, Cerebro>, id: String) -> Result<String, String> {
-    con(cerebro, |b| {
-        let id = EntityId(id);
-        if !b.may_open(&id)? {
-            return Err(obrain_api::Error::Bloqueado);
-        }
-        Ok(b.entity(&id)?.path)
-    })?
-    .ok_or_else(|| "esta entidad no es un archivo con ruta".to_string())
+fn operar_archivo(
+    cerebro: &State<'_, Cerebro>,
+    id: String,
+    accion: impl FnOnce(String) -> Result<(), String>,
+) -> Result<(), String> {
+    let guarda = cerebro.0.lock().map_err(texto)?;
+    let brain = guarda.as_ref().ok_or_else(|| CERRADA.to_string())?;
+    let ruta = brain
+        .path_to_open(&EntityId(id))
+        .map_err(texto)?
+        .ok_or_else(|| "esta entidad no es un archivo con ruta".to_string())?;
+    accion(ruta)
 }
 
 /// Abre el archivo con el programa que el sistema tenga asociado.
@@ -360,8 +363,9 @@ fn ruta_para_abrir(cerebro: &State<'_, Cerebro>, id: String) -> Result<String, S
 ///    todas las letras**. Decirlo es responsabilidad del botón que llama aquí.
 #[tauri::command]
 fn abrir(id: String, app: tauri::AppHandle, cerebro: State<'_, Cerebro>) -> Result<(), String> {
-    let ruta = ruta_para_abrir(&cerebro, id)?;
-    app.opener().open_path(ruta, None::<&str>).map_err(texto)
+    operar_archivo(&cerebro, id, |ruta| {
+        app.opener().open_path(ruta, None::<&str>).map_err(texto)
+    })
 }
 
 /// Lo revela en el explorador de Windows: abre su carpeta y lo selecciona.
@@ -369,8 +373,9 @@ fn abrir(id: String, app: tauri::AppHandle, cerebro: State<'_, Cerebro>) -> Resu
 /// Nunca ejecuta el archivo, así que no hereda el primer coste de [`abrir`].
 #[tauri::command]
 fn revelar(id: String, app: tauri::AppHandle, cerebro: State<'_, Cerebro>) -> Result<(), String> {
-    let ruta = ruta_para_abrir(&cerebro, id)?;
-    app.opener().reveal_item_in_dir(ruta).map_err(texto)
+    operar_archivo(&cerebro, id, |ruta| {
+        app.opener().reveal_item_in_dir(ruta).map_err(texto)
+    })
 }
 
 /// La corrección de I5. Escribe una aserción del usuario, que gana para
@@ -380,16 +385,41 @@ fn revelar(id: String, app: tauri::AppHandle, cerebro: State<'_, Cerebro>) -> Re
 fn corregir(
     subject: String,
     predicate: String,
-    object: String,
+    object: ObjetoCorreccion,
     cerebro: State<'_, Cerebro>,
 ) -> Result<String, String> {
     con(&cerebro, |b| {
         b.correct(
             &EntityId(subject),
             &predicate,
-            obrain_core::Value::Text(object),
+            match object {
+                ObjetoCorreccion::Text(v) => obrain_core::Value::Text(v),
+                ObjetoCorreccion::Entity(v) => obrain_core::Value::Entity(EntityId(v)),
+            },
         )
     })
+}
+
+#[derive(serde::Deserialize)]
+#[serde(
+    tag = "kind",
+    content = "value",
+    rename_all = "lowercase",
+    deny_unknown_fields
+)]
+enum ObjetoCorreccion {
+    Text(String),
+    Entity(String),
+}
+
+/// El cliente identifica la inferencia; nunca reenvía su etiqueta como objeto.
+#[tauri::command]
+fn confirmar(
+    subject: String,
+    assertion: String,
+    cerebro: State<'_, Cerebro>,
+) -> Result<String, String> {
+    con(&cerebro, |b| b.confirm(&EntityId(subject), &assertion))
 }
 
 #[tauri::command]
@@ -764,6 +794,7 @@ fn main() {
             abrir,
             revelar,
             corregir,
+            confirmar,
             estado,
             seguridad,
             clave_recuperacion,
