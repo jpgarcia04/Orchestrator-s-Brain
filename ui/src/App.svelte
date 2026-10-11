@@ -92,6 +92,8 @@
 
 {#if app.info?.cerrada}
   <Cerrada />
+{:else if !app.presentacionLista}
+  <p class="error">{app.error || "Actualizando la vista…"}</p>
 {:else}
 <div class="escritorio">
   <BarraLateral />
@@ -135,7 +137,7 @@
     {/key}
   </div>
 
-  {#if app.buscando}
+  {#if app.buscando && app.presentacionLista}
     {#key app.securityEpoch}
     <Buscador />
     {/key}

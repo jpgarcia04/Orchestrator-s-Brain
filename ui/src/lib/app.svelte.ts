@@ -18,6 +18,7 @@ import {
   entidad,
   estado as pedirEstado,
   explorar,
+  invalidarLecturas,
   marcarCarpeta as pedirMarca,
   meterEnColeccion,
   moverEntreColecciones,
@@ -142,6 +143,8 @@ class App {
   aviso = $state("");
   /** Sube cada vez que termina un reindexado: lo que se pinta con datos vuelve a pedirlos. */
   version = $state(0);
+  /** Ninguna vista documental se monta mientras se retiran datos de una indexación. */
+  presentacionLista = $state(false);
   error = $state("");
   /** Cifrado y PIN (ADR-0021). `null` hasta saberlo, o con la base cerrada. */
   seguridad = $state<Seguridad | null>(null);
@@ -163,6 +166,9 @@ class App {
   /** Desde dónde cuenta un Mayús+clic: el último documento pulsado. */
   private ancla: string | null = null;
   private resolverPin: ((ok: boolean) => void) | null = null;
+  private datosEpoch = 0;
+  private focoIndexado: string | null = null;
+  private coleccionIndexada: string | null = null;
 
   constructor() {
     pinSession.subscribe(() => {
@@ -189,8 +195,35 @@ class App {
 
   async arrancar(): Promise<void> {
     await alIndexar((i) => void this.terminoIndexado(i));
-    await alEmpezarIndexado(() => (this.indexando = true));
+    await alEmpezarIndexado(() => this.empezoIndexado());
     await this.refrescar();
+  }
+
+  /** Retira selecciones y respuestas anteriores antes de cambiar el inventario. */
+  empezoIndexado(): void {
+    if (this.presentacionLista) {
+      this.focoIndexado = this.vista === "carpeta" ? (this.listado?.focus ?? null) : null;
+      this.coleccionIndexada = this.vista === "coleccion" ? (this.abierta?.id ?? null) : null;
+    }
+    this.indexando = true;
+    this.presentacionLista = false;
+    this.datosEpoch++;
+    invalidarLecturas();
+    this.seleccion = null;
+    this.elegidos = [];
+    this.ancla = null;
+    this.arrastre = null;
+    this.pendiente = null;
+    this.lente = null;
+    this.lenteColeccion = null;
+    this.buscando = false;
+    this.resolverPin?.(false);
+    this.resolverPin = null;
+    this.pidiendoPin = false;
+    this.raiz = null;
+    this.listado = null;
+    this.abierta = null;
+    this.colecciones = [];
   }
 
   vigilarSeguridad(): () => void {
@@ -207,8 +240,11 @@ class App {
 
   /** Vuelve a pedir lo que depende de la base. */
   async refrescar(): Promise<void> {
+    const epoch = this.datosEpoch;
     try {
-      this.info = await pedirEstado();
+      const info = await pedirEstado();
+      if (epoch !== this.datosEpoch) return;
+      this.info = info;
       this.indexando = this.info.indexing;
       if (this.info.cerrada) {
         // Sin la llave no hay nada más que pedir: la ventana pide la clave.
@@ -218,25 +254,41 @@ class App {
         return;
       }
       await this.recargarSeguridad();
+      if (epoch !== this.datosEpoch) return;
       this.raiz = await explorar(null);
+      if (epoch !== this.datosEpoch) return;
       await this.recargarColecciones();
-      if (this.vista === "carpeta" && this.listado) {
+      if (epoch !== this.datosEpoch) return;
+      if (this.vista === "carpeta") {
         try {
-          this.listado = await explorar(this.listado.focus);
+          this.listado = await explorar(this.listado?.focus ?? this.focoIndexado);
+          if (epoch !== this.datosEpoch) return;
         } catch {
           // La carpeta abierta ya no está (se movió o se borró): a la raíz.
           this.listado = this.raiz;
           this.seleccion = null;
         }
+      } else if (this.vista === "coleccion" && this.coleccionIndexada) {
+        try {
+          this.abierta = await pedirColeccion(this.coleccionIndexada);
+          if (epoch !== this.datosEpoch) return;
+        } catch {
+          this.vista = "colecciones";
+        }
       }
+      this.focoIndexado = null;
+      this.coleccionIndexada = null;
       this.error = "";
+      this.presentacionLista = !this.info.indexing;
     } catch (e) {
+      if (epoch !== this.datosEpoch) return;
       this.error = `No se pudo abrir la base — ${e}`;
     }
-    this.version++;
+    if (epoch === this.datosEpoch) this.version++;
   }
 
   private async terminoIndexado(i: Indexado): Promise<void> {
+    this.empezoIndexado();
     this.ultimo = i;
     this.indexando = false;
     await this.refrescar();
@@ -254,16 +306,18 @@ class App {
   }
 
   async actualizar(): Promise<void> {
+    const epoch = this.datosEpoch;
     try {
-      if (await pedirActualizar()) this.indexando = true;
+      if (await pedirActualizar() && epoch === this.datosEpoch) this.empezoIndexado();
     } catch (e) {
       this.avisar(`No se pudo actualizar — ${e}`);
     }
   }
 
   async anadirCarpeta(): Promise<void> {
+    const epoch = this.datosEpoch;
     try {
-      if (await anadirBiblioteca()) this.indexando = true;
+      if (await anadirBiblioteca() && epoch === this.datosEpoch) this.empezoIndexado();
     } catch (e) {
       this.avisar(`No se pudo añadir la carpeta — ${e}`);
     }
@@ -281,8 +335,11 @@ class App {
 
   /** Abre una carpeta en el explorador; `null` es la raíz de la bóveda. */
   async abrirCarpeta(id: string | null, seleccionar: string | null = null, consulta = ""): Promise<void> {
+    const epoch = this.datosEpoch;
     try {
-      this.listado = await explorar(id);
+      const listado = await explorar(id);
+      if (epoch !== this.datosEpoch || !this.presentacionLista) return;
+      this.listado = listado;
     } catch (e) {
       this.avisar(`No se pudo abrir la carpeta — ${e}`);
       return;
@@ -301,8 +358,10 @@ class App {
    * mismo árbol que dibuja el mapa, así que las dos vistas no pueden discrepar.
    */
   async irA(id: string, consulta = ""): Promise<void> {
+    const epoch = this.datosEpoch;
     try {
       const v = await entidad(id);
+      if (epoch !== this.datosEpoch || !this.presentacionLista) return;
       const casa = v.observed.find((c) => c.predicate === "contained_by")?.value_entity ?? null;
       await this.abrirCarpeta(casa, id, consulta);
     } catch (e) {
@@ -381,6 +440,7 @@ class App {
    * abierto por ese sitio de su texto y marcado.
    */
   ver(id: string, consulta = "", tramo: [number, number] | null = null): void {
+    if (!this.presentacionLista) return;
     this.seleccion = id;
     this.consulta = consulta;
     this.tramo = tramo;
@@ -412,11 +472,16 @@ class App {
   // ─────────────────────────────────────────── tus colecciones (ADR-0031)
 
   async recargarColecciones(): Promise<void> {
+    const epoch = this.datosEpoch;
     try {
-      this.colecciones = await pedirColecciones();
+      const colecciones = await pedirColecciones();
+      if (epoch !== this.datosEpoch) return;
+      this.colecciones = colecciones;
       if (this.vista === "coleccion" && this.abierta) {
         try {
-          this.abierta = await pedirColeccion(this.abierta.id);
+          const abierta = await pedirColeccion(this.abierta.id);
+          if (epoch !== this.datosEpoch) return;
+          this.abierta = abierta;
         } catch {
           // La borraste (quizá desde la terminal): a la lista.
           this.abierta = null;
@@ -424,14 +489,18 @@ class App {
         }
       }
     } catch {
+      if (epoch !== this.datosEpoch) return;
       this.colecciones = [];
     }
   }
 
   /** Abre una colección: se ve como una carpeta. */
   async abrirColeccion(id: string, seleccionar: string | null = null): Promise<void> {
+    const epoch = this.datosEpoch;
     try {
-      this.abierta = await pedirColeccion(id);
+      const abierta = await pedirColeccion(id);
+      if (epoch !== this.datosEpoch || !this.presentacionLista) return;
+      this.abierta = abierta;
     } catch (e) {
       this.avisar(`No se pudo abrir la colección — ${e}`);
       return;
@@ -685,6 +754,7 @@ class App {
   }
 
   abrirBuscador(semilla = ""): void {
+    if (!this.presentacionLista) return;
     this.semilla = semilla;
     // Desde una colección abierta, se busca dentro de ella (ADR-0031); la ✕ del
     // buscador lo quita.

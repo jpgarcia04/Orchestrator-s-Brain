@@ -189,11 +189,16 @@ pub fn open(
     let mut degree: HashMap<EntityId, usize> = HashMap::new();
     let mut truncated = false;
     let mut reached: HashSet<EntityId> = HashSet::new();
-    let fuera = obrain_scan::ausentes::missing_set(store, at)?;
+    let pendientes = crate::identity::pending_set(store, at)?;
+    let mut fuera = obrain_scan::ausentes::missing_set(store, at)?;
+    fuera.extend(pendientes.iter().cloned());
 
     // ── capa 0 · el foco ──
     let mut layer: Vec<EntityId> = Vec::new();
     for e in focus {
+        if pendientes.contains(e) {
+            continue;
+        }
         if admitted.contains_key(e) {
             continue;
         }
@@ -289,7 +294,11 @@ pub fn open(
     edges.sort_by(|a, b| (&a.from, &a.to, &a.predicate).cmp(&(&b.from, &b.to, &b.predicate)));
 
     Ok(Lens {
-        focus: focus.iter().map(|e| e.0.clone()).collect(),
+        focus: focus
+            .iter()
+            .filter(|e| !pendientes.contains(*e))
+            .map(|e| e.0.clone())
+            .collect(),
         nodes,
         edges,
         budget,
@@ -376,9 +385,13 @@ pub fn hubs(
     limit: usize,
     at: TimePoint,
 ) -> obrain_core::Result<Vec<(String, usize)>> {
+    let pendientes = crate::identity::pending_set(store, at)?;
     let mut degree: HashMap<EntityId, usize> = HashMap::new();
     for a in store.query(None, None, at)? {
         if let Value::Entity(o) = &a.object {
+            if pendientes.contains(&a.subject) || pendientes.contains(o) {
+                continue;
+            }
             *degree.entry(a.subject.clone()).or_insert(0) += 1;
             *degree.entry(o.clone()).or_insert(0) += 1;
         }

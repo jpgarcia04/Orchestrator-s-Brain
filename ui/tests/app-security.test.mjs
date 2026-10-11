@@ -53,3 +53,52 @@ test('bloquear revoca el cliente antes de esperar al comando y a su consulta', a
   await blocking;
   assert.equal(app.seguridad.desbloqueada, false);
 });
+
+test('una indexación retira la selección abierta y rechaza respuestas anteriores', async () => {
+  const { explorar, previsualizar } = await import(bridge);
+  pinSession.finishChange();
+  pinSession.apply({ pin: false, desbloqueada: false, restante_ms: null });
+  let finishExplore;
+  let finishPreview;
+  globalThis.__brainInvoke = (command) => {
+    if (command === 'explorar') return new Promise((resolve) => { finishExplore = resolve; });
+    if (command === 'previsualizar') return new Promise((resolve) => { finishPreview = resolve; });
+    return Promise.resolve({ pin: false, desbloqueada: false, restante_ms: null });
+  };
+  const anterior = explorar('carpeta-vieja');
+  const contenidoAnterior = previsualizar('documento-pendiente');
+  app.presentacionLista = true;
+  app.seleccion = 'documento-pendiente';
+  app.listado = { focus: 'carpeta-vieja', rows: [{ id: 'documento-pendiente' }] };
+  app.empezoIndexado();
+  assert.equal(app.presentacionLista, false);
+  assert.equal(app.seleccion, null);
+  assert.equal(app.listado, null);
+  finishExplore({ focus: 'carpeta-vieja', rows: [{ id: 'documento-pendiente' }] });
+  finishPreview({ id: 'documento-pendiente', kind: 'text', text: 'contenido antiguo' });
+  await assert.rejects(anterior, /vista cambió/);
+  await assert.rejects(contenidoAnterior, /vista cambió/);
+  assert.equal(app.listado, null);
+});
+
+test('la carpeta se vuelve a leer tras indexar sin reabrir la selección anterior', async () => {
+  const requested = [];
+  globalThis.__brainInvoke = async (command, args) => {
+    requested.push([command, args]);
+    if (command === 'estado') return { cerrada: false, indexing: false, libraries: [] };
+    if (command === 'seguridad') return { pin: false, desbloqueada: false, restante_ms: null };
+    if (command === 'explorar') return { focus: args.foco, rows: [] };
+    if (command === 'colecciones') return [];
+    throw new Error(`comando inesperado: ${command}`);
+  };
+  app.presentacionLista = true;
+  app.vista = 'carpeta';
+  app.listado = { focus: 'carpeta-vigente', rows: [{ id: 'documento-viejo' }] };
+  app.seleccion = 'documento-viejo';
+  app.empezoIndexado();
+  await app.refrescar();
+  assert.equal(app.presentacionLista, true);
+  assert.equal(app.listado.focus, 'carpeta-vigente');
+  assert.equal(app.seleccion, null);
+  assert.ok(requested.some(([command, args]) => command === 'explorar' && args.foco === 'carpeta-vigente'));
+});

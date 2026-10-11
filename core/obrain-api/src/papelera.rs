@@ -60,6 +60,9 @@ fn dias_restantes(since: i64, now: i64) -> i64 {
 /// Si está en la papelera, lo que se enseña de él. Lo usa la ficha de la vista
 /// previa para decir «Ya no está en tu bóveda».
 pub fn of(store: &Store, e: &EntityId, at: TimePoint) -> obrain_core::Result<Option<EnPapelera>> {
+    if crate::identity::pending(store, e, at)? {
+        return Ok(None);
+    }
     let Some(since) = en_papelera(store, e, at)? else {
         return Ok(None);
     };

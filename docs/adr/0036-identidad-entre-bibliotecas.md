@@ -30,11 +30,27 @@ Un candidato sin `FileID`, con un `FileID` duplicado o con propietarios
 incompatibles se aplaza. Se retracta su ruta activa y se guarda
 `identity_pending_path` en el log para recuperarla cuando un recorrido posterior
 aporte evidencia suficiente. Sin ruta activa no pasa a los cargadores de
-documentos ni a la búsqueda. Si durante ese recorrido falta otra ruta previa,
+documentos ni a la búsqueda. La presentación consulta además la marca pendiente:
+el árbol de carpetas y sus derivados (cielo, explorador, recientes, sensibles,
+vencimientos y colecciones) no cuentan ni enumeran esa entidad aunque conserve
+`contained_by`. La lente, los paquetes y la ficha de otras entidades omiten sus
+referencias mientras esté pendiente. Las lecturas directas de ficha y
+previsualización por `EntityId` la rechazan antes de consultar chunks; apertura
+y revelado no obtienen ruta. Se comprueba la marca positiva, no la mera ausencia
+de ruta: una entidad de la papelera mantiene su vista histórica y su política
+de retención propia.
+
+La interfaz retira la selección y desmonta las vistas documentales al comenzar
+la indexación. Las respuestas iniciadas antes de ese cambio se descartan y,
+al terminar, se vuelve a leer la carpeta o colección abierta. Una vista previa
+anterior no reaparece de forma implícita; la persona puede abrirla de nuevo
+cuando la identidad esté resuelta. Si durante ese recorrido falta otra ruta previa,
 también se retiene como pendiente: una pasada posterior podrá recuperarla o
 enviarla a papelera cuando el inventario sea fiable. Se conservan la entidad,
-sus decisiones y las aserciones históricas. El informe y la app muestran que hay documentos
-pendientes; actualizar vuelve a intentarlo. El CLI de escaneo independiente
+sus decisiones, relaciones, sensibilidad, procedencia, chunks y aserciones
+históricas. Al resolverse la marca, el mismo `EntityId` vuelve a las vistas con
+sus datos legítimos; un reemplazo de ruta no hereda esos datos. El informe y la
+app muestran que hay documentos pendientes; actualizar vuelve a intentarlo. El CLI de escaneo independiente
 rechaza escrituras parciales o sobre una base con otras bibliotecas.
 
 ## Límites
@@ -48,3 +64,8 @@ durante indexación sigue pendiente.
 
 Las pruebas usan archivos sintéticos y bases en memoria. Ninguna migración se
 ha ejecutado sobre la bóveda personal.
+
+La retirada de la interfaz empieza cuando recibe el evento de comienzo de
+indexación; no crea una transacción atómica entre NTFS, todas las etapas del
+pipeline y una ventana que aún no haya recibido ese evento. La publicación
+segura durante la indexación sigue siendo un P1 independiente.
