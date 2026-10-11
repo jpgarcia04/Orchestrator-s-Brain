@@ -28,6 +28,7 @@ import {
 } from "./nucleo";
 import type { Abierta, Coleccion, Estado, Indexado, Listado, Seguridad } from "./nucleo";
 import { tituloDe } from "./nombres";
+import { pinSession } from "./pin-session";
 
 export type Vista = "inicio" | "carpeta" | "mapa" | "sensibles" | "papelera" | "colecciones" | "coleccion";
 export type Tema = "noche" | "dia";
@@ -144,6 +145,7 @@ class App {
   error = $state("");
   /** Cifrado y PIN (ADR-0021). `null` hasta saberlo, o con la base cerrada. */
   seguridad = $state<Seguridad | null>(null);
+  securityEpoch = $state(0);
   /** El panel de Seguridad, abierto. */
   panelSeguridad = $state(false);
   /** Se está pidiendo el PIN para enseñar algo sensible. */
@@ -161,6 +163,14 @@ class App {
   /** Desde dónde cuenta un Mayús+clic: el último documento pulsado. */
   private ancla: string | null = null;
   private resolverPin: ((ok: boolean) => void) | null = null;
+
+  constructor() {
+    pinSession.subscribe(() => {
+      this.seguridad = pinSession.state as Seguridad | null;
+      this.securityEpoch = pinSession.epoch;
+      this.version++;
+    });
+  }
 
   /** ¿Hay que enseñar la clave de recuperación? Hasta que digas que la guardaste. */
   get mostrarRecuperacion(): boolean {
@@ -181,6 +191,18 @@ class App {
     await alIndexar((i) => void this.terminoIndexado(i));
     await alEmpezarIndexado(() => (this.indexando = true));
     await this.refrescar();
+  }
+
+  vigilarSeguridad(): () => void {
+    const poll = () => { if (!this.info?.cerrada) void this.recargarSeguridad(); };
+    const timer = window.setInterval(poll, 1000);
+    window.addEventListener("focus", poll);
+    document.addEventListener("visibilitychange", poll);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", poll);
+      document.removeEventListener("visibilitychange", poll);
+    };
   }
 
   /** Vuelve a pedir lo que depende de la base. */
@@ -307,7 +329,7 @@ class App {
     try {
       this.seguridad = await pedirSeguridad();
     } catch {
-      this.seguridad = null;
+      this.seguridad = pinSession.state as Seguridad | null;
     }
   }
 
@@ -317,7 +339,8 @@ class App {
    * `false` si se canceló.
    */
   pedirPin(): Promise<boolean> {
-    if (!this.seguridad?.pin) return Promise.resolve(true);
+    if (!this.seguridad) return Promise.resolve(false);
+    if (!this.seguridad.pin) return Promise.resolve(true);
     return new Promise((resolver) => {
       this.resolverPin?.(false);
       this.resolverPin = resolver;
@@ -334,7 +357,7 @@ class App {
       await this.recargarSeguridad();
       this.version++; // lo que estaba bloqueado se vuelve a pedir
     }
-    r?.(ok);
+    r?.(ok && this.seguridad !== null && (!this.seguridad.pin || this.seguridad.desbloqueada));
   }
 
   /** Vuelve a tapar lo sensible ya, sin esperar a que caduque. */
@@ -342,7 +365,8 @@ class App {
     try {
       await pinBloquear();
     } catch {
-      // con la base cerrada no hay nada que bloquear
+      this.avisar("No se pudo confirmar el bloqueo. El contenido se ha retirado de esta ventana.");
+      return;
     }
     await this.recargarSeguridad();
     this.version++;

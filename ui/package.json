@@ -5,6 +5,7 @@
   "type": "module",
   "description": "La aplicación de escritorio de Orchestrator's Brain — Svelte 5 sobre Tauri",
   "scripts": {
+    "test": "node --test tests/*.test.mjs",
     "dev": "vite",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "build": "svelte-check --tsconfig ./tsconfig.json && vite build",

@@ -44,6 +44,8 @@
   let generacion = 0;
   $effect(() => {
     const texto = q.trim();
+    void app.version;
+    resultados = [];
     const donde = app.buscarEn;
     const mia = ++generacion;
     if (!texto) {
@@ -64,7 +66,7 @@
           if (mia === generacion) resultados = [];
         });
     }, 90);
-    return () => window.clearTimeout(t);
+    return () => { window.clearTimeout(t); generacion++; };
   });
 
   /** Lo que se puede elegir ahora mismo, en orden. */

@@ -8,8 +8,10 @@
   color de su tipo.
 -->
 <script lang="ts" module>
+  import { pinSession } from "../lib/pin-session";
   /** Las miniaturas ya pedidas, para no volver a pedirlas al cambiar de carpeta. */
   const cache = new Map<string, string>();
+  pinSession.subscribe(() => cache.clear());
 </script>
 
 <script lang="ts">
@@ -30,6 +32,8 @@
 
   $effect(() => {
     const id = fila.id;
+    let vigente = true;
+    const epoch = pinSession.epoch;
     // Lo que se vuelve sensible —una carpeta que acabas de marcar— deja de
     // enseñarse aunque ya estuviera pedido, y la copia se olvida.
     if (sensible) cache.delete(id);
@@ -40,7 +44,7 @@
       vigia.disconnect();
       previsualizar(id)
         .then((v) => {
-          if (v.kind === "image" && v.image) {
+          if (vigente && pinSession.current(epoch) && !sensible && v.sensitivity === "normal" && v.kind === "image" && v.image) {
             cache.set(id, v.image);
             if (fila.id === id) imagen = v.image;
           }
@@ -48,7 +52,7 @@
         .catch(() => {});
     });
     vigia.observe(caja);
-    return () => vigia.disconnect();
+    return () => { vigente = false; vigia.disconnect(); };
   });
 </script>
 

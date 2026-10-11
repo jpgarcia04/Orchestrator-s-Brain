@@ -2,8 +2,8 @@
   Desbloquear lo sensible con el PIN (ADR-0021).
 
   El PIN protege **ver**: sin él, el contenido de lo sensible no sale del
-  núcleo. Un desbloqueo dura 5 minutos desde la última vez que se mira algo
-  sensible. Tras tres fallos, espera creciente, y la espera la guarda la base:
+  núcleo. Un desbloqueo dura 5 minutos desde la autenticación.
+  Tras tres fallos, espera creciente, y la espera la guarda la base:
   cerrar la app no la salta. Si se olvidó, la clave de recuperación pone otro.
 -->
 <script lang="ts">
@@ -68,7 +68,7 @@
   {#if modo === "pin"}
     <form class="forma" onsubmit={desbloquear}>
       <p class="tenue">
-        <Lock size={15} /> Lo sensible se queda a la vista 5 minutos desde la última vez que lo miras.
+        <Lock size={15} /> Lo sensible se queda a la vista 5 minutos desde que escribes el PIN.
       </p>
       <input
         bind:this={campo}
