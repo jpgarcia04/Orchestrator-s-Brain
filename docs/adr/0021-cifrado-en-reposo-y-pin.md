@@ -93,7 +93,9 @@ llave guardada **dos veces**, cada una en su caja:
   texto ni imagen, los resultados de búsqueda de lo sensible llegan sin su
   fragmento y «Abrir» se niega. Hoy la ventana recibe el contenido y lo tapa con
   un borroso; con PIN, ni lo recibe.
-- Un desbloqueo dura **5 minutos desde el último uso**. Tras 3 fallos, espera
+- Desde [ADR-0034](0034-correcciones-y-revocacion-del-pin.md), un desbloqueo dura
+  **5 minutos desde autenticación**, con revocación en el cliente. Las lecturas
+  no renuevan el plazo. Tras 3 fallos, espera
   creciente (30 s, 1 min, 2 min… hasta 15 min).
 - **Si se olvida**, se restablece con la **clave de recuperación**. Se propuso
   hacerlo con la contraseña de Windows; se hizo así porque validar la contraseña

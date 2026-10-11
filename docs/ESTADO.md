@@ -1,6 +1,6 @@
 # Estado del proyecto — empieza aquí
 
-**Última revisión:** 2026-09-25
+**Última revisión:** 2026-10-11
 
 Una página para retomar el proyecto sin leer las 2.000 líneas de agosto. El
 diseño completo está en [`PROJECT-MASTER.md`](PROJECT-MASTER.md); el porqué de
@@ -13,6 +13,23 @@ Un **segundo cerebro para tus documentos personales**: dejas en una carpeta tu
 pasaporte, tus pólizas, tu matrícula o tus contratos, y el programa los lee, los
 relaciona y te deja encontrarlos por lo que significan, sin que nada salga de tu
 computadora.
+
+## Confianza y seguridad — 2026-10-11
+
+Correcciones restringidas y tipadas, confirmación por ID de aserción,
+proyección de sensibilidad atómica, PIN con revocación en núcleo/cliente y
+metadatos protegidos. El desbloqueo dura cinco minutos desde autenticación.
+Nombres y rutas siguen visibles por diseño; el PIN no aísla de otros procesos
+de la cuenta ni controla documentos ya abiertos fuera de Brain.
+
+Pruebas exclusivamente sintéticas; la bóveda real no se abrió ni se modificó.
+La interacción de la app empaquetada sigue pendiente. Persisten los riesgos
+de identidad entre bibliotecas y publicación antes de clasificar durante la
+indexación: son el siguiente bloque prioritario.
+
+Contexto versionado: [auditoría](AUDITORIA-CONFIANZA.md),
+[plan](PLAN-CONFIANZA.md), [progreso](PROGRESO-CONFIANZA.md),
+[retención](RETENCION-METADATOS.md) y [ADR-0034](adr/0034-correcciones-y-revocacion-del-pin.md).
 
 ## Dónde estamos
 
@@ -30,7 +47,7 @@ computadora.
 | **Base cifrada** (SQLCipher) con la llave en Windows y una clave de recuperación; **PIN** opcional para ver lo sensible | ✅ Probado en tu Windows (2026-09-23). Falta el PIN, si lo quieres |
 | **Leer fotos y PDF escaneados (OCR)** con el reconocedor que ya trae Windows, sin conexión: la foto de la TIE se encuentra buscando «extranjero» y sale sensible por su NIE | ✅ Probado en tu Windows (2026-09-23) |
 | **Vencimientos**: lee cuándo caduca cada documento («VALIDEZ 15 11 2026» en la foto de la TIE, «vence el 30 de septiembre» en el contrato) y el Inicio te enseña **«Caduca pronto»**: lo que vence en 90 días y lo que ya venció. Cada fecha dice por qué la leyó y se corrige en un clic. **Aunque el OCR se coma la palabra** (tu pasaporte): la saca de la zona MRZ (`P<MEX<<…`) con su dígito de control, de la expedición más N años justos en un documento de identidad, o del año solo de la INE (ADR-0028) | Tu pasaporte no daba fecha (2026-09-23): el OCR no leyó «caducidad». Arreglado y comprobado con su texto; falta verlo en tu app |
-| **Una carpeta fija para todo**: la base, su llave y el modelo viven en `C:\Users\pacox\.obrain`, abras obrain desde donde lo abras (una PowerShell, la terminal de Claude o la de Codex). La primera vez, obrain muda sola la base de `%LOCALAPPDATA%\obrain` (ADR-0029) | Tu modelo ya está ahí (2026-09-23). Falta abrir la app para que mude tu base |
+| **Una carpeta fija para todo**: la base, su llave y el modelo viven en `%USERPROFILE%\.obrain`, abras obrain desde donde lo abras (una PowerShell, la terminal de Claude o la de Codex). La primera vez, obrain muda sola la base de `%LOCALAPPDATA%\obrain` (ADR-0029) | Tu modelo ya está ahí (2026-09-23). Falta abrir la app para que mude tu base |
 | **Un documento dentro de otro**: el PDF que armaste para un trámite juntando otros (tus estados de cuenta, una constancia) dice **«Contiene»** y qué lleva, con su «¿por qué?» marcado en el texto; cada documento suelto dice **«Está dentro de»** y te lleva al paquete por donde está. El paquete **es tan sensible como lo que lleva** (el pasaporte de `01 Identidad` dentro del PDF de la visa lo tapa), y en la búsqueda lo de dentro sale justo debajo de su paquete (ADR-0030) | Probado con tu base de agosto: 14 paquetes, ninguno falso. Falta verlo en tu app |
 | **Tus colecciones**: juntas a mano lo que va junto aunque viva en carpetas distintas —«Trámite de la visa»: el pasaporte, la póliza, la matrícula, los estados de cuenta— **sin mover nada**. Un documento puede estar en varias. Se meten desde la vista previa («Colecciones») o varios a la vez (`Ctrl`+clic, `Mayús`+clic, `Ctrl A`); se ven en la barra lateral y en su vista; se busca sólo dentro; en el mapa se encienden sus estrellas sin mover ninguna (ADR-0031). **Y arrastrando** (ADR-0033): sueltas un documento (o los elegidos) en una colección de la barra lateral o en «Nueva colección»; de una colección a otra se mueve, con `Ctrl` se queda en las dos, y en tus carpetas de Windows no cambia nada | Hecho en el banco de pruebas (colecciones 2026-09-24, arrastre 2026-09-25); falta verlo en tu app |
 | **Las copias también están dentro**: si tienes el mismo documento dos veces (tu pasaporte en `01 Identidad` y otra copia en otra carpeta), las dos dicen «Está dentro de», y el paquete se tapa si **cualquiera** está protegida. Antes sólo contaba la más vieja, y el paquete podía salir sin tapar (ADR-0032) | Hecho en el banco de pruebas (2026-09-24); falta verlo en tu app |
@@ -85,9 +102,9 @@ con otra. Lo mismo desde la terminal, si lo prefieres:
 
 ```powershell
 cd core
-cargo run --release --bin obrain -- indexar "C:\Users\pacox\Segundo Cerebro"
+cargo run --release --bin obrain -- indexar "$env:USERPROFILE\Biblioteca"
 
-# (sólo si no lo tienes; el tuyo ya está en C:\Users\pacox\.obrain\models)
+# (sólo si no lo tienes; el tuyo ya está en %USERPROFILE%\.obrain\models)
 # bajar el modelo de búsqueda por significado, ~465 MB
 cargo run --release --bin obrain-embed -- "$env:USERPROFILE\.obrain\brain.obrain" --descargar-modelo
 ```
@@ -95,7 +112,7 @@ cargo run --release --bin obrain-embed -- "$env:USERPROFILE\.obrain\brain.obrain
 Sin ese modelo la búsqueda funciona igual por palabras; el buscador te dice
 abajo a la derecha en qué modo está.
 
-**Todo lo de obrain vive en una carpeta fija: `C:\Users\pacox\.obrain`** —la
+**Todo lo de obrain vive en una carpeta fija: `%USERPROFILE%\.obrain`** —la
 base (`brain.obrain`), su llave y el modelo—, y la comparten la orden `obrain`
 y la aplicación, las abras desde donde las abras (ADR-0029). Hasta el
 2026-09-23 vivía en `%LOCALAPPDATA%\obrain`: **la primera vez que abras esta
@@ -131,8 +148,9 @@ seguridad de la base sin su clave de recuperación no se abre en otro equipo.
   Cada apartado de la vista previa —el documento, «Lo que sé de este
   documento», «Relacionado», «Detalles técnicos»— **se pliega pulsando su
   título**, y se queda como lo dejaste para los demás documentos y al volver a
-  abrir la app. «Descargado de» dice sólo el sitio (`chatgpt.com`); la
-  dirección entera, al pasar el ratón o en «Detalles técnicos».
+  abrir la app. «Descargado de» conserva sólo el origen web,
+  sin ruta, credenciales, parámetros ni fragmento. Con PIN bloqueado, el origen
+  de lo sensible no sale del núcleo.
 - **Un documento dentro de otro:** en la vista previa de un PDF que junta
   otros —el que armaste para la visa con tus estados de cuenta— sale el
   apartado **«Contiene»** con cada uno; su **«¿por qué?»** dice *«Todo el
@@ -199,8 +217,7 @@ seguridad de la base sin su clave de recuperación no se abre en otro equipo.
 - **Seguridad:** el escudo de abajo a la izquierda. Ahí ves que la base está
   cifrada, vuelves a ver tu clave de recuperación y pones un **PIN**: con PIN,
   lo sensible no se enseña —ni en la vista previa, ni en la búsqueda, ni al
-  abrirlo— hasta escribirlo, y se queda a la vista 5 minutos desde la última vez
-  que lo miras. ¿Olvidaste el PIN? Se restablece con la clave de recuperación.
+  abrirlo— hasta escribirlo, y se queda a la vista 5 minutos desde que escribes el PIN. ¿Olvidaste el PIN? Se restablece con la clave de recuperación.
 - **Caduca pronto:** en el Inicio, entre el buscador y «Recientes», sólo si hay
   algo: lo que caduca en los próximos 90 días y lo que ya caducó (en rojo), con
   cuántos días faltan. La fecha sale del propio documento —también de las
@@ -353,11 +370,11 @@ idioma: Configuración › Hora e idioma › Idioma › Español › Opciones.
 
 Y para ver la carpeta fija (ADR-0029): con la app **cerrada**, trae la versión
 nueva (`git pull`) y ábrela **desde una PowerShell normal** como siempre. En la
-terminal tiene que salir `▸ obrain vive ahora en C:\Users\pacox\.obrain`, y
+terminal tiene que salir `▸ obrain vive ahora en %USERPROFILE%\.obrain`, y
 abajo a la izquierda de la app, la ruta nueva. Tus documentos, tu clave de
 recuperación y tus marcas siguen igual (es la misma base, cambiada de sitio).
 Y en el buscador (`Ctrl K`), abajo a la derecha, tiene que decir que busca
-**por significado**: el modelo ya está en `C:\Users\pacox\.obrain\models`.
+**por significado**: el modelo ya está en `%USERPROFILE%\.obrain\models`.
 
 Y para ver los vencimientos: abre la app con esta versión (se pone al día
 sola al abrirse) y pulsa tu pasaporte. En la vista previa tiene que salir
