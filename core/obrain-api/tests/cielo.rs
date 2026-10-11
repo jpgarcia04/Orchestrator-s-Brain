@@ -357,7 +357,7 @@ fn una_region_con_algo_en_la_boveda_se_marca_entera() {
         ],
     );
     store
-        .set_sensitivity(&files[0], Sensitivity::Vault)
+        .set_sensitivity(&files[0], Sensitivity::Vault, 1)
         .unwrap();
 
     let c = sky::regions(&store, 2, at()).unwrap();

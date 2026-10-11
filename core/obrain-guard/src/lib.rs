@@ -143,9 +143,18 @@ impl GuardReport {
 
 // ─────────────────────────────────────────────────────────────────── pipeline
 
-/// Clasifica todo el corpus y proyecta la columna. El llamante envuelve en
-/// transacción.
+/// Clasifica y revoca en un savepoint, anidable en la transacción de etapa.
 pub fn classify_all(
+    store: &Store,
+    files: &[FileRow],
+    at: i64,
+    dry_run: bool,
+    report: &mut GuardReport,
+) -> Result<Vec<Verdict>> {
+    store.atomic_write(|s| classify_inner(s, files, at, dry_run, report))
+}
+
+fn classify_inner(
     store: &Store,
     files: &[FileRow],
     at: i64,
@@ -163,6 +172,7 @@ pub fn classify_all(
     let marcas = store.folder_marks(tp)?;
 
     let mut verdicts = Vec::new();
+    let mut levels = Vec::new();
     for file in files {
         let name = file.file_name();
         let por_nombre = rules::classify_name(name);
@@ -189,7 +199,7 @@ pub fn classify_all(
             // tiene que seguir a las reglas de hoy.
             if !dry_run {
                 retract_stale(store, &previas, &file.entity, None, at, report)?;
-                project(store, &file.entity, tp, &marcas, None, report)?;
+                levels.push((&file.entity, None));
             }
             continue;
         };
@@ -215,7 +225,7 @@ pub fn classify_all(
 
         if !dry_run {
             write_claim(store, &previas, &verdict, at, report)?;
-            project(store, &file.entity, tp, &marcas, Some(signal.level), report)?;
+            levels.push((&file.entity, Some(signal.level)));
         }
         verdicts.push(verdict);
     }
@@ -224,12 +234,18 @@ pub fn classify_all(
     // subcarpeta que aparece dentro de una carpeta marcada tiene que enseñar su
     // candado igual que sus archivos. Sólo se escribe lo que cambia.
     if !dry_run {
+        // Todas las señales de esta pasada ya están en el log: el paquete ve
+        // la clasificación actual de sus partes, independientemente del orden.
+        for (entity, classifier) in levels {
+            project(store, entity, tp, &marcas, classifier, report)?;
+        }
         for a in store.query(None, Some("folder_path"), tp)? {
             let nivel = store.resolve_sensitivity(&a.subject, tp, &marcas)?.level;
             if store.sensitivity(&a.subject)? != nivel {
-                store.set_sensitivity(&a.subject, nivel)?;
+                store.set_sensitivity(&a.subject, nivel, at)?;
             }
         }
+        store.purge_vault_embeddings(at)?;
     }
 
     report.withheld_chunks = gate::withheld_chunks(store.conn())?;
@@ -252,7 +268,7 @@ fn project(
     report: &mut GuardReport,
 ) -> Result<()> {
     let r = store.resolve_sensitivity(entity, tp, marcas)?;
-    store.set_sensitivity(entity, r.level)?;
+    store.reproject_sensitivity_under(entity, tp, marcas)?;
     let dijo = clasificador.unwrap_or(Sensitivity::Normal);
     match r.origin {
         // La columna no coincide con lo que dijo el clasificador: el usuario
@@ -387,18 +403,20 @@ fn parent_dir(path: &str) -> Option<&str> {
 /// Marca un archivo a mano. Es el canal de corrección del usuario (I5) y la
 /// operación que la barra de comandos expondrá como «esto es privado».
 pub fn mark_by_user(store: &Store, entity: &EntityId, level: Sensitivity, at: i64) -> Result<()> {
-    store.assert(
-        NewAssertion::new(
-            entity.clone(),
-            "sensitivity_level",
-            Value::Text(level.as_str().to_string()),
-            Method::User,
-            at,
-        )
-        .source("user:manual"),
-    )?;
-    store.reproject_sensitivity(entity, TimePoint::at(at))?;
-    Ok(())
+    store.atomic_write(|store| {
+        store.assert_by_user(
+            NewAssertion::new(
+                entity.clone(),
+                "sensitivity_level",
+                Value::Text(level.as_str().to_string()),
+                Method::User,
+                at,
+            )
+            .source("user:manual"),
+        )?;
+        store.reproject_sensitivity(entity, TimePoint::at(at))?;
+        Ok(())
+    })
 }
 
 // ─────────────────────────────────────────────────────────── carpetas (0020)
@@ -428,11 +446,20 @@ pub struct FolderMarkReport {
 /// carpeta marcada deje de ser sensible, se corrige **ese archivo**
 /// ([`mark_by_user`]), y como es posterior a la marca, gana ([ADR-0020]).
 ///
-/// El llamante envuelve en transacción: son varias escrituras y la columna no
-/// puede quedarse a medias.
+/// La marca, las proyecciones y las revocaciones comparten un savepoint;
+/// el llamante puede envolverlo en su transacción de etapa.
 ///
 /// [ADR-0020]: ../../../docs/adr/0020-sensibilidad-por-carpeta.md
 pub fn mark_folder(
+    store: &Store,
+    folder: &EntityId,
+    level: Option<Sensitivity>,
+    at: i64,
+) -> Result<FolderMarkReport> {
+    store.atomic_write(|s| mark_folder_inner(s, folder, level, at))
+}
+
+fn mark_folder_inner(
     store: &Store,
     folder: &EntityId,
     level: Option<Sensitivity>,

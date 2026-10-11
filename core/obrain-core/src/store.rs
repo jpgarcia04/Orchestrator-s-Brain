@@ -176,16 +176,67 @@ impl Store {
         Sensitivity::parse(&s).ok_or_else(|| Error::Corrupt(format!("sensibilidad '{s}'")))
     }
 
-    /// Cambiar sensibilidad es una operación de seguridad, no una aserción.
-    pub fn set_sensitivity(&self, id: &EntityId, s: Sensitivity) -> Result<()> {
-        let n = self.conn.execute(
-            "UPDATE entities SET sensitivity = ?2 WHERE id = ?1",
-            rusqlite::params![id.as_str(), s.as_str()],
+    /// Escribe el control de seguridad y revoca el estado de embeddings al
+    /// entrar o salir de `vault`, en el mismo savepoint y con el tiempo del llamante.
+    /// También reconcilia un `vault` ya proyectado con residuos anteriores.
+    pub fn set_sensitivity(&self, id: &EntityId, s: Sensitivity, at: i64) -> Result<()> {
+        self.atomic_write(|store| {
+            let previous = store.sensitivity(id)?;
+            let n = store.conn.execute(
+                "UPDATE entities SET sensitivity = ?2 WHERE id = ?1",
+                rusqlite::params![id.as_str(), s.as_str()],
+            )?;
+            if n == 0 {
+                return Err(Error::UnknownEntity(id.to_string()));
+            }
+            if s == Sensitivity::Vault || previous == Sensitivity::Vault {
+                store.revoke_embeddings(id, at)?;
+            }
+            Ok(())
+        })
+    }
+
+    /// Revoca la proyección opcional y su procedencia actual. No carga un
+    /// modelo ni crea tablas de M4 en un Store que sólo tiene el esquema core.
+    /// El historial permanece consultable con un `known` anterior a `at`.
+    fn revoke_embeddings(&self, id: &EntityId, at: i64) -> Result<bool> {
+        let has_vectors: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'vectors')",
+            [],
+            |r| r.get(0),
         )?;
-        if n == 0 {
-            return Err(Error::UnknownEntity(id.to_string()));
-        }
-        Ok(())
+        let vectors = if has_vectors {
+            self.conn
+                .execute("DELETE FROM vectors WHERE entity = ?1", [id.as_str()])?
+        } else {
+            0
+        };
+        let claims = self.conn.execute(
+            "UPDATE assertions SET retracted_at = ?2 WHERE subject = ?1
+             AND predicate IN ('embedded_with', 'vector_count')
+             AND retracted_at IS NULL AND asserted_at <= ?2",
+            rusqlite::params![id.as_str(), at],
+        )?;
+        Ok(vectors > 0 || claims > 0)
+    }
+
+    /// Reconcilia residuos de versiones anteriores, incluso procedencia sin
+    /// vectores. Se usa también al clasificar sin modelo. No sanea el historial.
+    pub fn purge_vault_embeddings(&self, at: i64) -> Result<Vec<EntityId>> {
+        self.atomic_write(|store| {
+            let ids: Vec<EntityId> = store
+                .conn
+                .prepare("SELECT id FROM entities WHERE sensitivity = 'vault' ORDER BY id")?
+                .query_map([], |r| Ok(EntityId(r.get(0)?)))?
+                .collect::<rusqlite::Result<_>>()?;
+            let mut purged = Vec::new();
+            for id in ids {
+                if store.revoke_embeddings(&id, at)? {
+                    purged.push(id);
+                }
+            }
+            Ok(purged)
+        })
     }
 
     /// Recalcula la columna `sensitivity` desde las aserciones `sensitivity_level`

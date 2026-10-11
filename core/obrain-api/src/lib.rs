@@ -587,12 +587,9 @@ impl Brain {
             return Err(Error::Bloqueado);
         }
         let (now, _) = Self::now();
-        let r = self.store.transaction(|s| -> Result<_> {
-            let r = obrain_guard::mark_folder(s, folder, level, now)?;
-            s.conn().execute("DELETE FROM vectors WHERE entity IN (SELECT id FROM entities WHERE sensitivity = 'vault')", [])
-                .map_err(obrain_core::Error::from)?;
-            Ok(r)
-        })?;
+        let r = self
+            .store
+            .transaction(|s| obrain_guard::mark_folder(s, folder, level, now))?;
         Ok(FolderMarked {
             level: r.level.map(Sensitivity::as_str),
             under: r.under,
@@ -1023,14 +1020,11 @@ impl Brain {
         let (now, _) = Self::now();
         let id = self.store.atomic_write(|s| -> Result<_> {
             let id = s.assert_by_user(
-            NewAssertion::new(subject.clone(), predicate, object, Method::User, now)
-                .source("user@ui"),
+                NewAssertion::new(subject.clone(), predicate, object, Method::User, now)
+                    .source("user@ui"),
             )?;
             if predicate == "sensitivity_level" {
                 s.reproject_sensitivity(subject, TimePoint::at(now))?;
-                // Revocación inmediata aunque no haya modelo cargado.
-                s.conn().execute("DELETE FROM vectors WHERE entity IN (SELECT id FROM entities WHERE sensitivity = 'vault')", [])
-                    .map_err(obrain_core::Error::from)?;
             }
             Ok(id)
         })?;
@@ -1076,7 +1070,9 @@ mod pin_clock_tests {
         let mut b = Brain::from_store(Store::open_in_memory().unwrap());
         b.clock = clock;
         let e = b.store.create_entity(1).unwrap();
-        b.store.set_sensitivity(&e, Sensitivity::Sensitive).unwrap();
+        b.store
+            .set_sensitivity(&e, Sensitivity::Sensitive, 1)
+            .unwrap();
         b.set_pin("2468", None).unwrap();
         assert_eq!(b.security().unwrap().restante_ms, Some(300_000));
         CLOCK.with(|c| c.set(Some(t + DESBLOQUEO - std::time::Duration::from_millis(1))));

@@ -132,14 +132,7 @@ pub fn embed_all(
     // Lo que subió a bóveda después de vectorizarse sale del índice, y su
     // procedencia deja de estar vigente: el log no puede seguir afirmando que
     // está vectorizado algo que ya no lo está.
-    for e in index::purge_withheld(store.conn())? {
-        for p in ["embedded_with", "vector_count"] {
-            for a in store.query(Some(&e), Some(p), tp)? {
-                store.retract(&a.id, at)?;
-            }
-        }
-        report.entities_purged += 1;
-    }
+    report.entities_purged += store.purge_vault_embeddings(at)?.len();
 
     // ── 1 · quién entra. La puerta, no `chunks`. ──
     let allowed = gate::embeddable(store.conn())?;

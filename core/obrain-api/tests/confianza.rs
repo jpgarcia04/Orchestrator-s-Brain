@@ -60,7 +60,7 @@ fn valida_tipos_y_fechas() {
 fn correccion_generica_no_salta_el_pin() {
     let (b, e) = fixture();
     b.store()
-        .set_sensitivity(&e, Sensitivity::Sensitive)
+        .set_sensitivity(&e, Sensitivity::Sensitive, 1)
         .unwrap();
     b.set_pin("2468", None).unwrap();
     b.lock();
@@ -96,7 +96,7 @@ fn una_url_y_evidencia_protegidas_no_se_serializan() {
         )
         .unwrap();
     b.store()
-        .set_sensitivity(&e, Sensitivity::Sensitive)
+        .set_sensitivity(&e, Sensitivity::Sensitive, 1)
         .unwrap();
     b.set_pin("2468", None).unwrap();
     b.lock();
@@ -204,7 +204,7 @@ fn ni_la_confirmacion_ni_el_historial_fabrican_rutas_de_apertura() {
         Some("fixtures/documento.txt")
     );
     b.store()
-        .set_sensitivity(&e, Sensitivity::Sensitive)
+        .set_sensitivity(&e, Sensitivity::Sensitive, 1)
         .unwrap();
     b.set_pin("2468", None).unwrap();
     b.lock();
@@ -232,7 +232,7 @@ fn las_escrituras_alternativas_comprueban_el_pin_antes_de_escribir() {
         ))
         .unwrap();
     b.store()
-        .set_sensitivity(&e, Sensitivity::Sensitive)
+        .set_sensitivity(&e, Sensitivity::Sensitive, 1)
         .unwrap();
     b.set_pin("2468", None).unwrap();
     b.lock();
@@ -272,7 +272,7 @@ fn la_confirmacion_y_la_relacion_no_saltan_proteccion_del_destino() {
     let (b, e) = fixture();
     let target = b.store().create_entity(1).unwrap();
     b.store()
-        .set_sensitivity(&target, Sensitivity::Sensitive)
+        .set_sensitivity(&target, Sensitivity::Sensitive, 1)
         .unwrap();
     let claim = b
         .store()
@@ -296,7 +296,7 @@ fn la_confirmacion_y_la_relacion_no_saltan_proteccion_del_destino() {
 fn un_error_de_seguridad_no_es_ausencia_de_pin() {
     let (b, e) = fixture();
     b.store()
-        .set_sensitivity(&e, Sensitivity::Sensitive)
+        .set_sensitivity(&e, Sensitivity::Sensitive, 1)
         .unwrap();
     b.store()
         .conn()
@@ -370,6 +370,22 @@ fn la_sensibilidad_del_paquete_se_actualiza_y_los_vectores_se_revocan_sin_modelo
     };
     chunk(&e);
     chunk(&package);
+    for entity in [&e, &package] {
+        for (predicate, value) in [
+            ("embedded_with", Value::Text("fixture@1".into())),
+            ("vector_count", Value::Number(1.0)),
+        ] {
+            b.store()
+                .assert(NewAssertion::new(
+                    entity.clone(),
+                    predicate,
+                    value,
+                    Method::Deterministic,
+                    1,
+                ))
+                .unwrap();
+        }
+    }
     b.correct(&e, "sensitivity_level", "vault".into()).unwrap();
     let vectors: i64 = b
         .store()
@@ -377,6 +393,27 @@ fn la_sensibilidad_del_paquete_se_actualiza_y_los_vectores_se_revocan_sin_modelo
         .query_row("SELECT count(*) FROM vectors", [], |r| r.get(0))
         .unwrap();
     assert_eq!(vectors, 0);
+    for entity in [&e, &package] {
+        for predicate in ["embedded_with", "vector_count"] {
+            assert!(
+                b.store()
+                    .resolve(
+                        entity,
+                        predicate,
+                        obrain_core::TimePoint::at(obrain_scan::now_ms())
+                    )
+                    .unwrap()
+                    .is_none(),
+                "procedencia vigente: {predicate}"
+            );
+            assert!(
+                b.store()
+                    .resolve(entity, predicate, obrain_core::TimePoint::at(1))
+                    .unwrap()
+                    .is_some()
+            );
+        }
+    }
     assert_eq!(b.store().sensitivity(&package).unwrap(), Sensitivity::Vault);
     b.set_pin("2468", None).unwrap();
     b.lock();

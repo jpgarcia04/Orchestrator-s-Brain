@@ -443,7 +443,7 @@ fn vault_no_puede_salir_de_la_maquina() {
     assert!(s.sensitivity(&nota).unwrap().may_egress());
 
     // subir el nivel es una operación de seguridad, no una aserción
-    s.set_sensitivity(&nota, Sensitivity::Sensitive).unwrap();
+    s.set_sensitivity(&nota, Sensitivity::Sensitive, 1).unwrap();
     assert!(!s.sensitivity(&nota).unwrap().may_egress());
 }
 

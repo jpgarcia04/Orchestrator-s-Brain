@@ -341,17 +341,17 @@ impl Store {
         at: TimePoint,
         marks: &FolderMarks,
     ) -> Result<Sensitivity> {
-        let r = self.resolve_sensitivity(id, at, marks)?;
-        self.set_sensitivity(id, r.level)?;
-        for a in self.query(Some(id), Some(PART_OF), at)? {
-            if let Some(paquete) = a.object.as_entity() {
-                let nivel = self.resolve_sensitivity(paquete, at, marks)?.level;
-                if self.sensitivity(paquete)? != nivel {
-                    self.set_sensitivity(paquete, nivel)?;
+        self.atomic_write(|store| {
+            let r = store.resolve_sensitivity(id, at, marks)?;
+            store.set_sensitivity(id, r.level, at.known)?;
+            for a in store.query(Some(id), Some(PART_OF), at)? {
+                if let Some(paquete) = a.object.as_entity() {
+                    let nivel = store.resolve_sensitivity(paquete, at, marks)?.level;
+                    store.set_sensitivity(paquete, nivel, at.known)?;
                 }
             }
-        }
-        Ok(r.level)
+            Ok(r.level)
+        })
     }
 }
 

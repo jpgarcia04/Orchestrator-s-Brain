@@ -434,10 +434,10 @@ fn los_sensibles_son_solo_lo_que_la_puerta_retiene() {
         ],
     );
     store
-        .set_sensitivity(&ids[0], obrain_core::Sensitivity::Sensitive)
+        .set_sensitivity(&ids[0], obrain_core::Sensitivity::Sensitive, 1)
         .unwrap();
     store
-        .set_sensitivity(&ids[2], obrain_core::Sensitivity::Vault)
+        .set_sensitivity(&ids[2], obrain_core::Sensitivity::Vault, 1)
         .unwrap();
     let s = sky::sensitive(&store, at()).unwrap();
     let nombres: Vec<&str> = s.iter().map(|f| f.label.as_str()).collect();
