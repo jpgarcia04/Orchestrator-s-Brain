@@ -18,8 +18,10 @@ export class PinSession {
 
   constructor(now = () => performance.now(), schedule = setTimeout, cancel = clearTimeout) {
     this.now = now;
-    this.schedule = schedule;
-    this.cancel = cancel;
+    // Los timers de Window requieren su receptor; invocarlos como métodos
+    // de PinSession falla en WebView aunque funcione con los timers de Node.
+    this.schedule = schedule.bind(globalThis);
+    this.cancel = cancel.bind(globalThis);
   }
 
   subscribe(f: () => void): () => void {

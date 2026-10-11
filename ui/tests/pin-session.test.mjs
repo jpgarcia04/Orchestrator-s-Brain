@@ -4,6 +4,18 @@ import { PinSession } from '../src/lib/pin-session.ts';
 
 const unlocked = { pin: true, desbloqueada: true, restante_ms: 300_000 };
 const locked = { pin: true, desbloqueada: false, restante_ms: null };
+
+test('los temporizadores conservan el receptor global requerido por el navegador', () => {
+  let callback;
+  const browserSchedule = function (f) { assert.equal(this, globalThis, 'receptor de setTimeout incorrecto'); callback = f; return 1; };
+  const browserCancel = function () { assert.equal(this, globalThis, 'receptor de clearTimeout incorrecto'); };
+  const session = new PinSession(() => 0, browserSchedule, browserCancel);
+  session.apply({ pin: false, desbloqueada: false, restante_ms: null });
+  assert.ok(session.state);
+  session.apply(unlocked);
+  callback();
+  assert.equal(session.state, null);
+});
 function fixture() {
   let now = 0;
   let callback;
