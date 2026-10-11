@@ -57,21 +57,29 @@ pub fn mark_missing(
     seen: &[EntityId],
     at: i64,
 ) -> obrain_core::Result<usize> {
+    let absent = observe_missing(store, root, at)?;
+    apply_missing(store, &absent, seen, at)
+}
+
+/// Comprueba ausencias fuera de la transacción de escritura. La aplicación
+/// recoge todas las bibliotecas antes de abrir su transacción corta.
+pub fn observe_missing(store: &Store, root: &Path, at: i64) -> obrain_core::Result<Vec<EntityId>> {
     let tp = TimePoint::at(at);
     let raiz = crate::library_path(root);
-    let vistos: HashSet<&EntityId> = seen.iter().collect();
 
     // La ruta vigente de cada entidad: la más reciente, como en todas partes.
     let mut rutas: HashMap<EntityId, String> = HashMap::new();
-    for a in store.query(None, Some("path_observed_at"), tp)? {
-        if let Some(t) = a.object.as_text() {
-            rutas.entry(a.subject).or_insert_with(|| t.to_string());
+    for pred in ["path_observed_at", "identity_pending_path"] {
+        for a in store.query(None, Some(pred), tp)? {
+            if let Some(t) = a.object.as_text() {
+                rutas.entry(a.subject).or_insert_with(|| t.to_string());
+            }
         }
     }
 
-    let mut n = 0;
+    let mut absent = Vec::new();
     for (e, ruta) in rutas {
-        if vistos.contains(&e) || !obrain_core::sensitivity::path_within(&ruta, &raiz) {
+        if !obrain_core::sensitivity::path_within(&ruta, &raiz) {
             continue;
         }
         if !root.is_dir() {
@@ -79,9 +87,33 @@ pub fn mark_missing(
         }
         match std::fs::symlink_metadata(&ruta) {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-            _ => continue,
+            Err(err) => {
+                return Err(obrain_core::Error::Corrupt(format!(
+                    "no se pudo comprobar {ruta}: {err}"
+                )));
+            }
+            Ok(_) => continue,
         }
-        forget_location(store, &e, at)?;
+        absent.push(e);
+    }
+    Ok(absent)
+}
+
+/// Aplica sólo a entidades no vistas por el inventario global. No lee disco.
+pub fn apply_missing(
+    store: &Store,
+    absent: &[EntityId],
+    seen: &[EntityId],
+    at: i64,
+) -> obrain_core::Result<usize> {
+    let tp = TimePoint::at(at);
+    let vistos: HashSet<&EntityId> = seen.iter().collect();
+    let mut n = 0;
+    for e in absent {
+        if vistos.contains(e) || is_missing(store, e, tp)? {
+            continue;
+        }
+        forget_location(store, e, at)?;
         store.assert(
             NewAssertion::new(
                 e.clone(),
@@ -97,13 +129,54 @@ pub fn mark_missing(
     Ok(n)
 }
 
+/// Si hay observaciones ambiguas, las rutas físicamente ausentes se retiran
+/// de las vistas sin decidir aún si hubo borrado o movimiento. La próxima
+/// pasada completa podrá reconciliar o mandar a papelera.
+pub fn hold_missing(
+    store: &Store,
+    absent: &[EntityId],
+    seen: &[EntityId],
+    at: i64,
+) -> obrain_core::Result<()> {
+    let tp = TimePoint::at(at);
+    let vistos: HashSet<&EntityId> = seen.iter().collect();
+    for e in absent {
+        if vistos.contains(e) || is_missing(store, e, tp)? {
+            continue;
+        }
+        for a in store.query(Some(e), Some("path_observed_at"), tp)? {
+            if let Some(path) = a.object.as_text() {
+                if !store.has_assertion(
+                    e,
+                    "identity_pending_path",
+                    &Value::Text(path.to_string()),
+                    tp,
+                )? {
+                    store.assert(
+                        NewAssertion::new(
+                            e.clone(),
+                            "identity_pending_path",
+                            path,
+                            Method::Deterministic,
+                            at,
+                        )
+                        .source(SOURCE),
+                    )?;
+                }
+                store.retract(&a.id, at)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Retracta dónde estaba: todas sus rutas y su carpeta. Lo escrito por el
 /// usuario no se toca (I5); hoy nadie más escribe esto, pero el día que haya
 /// regiones del usuario (§10 del maestro) una carpeta elegida a mano no puede
 /// irse con el archivo.
 fn forget_location(store: &Store, e: &EntityId, at: i64) -> obrain_core::Result<()> {
     let tp = TimePoint::at(at);
-    for pred in ["path_observed_at", "contained_by"] {
+    for pred in ["path_observed_at", "identity_pending_path", "contained_by"] {
         for a in store.query(Some(e), Some(pred), tp)? {
             if a.method != Method::User {
                 store.retract(&a.id, at)?;

@@ -466,6 +466,8 @@ export interface Seguridad {
 export interface Informe {
   libraries: string[];
   missing: string[];
+  errors: string[];
+  deferred: string[];
   files_seen: number;
   files_new: number;
   edges_new: number;

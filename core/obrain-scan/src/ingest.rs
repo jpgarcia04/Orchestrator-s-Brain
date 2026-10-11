@@ -15,7 +15,7 @@
 use crate::scan::Candidate;
 use crate::triage::Availability;
 use obrain_core::{EntityId, Facet, Method, NewAssertion, Store, TimePoint, Value};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Default)]
 pub struct IngestReport {
@@ -37,6 +37,8 @@ pub struct IngestReport {
     /// Las entidades que este recorrido ha visto, para saber después qué **no**
     /// ha visto ([`crate::ausentes::mark_missing`]).
     pub seen: Vec<EntityId>,
+    /// Rutas cuya identidad no permite una decisión segura. No se publican.
+    pub deferred: Vec<String>,
     pub errors: Vec<String>,
 }
 
@@ -57,21 +59,49 @@ pub fn ingest(
         .iter()
         .filter_map(|c| c.identity.map(|i| i.to_hex()))
         .collect();
+    let mut id_counts: HashMap<String, usize> = HashMap::new();
+    let mut hash_counts: HashMap<&str, usize> = HashMap::new();
+    for c in candidates {
+        if let Some(id) = c.identity {
+            *id_counts.entry(id.to_hex()).or_default() += 1;
+        }
+        if let Some(hash) = &c.hash {
+            *hash_counts.entry(hash).or_default() += 1;
+        }
+    }
+    // Una sola observación sin FileID puede ser el archivo anterior movido.
+    // No basta con que el resto del inventario sea completo.
+    let complete_identity = candidates.iter().all(|c| c.identity.is_some());
 
     for c in candidates {
-        // ── 1 · ¿conocemos ya este archivo? ──
-        let id_hex = c.identity.map(|i| i.to_hex());
-        let existing = match &id_hex {
-            Some(h) => store.find_subject_by_value("file_id", h, tp)?,
-            None => None,
+        let path = c.path.to_string_lossy().to_string();
+        let Some(identity) = c.identity else {
+            defer(store, report, &path, tp, at)?;
+            continue;
         };
+        let id_hex = Some(identity.to_hex());
+        if id_counts[identity.to_hex().as_str()] != 1 {
+            defer(store, report, &path, tp, at)?;
+            continue;
+        }
+        // ── 1 · ¿conocemos ya este archivo? ──
+        let owners = store.find_subjects_by_value("file_id", id_hex.as_deref().unwrap(), tp)?;
+        if owners.len() > 1 {
+            defer(store, report, &path, tp, at)?;
+            continue;
+        }
+        let existing = owners.into_iter().next();
 
         let entity = match existing {
             Some(e) => {
                 report.entities_recognised += 1;
                 e
             }
-            None => match reconcile(store, &seen, c, tp)? {
+            None => match if complete_identity {
+                reconcile(store, &seen, c, tp)?
+            } else {
+                None
+            } {
                 Some(e) => {
                     report.entities_reconciled += 1;
                     // El `file_id` viejo apuntaba a algo que ya no existe.
@@ -87,7 +117,17 @@ pub fn ingest(
                     }
                     e
                 }
-                None => match returning(store, c, tp)? {
+                None if path_is_ambiguous(store, &path, &seen, tp)? => {
+                    defer(store, report, &path, tp, at)?;
+                    continue;
+                }
+                None => match if complete_identity
+                    && c.hash.as_deref().is_some_and(|h| hash_counts[h] == 1)
+                {
+                    returning(store, c, tp)?
+                } else {
+                    None
+                } {
                     // Un documento de la papelera, con el mismo contenido y
                     // otro `FileID`: lo copiaste de una copia de seguridad.
                     Some(e) => {
@@ -119,6 +159,23 @@ pub fn ingest(
                 },
             },
         };
+        for pending in store.query(Some(&entity), Some("identity_pending_path"), tp)? {
+            store.retract(&pending.id, at)?;
+            report.assertions_retracted += 1;
+        }
+        // Una observación con identidad fiable resuelve también las pistas
+        // pendientes de otros dueños de esta ruta: ya no son su localización.
+        for other in store.find_subjects_by_value("identity_pending_path", &path, tp)? {
+            if other == entity {
+                continue;
+            }
+            for pending in store.query(Some(&other), Some("identity_pending_path"), tp)? {
+                if pending.object.as_text() == Some(path.as_str()) {
+                    store.retract(&pending.id, at)?;
+                    report.assertions_retracted += 1;
+                }
+            }
+        }
 
         // ── 1b · ¿volvía de la papelera? ──
         if crate::ausentes::bring_back(store, &entity, at)? {
@@ -127,7 +184,6 @@ pub fn ingest(
         report.seen.push(entity.clone());
 
         // ── 2 · observaciones ──
-        let path = c.path.to_string_lossy().to_string();
         write_if_changed(
             store,
             report,
@@ -201,6 +257,65 @@ pub fn ingest(
     Ok(())
 }
 
+fn path_is_ambiguous(
+    store: &Store,
+    path: &str,
+    seen: &HashSet<String>,
+    tp: TimePoint,
+) -> obrain_core::Result<bool> {
+    let claimants = path_claimants(store, path, tp)?;
+    if claimants.len() > 1 {
+        return Ok(true);
+    }
+    for e in claimants {
+        let old = store.resolve(&e, "file_id", tp)?;
+        if !old
+            .and_then(|a| a.object.as_text().map(|s| seen.contains(s)))
+            .unwrap_or(false)
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn path_claimants(store: &Store, path: &str, tp: TimePoint) -> obrain_core::Result<Vec<EntityId>> {
+    let mut claimants = store.find_subjects_by_value("path_observed_at", path, tp)?;
+    claimants.extend(store.find_subjects_by_value("identity_pending_path", path, tp)?);
+    claimants.sort();
+    claimants.dedup();
+    Ok(claimants)
+}
+
+/// Retira sólo la localización discutida; conserva la entidad, correcciones,
+/// relaciones y log. Sin ruta vigente no entra en los cargadores de documentos.
+fn defer(
+    store: &Store,
+    report: &mut IngestReport,
+    path: &str,
+    tp: TimePoint,
+    at: i64,
+) -> obrain_core::Result<()> {
+    report.deferred.push(path.to_string());
+    for e in store.find_subjects_by_value("path_observed_at", path, tp)? {
+        if !store.has_assertion(
+            &e,
+            "identity_pending_path",
+            &Value::Text(path.to_string()),
+            tp,
+        )? {
+            write(store, report, &e, "identity_pending_path", path, at)?;
+        }
+        for a in store.query(Some(&e), Some("path_observed_at"), tp)? {
+            if a.object.as_text() == Some(path) && a.method != Method::User {
+                store.retract(&a.id, at)?;
+                report.assertions_retracted += 1;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// La entidad que ya ocupaba esta ruta, si el archivo de antes ha dejado de
 /// existir. `None` significa "esto es un archivo nuevo de verdad".
 ///
@@ -249,15 +364,19 @@ fn reconcile(
     tp: TimePoint,
 ) -> obrain_core::Result<Option<EntityId>> {
     let path = c.path.to_string_lossy().to_string();
-    let claimants = store.find_subjects_by_value("path_observed_at", &path, tp)?;
+    let claimants = path_claimants(store, &path, tp)?;
     let [old] = claimants.as_slice() else {
         return Ok(None);
     };
     // ¿Sigue vivo el archivo que era esa entidad?
-    if let Some(a) = store.resolve(old, "file_id", tp)? {
-        if a.object.as_text().is_some_and(|h| seen.contains(h)) {
-            return Ok(None);
-        }
+    let Some(a) = store.resolve(old, "file_id", tp)? else {
+        return Ok(None);
+    };
+    let Some(old_id) = a.object.as_text() else {
+        return Ok(None);
+    };
+    if seen.contains(old_id) {
+        return Ok(None);
     }
     Ok(Some(old.clone()))
 }
@@ -580,6 +699,92 @@ mod tests {
         assert_eq!(r2.entities_reconciled, 0);
         assert_eq!(r2.assertions_written, 0);
         assert_eq!(r2.assertions_retracted, 0);
+    }
+
+    #[test]
+    fn sin_file_id_se_aplaza_y_no_hereda_la_entidad_ni_se_publica() {
+        let store = Store::open_in_memory().unwrap();
+        let mut first = IngestReport::default();
+        ingest(
+            &store,
+            &[candidato(RUTA, ID_ANTES, "original")],
+            1_000,
+            &mut first,
+        )
+        .unwrap();
+        let original = first.seen[0].clone();
+        store
+            .assert(NewAssertion::new(
+                original.clone(),
+                "expires_on",
+                "2030-05-01",
+                Method::User,
+                1_100,
+            ))
+            .unwrap();
+        let before = store.log_len().unwrap();
+        let mut unknown = candidato(RUTA, ID_DESPUES, "otro");
+        unknown.identity = None;
+        let mut second = IngestReport::default();
+        ingest(&store, &[unknown], 2_000, &mut second).unwrap();
+        assert_eq!(second.deferred, [RUTA]);
+        assert!(second.seen.is_empty());
+        assert!(
+            store
+                .find_subjects_by_value("path_observed_at", RUTA, TimePoint::at(2_000))
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            store
+                .resolve(&original, "expires_on", TimePoint::at(2_000))
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            store.log_len().unwrap(),
+            before + 1,
+            "la ruta pendiente deja rastro y el log original permanece"
+        );
+        assert!(
+            store
+                .resolve(&original, "path_observed_at", TimePoint::at(1_500))
+                .unwrap()
+                .is_some()
+        );
+        let mut third = IngestReport::default();
+        ingest(
+            &store,
+            &[candidato(RUTA, ID_DESPUES, "otro")],
+            3_000,
+            &mut third,
+        )
+        .unwrap();
+        assert_eq!(third.seen, [original]);
+        assert!(third.deferred.is_empty());
+        assert!(
+            store
+                .resolve(
+                    &third.seen[0],
+                    "identity_pending_path",
+                    TimePoint::at(3_000)
+                )
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn un_file_id_en_dos_rutas_no_se_resuelve_por_orden() {
+        let store = Store::open_in_memory().unwrap();
+        let mut report = IngestReport::default();
+        let one = candidato(r"C:\prueba\uno.txt", ID_ANTES, "igual");
+        let two = candidato(r"C:\prueba\dos.txt", ID_ANTES, "igual");
+        ingest(&store, &[one, two], 1_000, &mut report).unwrap();
+        assert_eq!(report.deferred.len(), 2);
+        assert_eq!(report.entities_created, 0);
+        assert!(report.seen.is_empty());
+        assert_eq!(store.log_len().unwrap(), 0);
     }
 
     /// La biblioteca es la carpeta de siempre con una faceta encima: registrar

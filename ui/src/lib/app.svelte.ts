@@ -242,6 +242,10 @@ class App {
     await this.refrescar();
     if (i.error) {
       this.avisar(`No se pudo actualizar: ${i.error}`);
+    } else if (i.report?.errors.length || i.report?.missing.length) {
+      this.avisar("Actualización aplazada: falta una biblioteca o hubo un error de lectura. Vuelve a intentarlo cuando esté disponible.");
+    } else if (i.report?.deferred.length) {
+      this.avisar(`${i.report.deferred.length} documento(s) pendientes: no se pudo confirmar su identidad. Se reintentará al actualizar.`);
     } else if (!i.live && i.report && i.report.files_new > 0) {
       // Lo que encuentra el vigía no se anuncia: aparece y ya (ADR-0024).
       const n = i.report.files_new;

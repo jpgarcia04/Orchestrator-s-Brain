@@ -41,6 +41,8 @@ pub struct FolderCandidate {
 
 #[derive(Debug, Default)]
 pub struct ScanReport {
+    /// `false` si un límite o error impidió un inventario completo.
+    pub complete: bool,
     pub dirs_visited: usize,
     /// Directorios podados. Los archivos que contienen **nunca se enumeran**,
     /// así que no aparecen en `files_seen`: ése es el objetivo de podar.
@@ -101,7 +103,10 @@ impl Scanner {
     /// Recorre `root` y devuelve los candidatos junto con el informe.
     pub fn scan(&self, root: &Path) -> (Vec<Candidate>, ScanReport) {
         let started = Instant::now();
-        let mut report = ScanReport::default();
+        let mut report = ScanReport {
+            complete: true,
+            ..ScanReport::default()
+        };
         let mut candidates = Vec::new();
 
         // La poda se contabiliza dentro del closure del walker, que es `FnMut`
@@ -132,12 +137,14 @@ impl Scanner {
         for entry in walker {
             if let Some(limit) = self.limit {
                 if candidates.len() >= limit {
+                    report.complete = false;
                     break;
                 }
             }
             let entry = match entry {
                 Ok(e) => e,
                 Err(e) => {
+                    report.complete = false;
                     report.errors.push(format!("{e}"));
                     continue;
                 }
@@ -145,16 +152,28 @@ impl Scanner {
 
             if entry.file_type().is_dir() {
                 report.dirs_visited += 1;
-                let attrs = entry.metadata().map(|m| attributes_from(&m)).unwrap_or(0);
+                let attrs = match entry.metadata() {
+                    Ok(m) => attributes_from(&m),
+                    Err(e) => {
+                        report.complete = false;
+                        report
+                            .errors
+                            .push(format!("{}: {e}", entry.path().display()));
+                        continue;
+                    }
+                };
                 if classify(attrs).may_open() {
                     match file_identity(entry.path()) {
                         Ok(identity) => report.folders.push(FolderCandidate {
                             path: entry.path().to_path_buf(),
                             identity,
                         }),
-                        Err(e) => report
-                            .errors
-                            .push(format!("{}: {e}", entry.path().display())),
+                        Err(e) => {
+                            report.complete = false;
+                            report
+                                .errors
+                                .push(format!("{}: {e}", entry.path().display()));
+                        }
                     }
                 }
                 continue;
@@ -167,6 +186,7 @@ impl Scanner {
             let meta = match entry.metadata() {
                 Ok(m) => m,
                 Err(e) => {
+                    report.complete = false;
                     report
                         .errors
                         .push(format!("{}: {e}", entry.path().display()));
@@ -204,6 +224,7 @@ impl Scanner {
                         Some(id)
                     }
                     Err(e) => {
+                        report.complete = false;
                         report
                             .errors
                             .push(format!("{}: {e}", entry.path().display()));
@@ -251,9 +272,12 @@ impl Scanner {
                     report.bytes_hashed += candidates[i].size;
                     candidates[i].hash = Some(h);
                 }
-                Err(e) => report
-                    .errors
-                    .push(format!("{}: {e}", candidates[i].path.display())),
+                Err(e) => {
+                    report.complete = false;
+                    report
+                        .errors
+                        .push(format!("{}: {e}", candidates[i].path.display()));
+                }
             }
         }
     }
@@ -290,4 +314,26 @@ pub fn now_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn un_limite_no_es_un_inventario_completo() {
+        let dir = std::env::temp_dir().join(format!(
+            "obrain-scan-limit-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.txt"), "a").unwrap();
+        std::fs::write(dir.join("b.txt"), "b").unwrap();
+        let mut scanner = Scanner::new();
+        scanner.limit = Some(1);
+        let (_, report) = scanner.scan(&dir);
+        assert!(!report.complete);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

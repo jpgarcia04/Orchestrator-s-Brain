@@ -28,9 +28,10 @@ de la cuenta ni controla documentos ya abiertos fuera de Brain.
 Pruebas exclusivamente sintéticas; la bóveda real no se abrió ni se modificó.
 Se verificaron bloqueo y caducidad en una app nativa debug con datos aislados;
 MSI/NSIS release sigue pendiente. Ver [procedimiento](VALIDACION-PIN-AISLADA.md).
-Persisten los riesgos
-de identidad entre bibliotecas y publicación antes de clasificar durante la
-indexación: son el siguiente bloque prioritario.
+La PR #2 de confianza está fusionada en `main` (`48f73f5`). La reconciliación
+entre bibliotecas se corrige en la rama `codex/identidad-entre-bibliotecas`
+(ADR-0036), pendiente de revisión; la publicación antes de clasificar durante
+la indexación sigue siendo el siguiente P1.
 
 Contexto versionado: [auditoría](AUDITORIA-CONFIANZA.md),
 [plan](PLAN-CONFIANZA.md), [progreso](PROGRESO-CONFIANZA.md),
@@ -464,13 +465,13 @@ salir con su nombre nuevo, con el candado, y en «Sensibles» con sus documentos
 
 ## Cómo seguir en otra sesión
 
-El trabajo vive en GitHub, en la rama `claude/orchestrators-brain-fase-3-wdiheq`
-(todavía no está en `main`). En tu laptop, desde la carpeta del repositorio:
+La PR #2 ya está en `main`. Para continuar desde la versión integrada, en tu
+laptop, desde la carpeta del repositorio:
 
 ```powershell
 git fetch origin
-git checkout claude/orchestrators-brain-fase-3-wdiheq   # la primera vez
-git pull                                                # las siguientes
+git switch main
+git pull
 ```
 
 Para empezar una conversación nueva, pega:

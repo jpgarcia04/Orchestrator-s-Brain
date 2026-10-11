@@ -1,7 +1,7 @@
 //! CLI de escaneo. Sirve para ejecutar M1 contra una máquina real y, sobre
 //! todo, para **verificar** el criterio: cero hidratación de OneDrive.
 
-use obrain_core::Store;
+use obrain_core::{Store, TimePoint};
 use obrain_scan::{Availability, IngestReport, Scanner, ingest, now_ms, register_library};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -66,12 +66,41 @@ fn main() -> ExitCode {
     // ── 3 · ingestar ──
     let mut ing = IngestReport::default();
     if !dry_run {
+        if !report.complete || !report.errors.is_empty() {
+            eprintln!(
+                "recorrido incompleto: no se escribirá una identidad ambigua; repite sin --limit y cuando no haya errores de lectura"
+            );
+            return ExitCode::FAILURE;
+        }
         let db = value("--db");
         let mut store = match &db {
             Some(p) => Store::open(p),
             None => Store::open_in_memory(),
         }
         .expect("abrir store");
+
+        let tp = TimePoint::at(now_ms());
+        let current = obrain_scan::library_path(&root);
+        for a in store
+            .query(None, Some("has_facet"), tp)
+            .expect("leer bibliotecas")
+        {
+            if a.object.as_text() != Some("library") {
+                continue;
+            }
+            let Some(path) = store
+                .resolve(&a.subject, "folder_path", tp)
+                .expect("leer ruta")
+            else {
+                continue;
+            };
+            if path.object.as_text() != Some(current.as_str()) {
+                eprintln!(
+                    "hay otras bibliotecas registradas: usa `obrain indexar` para inventariarlas juntas"
+                );
+                return ExitCode::FAILURE;
+            }
+        }
 
         let at = now_ms();
         let res = store.transaction(|s| {
