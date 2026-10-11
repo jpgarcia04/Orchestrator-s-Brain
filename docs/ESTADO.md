@@ -19,11 +19,16 @@ computadora.
 Correcciones restringidas y tipadas, confirmación por ID de aserción,
 proyección de sensibilidad atómica, PIN con revocación en núcleo/cliente y
 metadatos protegidos. El desbloqueo dura cinco minutos desde autenticación.
+La revisión de la PR #1 añadió revocación de vectores y procedencia en el
+punto común de escritura de sensibilidad, también al clasificar sin modelo
+y por herencia. Ver [ADR-0035](adr/0035-revocacion-del-estado-vectorial.md).
 Nombres y rutas siguen visibles por diseño; el PIN no aísla de otros procesos
 de la cuenta ni controla documentos ya abiertos fuera de Brain.
 
 Pruebas exclusivamente sintéticas; la bóveda real no se abrió ni se modificó.
-La interacción de la app empaquetada sigue pendiente. Persisten los riesgos
+Se verificaron bloqueo y caducidad en una app nativa debug con datos aislados;
+MSI/NSIS release sigue pendiente. Ver [procedimiento](VALIDACION-PIN-AISLADA.md).
+Persisten los riesgos
 de identidad entre bibliotecas y publicación antes de clasificar durante la
 indexación: son el siguiente bloque prioritario.
 

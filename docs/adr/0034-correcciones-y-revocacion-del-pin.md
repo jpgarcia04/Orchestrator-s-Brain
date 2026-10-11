@@ -1,6 +1,6 @@
 # ADR-0034 — Correcciones restringidas y revocación del PIN
 
-- Estado: implementada, validada con fixtures; interacción empaquetada pendiente.
+- Estado: implementada, validada con fixtures y app nativa debug aislada; MSI/NSIS release pendiente.
 - Fecha: 2026-10-11.
 - Actualiza: ADR-0021 (duración del PIN), ADR-0006 (escrituras de sensibilidad).
 
@@ -36,6 +36,9 @@ reescritura. La lista de metadatos públicos y los límites están en
 `../AUDITORIA-CONFIANZA.md`. El cifrado y la derivación de la llave no cambian.
 
 ## Consecuencias
+
+La revocación de vectores y de su procedencia en todas las escrituras de
+sensibilidad se concreta en [ADR-0035](0035-revocacion-del-estado-vectorial.md).
 
 Se requiere escribir de nuevo el PIN al cumplirse el plazo, incluso leyendo.
 La consulta de seguridad adicional al publicar contenido cuesta un IPC; se

@@ -57,7 +57,7 @@ Remove-Item Env:OBRAIN_BASELINE
 
 ## Validación y límites
 
-Validación final sobre el código entregado, con lockfiles y en Windows:
+Validación del primer cierre (`873a7f9`), con lockfiles y en Windows:
 
 | Comprobación | Resultado |
 |---|---|
@@ -76,7 +76,7 @@ las pruebas y compilaciones terminaron correctamente.
 
 Los tests Rust usan memoria o carpetas temporales; el caso NTFS crea y elimina
 un archivo sintético.
-No se ejecutó la app, no se abrió la bóveda real, no se reindexó, migró ni saneó
+En ese primer cierre no se ejecutó la app. No se abrió la bóveda real, ni se reindexó, migró o saneó
 información personal. No se verificó una restauración de la bóveda real.
 
 No se ha probado la interacción visual de la app empaquetada, OCR documental
@@ -88,7 +88,58 @@ La política histórica de retención queda preparada como propuesta y procedimi
 no se pide aprobación para ella en esta entrega porque no se ejecuta ninguna
 operación sobre datos existentes. No hay cambio de esquema ni de criptografía.
 
-## Siguiente sesión
+## Revisión independiente de la PR #1
+
+Se confirmaron ambos hallazgos sobre `873a7f9`: clasificación sin modelo con
+un vector todavía almacenado y corrección manual que eliminaba vectores de
+parte/paquete dejando `embedded_with` vigente. Las regresiones se ejecutaron
+antes y después del arreglo; los fallos previos fueron los esperados, no de
+infraestructura. La prueba de la clasificación y la del canal Brain pasan
+con el arreglo.
+
+Decisión: revocación central en `Store::set_sensitivity(id, level, at)`;
+procedencia y vectores comparten savepoint. Herencia de carpetas/partes,
+clasificación automática, CLI y Brain usan la misma política. Se eliminan
+las purgas SQL duplicadas y M4 usa el mismo reconciliador para residuos,
+incluida procedencia sin vectores. La clasificación escribe todas las señales
+antes de proyectar; paquete procesado primero e informe final ven la misma
+clasificación de sus partes. No se cambia el esquema ni se crea el índice
+opcional desde core. Ver ADR-0035.
+
+Pruebas nuevas: 15 casos en `obrain-embed/tests/revocacion.rs` y un pipeline
+completo en `obrain-api/tests/revocacion.rs`, además de ampliar el caso Brain
+existente. El pipeline vectoriza con un embebedor sintético, renombra el archivo
+sin cambiar texto, reindexa con `None` y comprueba purga y retractación sin
+reextracción. Se verifica conservación del historial, idempotencia, dry-run,
+ausencia de tabla opcional, herencia y orden de paquete/parte, rollback ante
+fallo de borrado/retractación y retorno legítimo a ambos niveles permitidos.
+Se generan vectores/aserciones nuevos; no se reactivan los antiguos.
+
+Validación actual: 503 pruebas Rust y 1 doctest; fmt y Clippy con `-D warnings`;
+10 pruebas cliente, check Svelte sin errores/advertencias y build frontend.
+Se construyó también Tauri nativo debug con assets incorporados, sin instalador.
+La prueba nativa detectó un tercer problema: los timers de Window se invocaban
+con `PinSession` como receptor. Node lo toleraba; en WebView el estado permanecía
+desconocido. Se enlazan al objeto global y se añadió una regresión con ese
+contrato de receptor: falla antes y pasa después. El panel real ya confirma
+PIN activo y el bloqueo explícito retira texto/fecha recibidos.
+En esa instancia nativa, texto y fecha visibles se retiraron al bloquear.
+Tras otro desbloqueo, la imagen coral y la fecha estaban visibles a los 13 s;
+la búsqueda se consultó a los 40 s. Sin volver a autenticar, a los 415 s la
+imagen estaba sustituida por «Protegido con tu PIN» y la fecha por «fecha
+protegida con tu PIN». No se muestreó el instante exacto de los 300 s; ese
+límite y las carreras se cubren con reloj/transporte controlados. La búsqueda
+seguía abierta con nombres públicos; sus fragmentos sensibles ya estaban
+ocultos antes de caducar, por lo que no se atribuye a esta inspección visual
+una prueba de retirada de fragmentos recibidos por IPC. El panel Seguridad
+confirmó «Bloqueado» después; se cerró sólo la instancia del fixture.
+Se usaron sólo dos documentos sintéticos, base/llave nuevas y un perfil WebView
+independiente, sin modelo. No se verificó MSI/NSIS release ni caducidad tras
+permanecer cinco minutos en segundo plano.
+Se conserva [un procedimiento manual](VALIDACION-PIN-AISLADA.md) que aísla base,
+bibliotecas, resolución de modelos y datos WebView; no usa la bóveda personal.
+
+## Siguiente sesión tras la revisión
 
 Revisar el PR, después identidad entre bibliotecas y publicación tras
 clasificación. Continuar con relaciones obsoletas, completitud de búsqueda y

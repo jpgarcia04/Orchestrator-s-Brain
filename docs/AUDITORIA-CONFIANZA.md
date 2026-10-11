@@ -23,7 +23,7 @@ reproducción comunicada por la auditoría anterior, sin repetirla en esta sesi�
 | Bloqueo no retira coordinadamente respuestas ya recibidas/en vuelo | Confirmado en el estado real de Svelte; regresión histórica falla antes del `await` | Revocación local previa al comando, generación de sesión y reconstrucción de vistas; pruebas de petición y consulta de seguridad pendientes |
 | Error consultando seguridad equivale a no tener PIN | Confirmado: `pedirPin()` devuelve `true` en el estado antiguo | Estado desconocido deniega acceso; pruebas del estado real y del transporte |
 | Caducidad sólo comprobada por futuras llamadas; una lectura renueva | Confirmado por lectura; caducidad nueva comprobada con reloj monotónico controlado | Plazo fijo desde autenticación, `restante_ms`, temporizador local y sondeo; ver ADR-0034 |
-| Vectores de `vault` sobreviven sin modelo o participan en kNN | Confirmado por lectura y fixtures de revocación | Purga en las escrituras de sensibilidad del producto, filtro de sensibilidad actual en kNN. Dependencia mínima de esta etapa |
+| Vectores de `vault` sobreviven sin modelo o participan en kNN | Confirmado con clasificación y pipeline completo sin modelo; la revisión de `873a7f9` detectó también procedencia vigente tras purga manual | Revocación central en `Store::set_sensitivity`, retractación de `embedded_with`/`vector_count`, herencia atómica y filtro kNN. Ver ADR-0035 |
 
 Pruebas principales: `core/obrain-api/tests/confianza.rs`, prueba de reloj en
 `core/obrain-api/src/lib.rs`, pruebas de `provenance.rs` y `obrain-embed/src/index.rs`,
