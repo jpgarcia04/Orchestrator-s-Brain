@@ -8,6 +8,18 @@ use std::collections::HashSet;
 /// Los formatos que no producen texto se clasifican con las señales de nombre
 /// y carpeta existentes; no deben conservar chunks de la versión anterior.
 fn eligible(store: &Store, file: &FileRow, ocr_available: bool) -> crate::Result<bool> {
+    let same_observation: bool = store
+        .conn()
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM content_publication
+                            WHERE entity=?1 AND state='pending' AND observed_hash IS ?2)",
+            obrain_core::rusqlite::params![file.entity.as_str(), file.file_hash.as_deref()],
+            |r| r.get(0),
+        )
+        .map_err(obrain_core::Error::from)?;
+    if !same_observation {
+        return Ok(false);
+    }
     let textual = obrain_extract::format::detect(&file.path);
     let requires_extraction = textual.is_some_and(|format| {
         file.may_read_content()
@@ -66,13 +78,23 @@ pub(crate) fn publish_pending(
     files: &[FileRow],
     ocr_available: bool,
     origin: Option<&str>,
+    at: i64,
 ) -> crate::Result<usize> {
     let pending = pending_ids(store, origin)?;
-    let mut published = 0;
+    let mut eligible_files = Vec::new();
     for file in files {
-        if !pending.contains(&file.entity) || !eligible(store, file, ocr_available)? {
-            continue;
+        if pending.contains(&file.entity) && eligible(store, file, ocr_available)? {
+            eligible_files.push(file);
         }
+    }
+    let ids: Vec<_> = eligible_files
+        .iter()
+        .map(|file| file.entity.clone())
+        .collect();
+    let mut expiry = obrain_expiry::ExpiryReport::default();
+    obrain_expiry::detect_selected(store, &ids, at, &mut expiry)?;
+    let mut published = 0;
+    for file in eligible_files {
         if store.publish_content(&file.entity, file.file_hash.as_deref())? {
             published += 1;
         }
@@ -95,7 +117,7 @@ pub(crate) fn bootstrap_legacy(store: &mut Store) -> crate::Result<()> {
         let mut report = obrain_guard::GuardReport::default();
         obrain_guard::classify_all(s, &files, now, false, &mut report)?;
         let ocr_available = obrain_ocr::platform().is_some();
-        publish_pending(s, &files, ocr_available, Some("legacy"))?;
+        publish_pending(s, &files, ocr_available, Some("legacy"), now)?;
         Ok(())
     })
 }

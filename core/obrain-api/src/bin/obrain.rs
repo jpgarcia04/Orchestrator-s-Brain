@@ -138,6 +138,13 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    if let Err(e) = Brain::initialize_store(&mut store) {
+        eprintln!(
+            "no se pudo recuperar la base {}: {e}; vuelve a intentarlo",
+            db.display()
+        );
+        return ExitCode::FAILURE;
+    }
     avisar_recuperacion(&store, *orden == "clave");
 
     match *orden {

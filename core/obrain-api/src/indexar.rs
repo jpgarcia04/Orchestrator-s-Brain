@@ -267,7 +267,7 @@ pub fn index_with(
         obrain_link::dentro::link(s, at, &mut dentro)?;
         let filas = obrain_extract::load_files(s, TimePoint::at(at))?;
         obrain_guard::classify_all(s, &filas, at, false, &mut puerta)?;
-        publication::publish_pending(s, &filas, ocr.is_some(), None)?;
+        publication::publish_pending(s, &filas, ocr.is_some(), None, at)?;
         Ok(())
     })?;
     r.inside = dentro.encontrados;

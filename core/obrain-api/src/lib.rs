@@ -246,11 +246,7 @@ impl Brain {
     ///
     /// [ADR-0021]: ../../../docs/adr/0021-cifrado-en-reposo-y-pin.md
     pub fn open(db: impl AsRef<Path>) -> Result<Self> {
-        let mut store = seguridad::abrir(db.as_ref())?;
-        obrain_extract::index::migrate(store.conn())?;
-        obrain_embed::index::migrate(store.conn())?;
-        publication::bootstrap_legacy(&mut store)?;
-        Ok(Self::from_store(store))
+        Self::try_from_store(seguridad::abrir(db.as_ref())?)
     }
 
     /// Carga el modelo. Pensado para llamarse **en segundo plano** justo
@@ -287,20 +283,31 @@ impl Brain {
         self.embedder.take()
     }
 
-    /// Sobre una base ya abierta. El caso de una base en memoria en los tests,
-    /// y el de quien ya tiene un `Store` montado.
-    pub fn from_store(store: Store) -> Self {
-        // Las tablas de las proyecciones y la de seguridad, por si la base es
-        // nueva. Son `IF NOT EXISTS`: en una base ya hecha no cuestan nada.
-        let _ = obrain_extract::index::migrate(store.conn());
-        let _ = obrain_embed::index::migrate(store.conn());
-        let _ = seguridad::migrate(store.conn());
-        Brain {
+    /// Prepara las proyecciones y recupera el contenido heredado antes de que
+    /// cualquier entrada pueda consultar una base v1 migrada a v2.
+    pub fn initialize_store(store: &mut Store) -> Result<()> {
+        seguridad::migrate(store.conn()).map_err(obrain_core::Error::from)?;
+        obrain_extract::index::migrate(store.conn())?;
+        obrain_embed::index::migrate(store.conn())?;
+        publication::bootstrap_legacy(store)
+    }
+
+    /// Construye el API sobre un `Store` abierto, con recuperación fallible.
+    pub fn try_from_store(mut store: Store) -> Result<Self> {
+        Self::initialize_store(&mut store)?;
+        Ok(Brain {
             store,
             embedder: None,
             desbloqueo: std::cell::Cell::new(None),
             clock: Instant::now,
-        }
+        })
+    }
+
+    /// Constructor cómodo para bases ya válidas, como fixtures. Ante un fallo
+    /// de recuperación, usar [`Brain::try_from_store`] para obtener el error.
+    /// Nunca devuelve un `Brain` con documentos legacy ocultos en silencio.
+    pub fn from_store(store: Store) -> Self {
+        Self::try_from_store(store).expect("no se pudo recuperar la base; usa try_from_store")
     }
 
     /// Para los tests y para cualquier otro `Embedder` de §5.1.

@@ -628,6 +628,7 @@ fn indexar_en_fondo(
     let res = Store::open(default_db_path())
         .map_err(texto)
         .and_then(|mut store| {
+            Brain::initialize_store(&mut store).map_err(texto)?;
             let m = modelo.as_deref().map(|m| m as &dyn Embedder);
             let r = match &raices {
                 Some(r) => obrain_api::indexar::index(&mut store, r, m),

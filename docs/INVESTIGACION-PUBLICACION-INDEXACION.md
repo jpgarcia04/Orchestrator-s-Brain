@@ -119,9 +119,21 @@ haya cambiado. La extracción verifica los bytes leídos contra el hash del
 escáner. Si el formato deja de ser extraíble, retira sus fragmentos activos y
 conserva la copia hasta que termina la clasificación.
 
-Las relaciones de contenido, la clasificación efectiva, la revocación y el
-cambio a `ready` comparten una transacción. Sólo se publica si el resultado de
-extracción corresponde al hash y al formato observados; `failed` sigue oculto.
+Las relaciones de contenido, la clasificación efectiva, la revocación, la
+reconciliación de `expires_on` y el cambio a `ready` comparten una transacción.
+Sólo se publica si el resultado de extracción corresponde al hash y al formato
+observados; `failed` sigue oculto. El detector de fechas lee en esa transacción
+sólo los fragmentos de las entidades que van a publicarse. La pasada global
+posterior mantiene las inferencias de otros documentos ya publicados y omite
+los pendientes. No se añadió lectura de archivos, OCR ni un recorrido completo
+de fechas a la transacción de publicación. Un fallo al retractar o afirmar la
+fecha revierte sensibilidad y publicación; el reintento parte de `pending`.
+Las correcciones manuales no se retractan y las inferencias antiguas quedan en
+el historial con `retracted_at`.
+En la revisión de otras derivaciones de contenido, `dentro::link` y la
+clasificación ya se confirman con la publicación; los embeddings se calculan
+después y excluyen pendientes. `expires_on` era la derivación confirmada en un
+commit posterior y es la que se incorporó a la publicación en esta revisión.
 FTS, kNN y generación de vectores excluyen pendientes en la consulta. Las
 rutas de presentación que usaban el filtro de identidad PR3 incluyen también
 la cuarentena. Búsqueda, ficha y previsualización leen una instantánea WAL
@@ -138,11 +150,24 @@ sin registro queda `pending` y se conserva su hash observado. Antes de fijar
 `user_version=2`, la migración ejecuta `quick_check` y
 `foreign_key_check`. La inserción y el cambio de versión comparten un
 savepoint; una apertura posterior repara también filas que hubieran faltado
-por una interrupción. El arranque reproyecta relaciones y sensibilidad en una
-transacción y sólo libera filas heredadas cuya extracción verificable coincide
-con la observación. Una extracción ausente o fallida permanece protegida hasta
-una indexación posterior. Ni la migración ni el arranque leen los archivos de
-la biblioteca.
+por una interrupción. El arranque reproyecta relaciones, sensibilidad y
+vencimientos en una transacción. Sólo libera texto heredado si su extracción
+verificable coincide con la observación; para formatos sin extractor disponible
+exige que no queden fragmentos activos ni un fallo previo. Una extracción
+ausente o fallida permanece protegida hasta una indexación posterior. Ni la
+migración ni el arranque leen los archivos de la biblioteca.
+
+`Brain::open`, el constructor fallible `Brain::try_from_store` y la
+inicialización explícita que emplean CLI y el indexador de Tauri comparten
+`Brain::initialize_store`. Así, una base v1 no entrega listas vacías por haber
+omitido el bootstrap: el contenido verificable se recupera antes de leerlo y
+un fallo devuelve un error que permite reintentar. `Brain::from_store` usa
+también esa inicialización y, al conservar su firma infalible por
+compatibilidad, produce un error de pánico explícito si no puede completarla;
+las entradas de producción usan la variante fallible o comprueban la
+inicialización antes de construirlo.
+Los documentos sin extracción verificable permanecen en cuarentena; sus
+aserciones e índices se conservan para la recuperación posterior.
 
 El respaldo de `publication_backup_chunks` conserva la proyección textual
 anterior de cada documento pendiente; se elimina tras una publicación válida.
@@ -162,6 +187,19 @@ apertura, idempotencia, renombre a formato sin extractor, migración en copia e
 instantáneas concurrentes. La suite existente comprueba PIN, herencia e
 identidad pendiente.
 
+La revisión independiente de la PR #4 encontró además una fecha inferida de
+la versión anterior visible después de publicar texto nuevo. Una regresión
+provocó un fallo real en la retractación mediante un trigger SQLite sintético:
+antes del arreglo `index_with` dejaba el documento en `ready`; después del
+arreglo el commit se revierte y el documento sigue pendiente. Otras regresiones
+comprueban la lectura WAL concurrente, la idempotencia y la conservación de una
+fecha manual. La recuperación se prueba también con bases construidas desde el
+DDL v1 de `683e63b`, con proyecciones antiguas que representan un corte entre
+extracción y detección de vencimientos. Cubren API, CLI, fallo y reintento del
+bootstrap (incluido el error explícito de la CLI), extracción verificable e
+inverificable, corrección manual, log e índice textual. No se derivan sólo de
+borrar tablas de una base v2.
+
 La apertura con una aplicación del sistema recibe una ruta mutable. El núcleo
 comprueba su hash inmediatamente antes de devolverla, pero otro proceso puede
 cambiar el archivo entre esa comprobación y la apertura por el sistema
@@ -175,7 +213,8 @@ completa del archivo.
 ### Validación en esta rama
 
 - La reproducción inicial hizo fallar las pruebas de búsqueda antes del cambio.
-- `cargo test --locked --workspace` pasó la suite completa de los diez crates.
+- `cargo test --locked --workspace` pasó 57 grupos de pruebas, incluidos los
+  nuevos escenarios de revisión y las bases v1 sintéticas.
 - `cargo clippy --locked --workspace --all-targets -- -D warnings` pasó.
 - `cargo check --locked --manifest-path ui/src-tauri/Cargo.toml` pasó.
 - `npm run check` pasó con cero errores y advertencias; `npm test` pasó 12 pruebas.

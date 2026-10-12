@@ -253,6 +253,194 @@ fn fallo_de_clasificacion_conserva_cuarentena_y_admite_reintento() {
 }
 
 #[test]
+fn fallo_al_retractar_vencimiento_no_publica_el_contenido_nuevo() {
+    let mut f = Fixture::new(
+        "vencimiento-rollback",
+        &format!("Clave ficticia: {SECRET}. VALIDEZ 15 11 2027."),
+    );
+    let library = f.library().to_path_buf();
+    indexar::index_with(&mut f.writer, std::slice::from_ref(&library), None, None).unwrap();
+    let id = f
+        .writer
+        .find_subject_by_value(
+            "path_observed_at",
+            &f.file.to_string_lossy(),
+            TimePoint::at(obrain_scan::now_ms()),
+        )
+        .unwrap()
+        .unwrap();
+    let before = f
+        .writer
+        .resolve(&id, "expires_on", TimePoint::at(obrain_scan::now_ms()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(before.object.as_text(), Some("2027-11-15"));
+    assert_eq!(f.writer.sensitivity(&id).unwrap().as_str(), "vault");
+
+    std::fs::write(&f.file, "Documento público sin fecha.").unwrap();
+    f.writer
+        .conn()
+        .execute_batch(
+            "CREATE TEMP TRIGGER abort_expiry
+             BEFORE UPDATE OF retracted_at ON assertions
+             WHEN OLD.predicate='expires_on' AND OLD.source LIKE 'expiry%'
+             BEGIN SELECT RAISE(ABORT, 'fallo sintético al retractar vencimiento'); END",
+        )
+        .unwrap();
+    assert!(
+        indexar::index_with(&mut f.writer, std::slice::from_ref(&library), None, None).is_err()
+    );
+    assert!(f.writer.content_pending(&id).unwrap());
+    assert_eq!(f.writer.sensitivity(&id).unwrap().as_str(), "vault");
+    let reader = f.reader();
+    assert!(matches!(
+        reader.preview(&id, None),
+        Err(Error::PublicationPending(_))
+    ));
+    assert!(reader.expiring().unwrap().iter().all(|e| e.row.id != id.0));
+    drop(reader);
+
+    f.writer
+        .conn()
+        .execute_batch("DROP TRIGGER abort_expiry")
+        .unwrap();
+    let retry =
+        indexar::index_with(&mut f.writer, std::slice::from_ref(&library), None, None).unwrap();
+    assert_eq!(retry.pending, 0);
+    assert!(!f.writer.content_pending(&id).unwrap());
+    assert_eq!(f.writer.sensitivity(&id).unwrap().as_str(), "normal");
+    assert!(
+        f.writer
+            .resolve(&id, "expires_on", TimePoint::at(obrain_scan::now_ms()))
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        f.writer
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM assertions WHERE id=?1 AND retracted_at IS NOT NULL",
+                [before.id.as_str()],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        1
+    );
+    let log = f.writer.log_len().unwrap();
+    indexar::index_with(&mut f.writer, &[library], None, None).unwrap();
+    assert_eq!(f.writer.log_len().unwrap(), log);
+}
+
+#[test]
+fn lectura_concurrente_ve_texto_y_vencimiento_de_la_misma_version() {
+    let mut f = Fixture::new(
+        "vencimiento-concurrente",
+        &format!("Clave ficticia: {SECRET}. VALIDEZ 15 11 2027."),
+    );
+    let library = f.library().to_path_buf();
+    indexar::index_with(&mut f.writer, std::slice::from_ref(&library), None, None).unwrap();
+    let id = f
+        .writer
+        .find_subject_by_value(
+            "path_observed_at",
+            &f.file.to_string_lossy(),
+            TimePoint::at(obrain_scan::now_ms()),
+        )
+        .unwrap()
+        .unwrap();
+    let db = f.db.clone();
+    let read_id = id.clone();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let store = Store::open(db).unwrap();
+        store
+            .read_snapshot(|s| -> obrain_core::Result<()> {
+                assert!(!s.content_pending(&read_id)?);
+                started_tx.send(()).unwrap();
+                resume_rx.recv().unwrap();
+                let at = TimePoint::at(obrain_scan::now_ms());
+                assert_eq!(
+                    s.resolve(&read_id, "expires_on", at)?
+                        .unwrap()
+                        .object
+                        .as_text(),
+                    Some("2027-11-15")
+                );
+                assert!(
+                    obrain_extract::index::document_text(s.conn(), &read_id)?
+                        .unwrap()
+                        .contains(SECRET)
+                );
+                assert_eq!(s.sensitivity(&read_id)?.as_str(), "vault");
+                Ok(())
+            })
+            .unwrap();
+        let at = TimePoint::at(obrain_scan::now_ms());
+        assert!(!store.content_pending(&read_id).unwrap());
+        assert!(store.resolve(&read_id, "expires_on", at).unwrap().is_none());
+        assert!(
+            obrain_extract::index::document_text(store.conn(), &read_id)
+                .unwrap()
+                .unwrap()
+                .contains("sin fecha")
+        );
+        assert_eq!(store.sensitivity(&read_id).unwrap().as_str(), "normal");
+    });
+    started_rx.recv().unwrap();
+    std::fs::write(&f.file, "Documento público sin fecha.").unwrap();
+    indexar::index_with(&mut f.writer, &[library], None, None).unwrap();
+    resume_tx.send(()).unwrap();
+    reader.join().unwrap();
+}
+
+#[test]
+fn correccion_manual_de_fecha_sobrevive_al_cambio_de_contenido() {
+    let mut f = Fixture::new(
+        "vencimiento-corregido",
+        &format!("Clave ficticia: {SECRET}. VALIDEZ 15 11 2027."),
+    );
+    let library = f.library().to_path_buf();
+    indexar::index_with(&mut f.writer, std::slice::from_ref(&library), None, None).unwrap();
+    let id = f
+        .writer
+        .find_subject_by_value(
+            "path_observed_at",
+            &f.file.to_string_lossy(),
+            TimePoint::at(obrain_scan::now_ms()),
+        )
+        .unwrap()
+        .unwrap();
+    let reader = f.reader();
+    let manual = reader.set_expiry(&id, Some("2025-12-01")).unwrap();
+    drop(reader);
+    std::fs::write(&f.file, "Documento público sin fecha.").unwrap();
+    indexar::index_with(&mut f.writer, &[library], None, None).unwrap();
+    let current = f
+        .writer
+        .query(
+            Some(&id),
+            Some("expires_on"),
+            TimePoint::at(obrain_scan::now_ms()),
+        )
+        .unwrap();
+    assert_eq!(current.len(), 1);
+    assert_eq!(current[0].id.as_str(), manual);
+    assert_eq!(current[0].method, Method::User);
+    assert_eq!(current[0].object.as_text(), Some("2025-12-01"));
+    let history: i64 = f
+        .writer
+        .conn()
+        .query_row(
+            "SELECT COUNT(*) FROM assertions WHERE subject=?1 AND predicate='expires_on'",
+            [id.as_str()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(history, 2);
+}
+
+#[test]
 fn solo_el_documento_cambiado_entra_en_cuarentena() {
     let mut f = Fixture::new("aislado", "Primer documento sin secretos.");
     let library = f.library().to_path_buf();
