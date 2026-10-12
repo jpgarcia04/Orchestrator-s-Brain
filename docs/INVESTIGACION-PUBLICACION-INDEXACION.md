@@ -210,6 +210,15 @@ Si una versión publicada no tiene hash verificable, no se entrega su ruta para
 abrirla ni se genera miniatura: se puede reintentar tras una observación
 completa del archivo.
 
+En el entorno de pruebas Windows, dos migraciones de bases v1 sintéticas
+distintas ejecutadas por hilos sucesivos del mismo proceso de pruebas
+provocaron un `STATUS_ACCESS_VIOLATION` durante la apertura. Dos aperturas en
+un mismo hilo y la reapertura de una única base cifrada desde otro hilo
+pasaron. Por ello cada escenario v1 de integración corre en su propio
+ejecutable. La causa nativa y la migración de varias bases distintas dentro
+de un solo proceso quedan sin verificar; la CLI y Tauri usan una base por
+proceso en el flujo de esta PR.
+
 ### Validación en esta rama
 
 - La reproducción inicial hizo fallar las pruebas de búsqueda antes del cambio.
