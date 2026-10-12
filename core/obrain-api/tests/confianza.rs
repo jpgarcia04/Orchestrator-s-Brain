@@ -195,10 +195,7 @@ fn ni_la_confirmacion_ni_el_historial_fabrican_rutas_de_apertura() {
         ))
         .unwrap();
     assert!(b.confirm(&e, injected.as_str()).is_err());
-    assert_eq!(
-        b.path_to_open(&e).unwrap().as_deref(),
-        Some("fixtures/documento.txt")
-    );
+    assert!(b.path_to_open(&e).unwrap().is_none());
     assert_eq!(
         b.entity(&e).unwrap().path.as_deref(),
         Some("fixtures/documento.txt")

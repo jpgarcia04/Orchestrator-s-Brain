@@ -218,7 +218,9 @@ pub fn knn_within(
     let mut stmt = conn.prepare(&format!(
         "SELECT chunk, entity, vec FROM vectors
           WHERE model_id = ?1 AND model_ver = ?2 AND dim = ?3
-          AND entity IN (SELECT id FROM entities WHERE sensitivity != 'vault') {filtro}"
+          AND entity IN (SELECT id FROM entities WHERE sensitivity != 'vault')
+          AND NOT EXISTS (SELECT 1 FROM content_publication p
+                           WHERE p.entity=vectors.entity AND p.state='pending') {filtro}"
     ))?;
     let dim = model.dim as i64;
     let mut valores: Vec<&dyn ToSql> = vec![&model.id, &model.version, &dim];

@@ -174,6 +174,20 @@ fn classify_inner(
     let mut verdicts = Vec::new();
     let mut levels = Vec::new();
     for file in files {
+        // Una extracción fallida no describe la versión observada. Mantener
+        // intactas sus señales anteriores evita degradar también la
+        // sensibilidad de un paquete que hereda la de este documento.
+        if store.content_pending(&file.entity)?
+            && obrain_extract::index::previous(
+                store.conn(),
+                &file.entity,
+                obrain_extract::chunk::CHUNKER,
+                obrain_extract::chunk::CHUNKER_VERSION,
+            )?
+            .is_some_and(|p| p.status == "failed")
+        {
+            continue;
+        }
         let name = file.file_name();
         let por_nombre = rules::classify_name(name);
         let del_padre = parent_dir(&file.path).and_then(rules::classify_parent);

@@ -227,40 +227,18 @@ pub fn detect_all(store: &Store, at: i64, report: &mut ExpiryReport) -> Result<(
         todas.remove(&a.subject);
         antes.remove(&a.subject);
     }
+    // Una extracción pendiente puede contener ya los chunks nuevos, pero aún
+    // no tiene clasificación publicable. Su fecha se reconcilia en el commit
+    // que la publica, no en esta pasada global.
+    for id in store.content_pending_set()? {
+        todas.remove(&id);
+        antes.remove(&id);
+    }
     report.with_text = todas.len();
 
     for (entity, lista) in &todas {
         let previas = antes.remove(entity).unwrap_or_default();
-        let Some(e) = elegir(lista) else {
-            retractar(store, &previas, at, report)?;
-            continue;
-        };
-        report.found += 1;
-        *report.by_rule.entry(e.regla.as_str()).or_default() += 1;
-
-        let valor = e.fecha.iso();
-        let evidencia = e.evidence();
-        let ya_dicho = previas.iter().any(|a| {
-            a.object.as_text() == Some(valor.as_str()) && a.evidence.as_deref() == Some(&evidencia)
-        });
-        if ya_dicho {
-            report.assertions_unchanged += 1;
-            continue;
-        }
-        retractar(store, &previas, at, report)?;
-        store.assert(
-            NewAssertion::new(
-                entity.clone(),
-                PREDICATE,
-                Value::Text(valor),
-                Method::Inferred,
-                at,
-            )
-            .source(&source())
-            .confidence(e.regla.confianza())
-            .evidence(&evidencia),
-        )?;
-        report.assertions_written += 1;
+        reconcile(store, entity, lista, &previas, at, report)?;
     }
 
     // Lo que tenía fecha y ya no tiene texto: el texto se fue, la inferencia
@@ -268,6 +246,96 @@ pub fn detect_all(store: &Store, at: i64, report: &mut ExpiryReport) -> Result<(
     for previas in antes.values() {
         retractar(store, previas, at, report)?;
     }
+    Ok(())
+}
+
+/// Reconcilia sólo los documentos que están a punto de publicarse. La lectura
+/// y el cálculo están acotados a sus fragmentos; el llamante lo ejecuta en la
+/// misma transacción que sensibilidad y cambio a `ready`.
+pub fn detect_selected(
+    store: &Store,
+    ids: &[EntityId],
+    at: i64,
+    report: &mut ExpiryReport,
+) -> Result<()> {
+    let tp = TimePoint::at(at);
+    let mut chunks = store.conn().prepare_cached(
+        "SELECT ordinal, byte_start, text FROM chunks WHERE entity=?1 ORDER BY ordinal",
+    )?;
+    for id in ids {
+        if !store.query(Some(id), Some("missing_since"), tp)?.is_empty() {
+            continue;
+        }
+        let mut lista = Vec::new();
+        let mut has_text = false;
+        let mut rows = chunks.query([id.as_str()])?;
+        while let Some(row) = rows.next()? {
+            has_text = true;
+            let fragmento: i64 = row.get(0)?;
+            let base = row.get::<_, i64>(1)?.max(0) as usize;
+            let texto: String = row.get(2)?;
+            for c in leer(&texto) {
+                lista.push(Situada {
+                    fragmento,
+                    candidato: Candidato {
+                        inicio: base + c.inicio,
+                        fin: base + c.fin,
+                        ..c
+                    },
+                });
+            }
+        }
+        drop(rows);
+        if has_text {
+            report.with_text += 1;
+        }
+        let previas: Vec<_> = store
+            .query(Some(id), Some(PREDICATE), tp)?
+            .into_iter()
+            .filter(|a| a.method != Method::User && a.source.starts_with(DETECTOR))
+            .collect();
+        reconcile(store, id, &lista, &previas, at, report)?;
+    }
+    Ok(())
+}
+
+fn reconcile(
+    store: &Store,
+    entity: &EntityId,
+    lista: &[Situada],
+    previas: &[Assertion],
+    at: i64,
+    report: &mut ExpiryReport,
+) -> Result<()> {
+    let Some(e) = elegir(lista) else {
+        retractar(store, previas, at, report)?;
+        return Ok(());
+    };
+    report.found += 1;
+    *report.by_rule.entry(e.regla.as_str()).or_default() += 1;
+    let valor = e.fecha.iso();
+    let evidencia = e.evidence();
+    let ya_dicho = previas.iter().any(|a| {
+        a.object.as_text() == Some(valor.as_str()) && a.evidence.as_deref() == Some(&evidencia)
+    });
+    if ya_dicho {
+        report.assertions_unchanged += 1;
+        return Ok(());
+    }
+    retractar(store, previas, at, report)?;
+    store.assert(
+        NewAssertion::new(
+            entity.clone(),
+            PREDICATE,
+            Value::Text(valor),
+            Method::Inferred,
+            at,
+        )
+        .source(&source())
+        .confidence(e.regla.confianza())
+        .evidence(&evidencia),
+    )?;
+    report.assertions_written += 1;
     Ok(())
 }
 

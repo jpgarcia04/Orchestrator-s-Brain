@@ -57,3 +57,4 @@ image = { version = "0.25", default-features = false, features = [
 # webview leyera el archivo por su cuenta— pondría la guarda de la nube dentro
 # de una ventana. Es el único uso de base64 en el proyecto.
 base64 = "0.22"
+blake3 = "1.8.6"

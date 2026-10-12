@@ -159,6 +159,40 @@ pub fn ingest(
                 },
             },
         };
+        // La ruta puede cambiar de regla de nombre/carpeta aunque el hash sea
+        // igual. Sin hash (archivo grande), tamaño y mtime son la señal de
+        // cambio disponible. La preparación comparte el commit de la ingesta:
+        // ningún lector ve la nueva observación aún publicada como `normal`.
+        let before_path = store
+            .resolve(&entity, "path_observed_at", tp)?
+            .and_then(|a| a.object.as_text().map(str::to_string));
+        let before_hash = store
+            .resolve(&entity, "has_hash", tp)?
+            .and_then(|a| a.object.as_text().map(str::to_string));
+        let changed = before_path.as_deref() != Some(path.as_str())
+            || match &c.hash {
+                Some(hash) => before_hash.as_deref() != Some(hash.as_str()),
+                None => {
+                    let old_size =
+                        store
+                            .resolve(&entity, "file_size", tp)?
+                            .and_then(|a| match a.object {
+                                Value::Number(n) => Some(n as u64),
+                                _ => None,
+                            });
+                    let old_mtime =
+                        store
+                            .resolve(&entity, "modified_at", tp)?
+                            .and_then(|a| match a.object {
+                                Value::Timestamp(t) => Some(t),
+                                _ => None,
+                            });
+                    old_size != Some(c.size) || old_mtime != Some(c.modified_ms)
+                }
+            };
+        if changed {
+            store.prepare_content(&entity, c.hash.as_deref())?;
+        }
         for pending in store.query(Some(&entity), Some("identity_pending_path"), tp)? {
             store.retract(&pending.id, at)?;
             report.assertions_retracted += 1;

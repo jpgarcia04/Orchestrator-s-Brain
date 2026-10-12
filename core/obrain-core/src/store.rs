@@ -7,7 +7,7 @@
 use crate::error::{Error, Result};
 use crate::model::*;
 use crate::schema::{DDL, SCHEMA_VERSION, SEED_PREDICATES};
-use rusqlite::{Connection, OptionalExtension, named_params};
+use rusqlite::{Connection, OptionalExtension, named_params, params};
 
 const COLS: &str = "id, subject, predicate, object_kind, object_entity, object_text, \
                     object_number, valid_from, valid_to, asserted_at, retracted_at, \
@@ -122,20 +122,63 @@ impl Store {
 
     fn migrate(&self) -> Result<()> {
         self.conn.execute_batch(DDL)?;
-        self.conn
-            .pragma_update(None, "user_version", SCHEMA_VERSION)?;
-        for (id, label, card, method, inverse) in SEED_PREDICATES {
-            // La etiqueta es presentación y se actualiza; el resto de la
-            // declaración no se toca en una base que ya existe.
-            self.conn.execute(
-                "INSERT INTO predicates
-                     (id, label, cardinality, symmetric, transitive, inverse, default_method)
-                 VALUES (?1, ?2, ?3, 0, 0, ?4, ?5)
-                 ON CONFLICT(id) DO UPDATE SET label = excluded.label",
-                rusqlite::params![id, label, card, inverse, method],
+        self.atomic_write(|store| {
+            // También repara una migración interrumpida después de crear la
+            // tabla: una ruta viva sin registro queda en cuarentena.
+            store.conn.execute(
+                "INSERT OR IGNORE INTO content_publication (entity, state, origin)
+                 SELECT DISTINCT subject, 'pending', 'legacy' FROM assertions
+                  WHERE predicate = 'path_observed_at' AND retracted_at IS NULL",
+                [],
             )?;
-        }
-        Ok(())
+            store.conn.execute(
+                "UPDATE content_publication SET observed_hash = (
+                    SELECT object_text FROM assertions a
+                     WHERE a.subject=content_publication.entity
+                       AND a.predicate='has_hash' AND a.retracted_at IS NULL
+                     ORDER BY a.asserted_at DESC LIMIT 1
+                 ) WHERE state='pending' AND origin='legacy' AND observed_hash IS NULL",
+                [],
+            )?;
+            let version: i32 = store
+                .conn
+                .pragma_query_value(None, "user_version", |r| r.get(0))?;
+            if version < SCHEMA_VERSION {
+                let integrity: String = store
+                    .conn
+                    .query_row("PRAGMA quick_check", [], |r| r.get(0))?;
+                if integrity != "ok" {
+                    return Err(Error::Corrupt(format!(
+                        "migración: quick_check: {integrity}"
+                    )));
+                }
+                let foreign_keys: i64 = store.conn.query_row(
+                    "SELECT COUNT(*) FROM pragma_foreign_key_check",
+                    [],
+                    |r| r.get(0),
+                )?;
+                if foreign_keys != 0 {
+                    return Err(Error::Corrupt(format!(
+                        "migración: {foreign_keys} referencias inválidas"
+                    )));
+                }
+                store
+                    .conn
+                    .pragma_update(None, "user_version", SCHEMA_VERSION)?;
+            }
+            for (id, label, card, method, inverse) in SEED_PREDICATES {
+                // La etiqueta es presentación y se actualiza; el resto de la
+                // declaración no se toca en una base que ya existe.
+                store.conn.execute(
+                    "INSERT INTO predicates
+                         (id, label, cardinality, symmetric, transitive, inverse, default_method)
+                     VALUES (?1, ?2, ?3, 0, 0, ?4, ?5)
+                     ON CONFLICT(id) DO UPDATE SET label = excluded.label",
+                    rusqlite::params![id, label, card, inverse, method],
+                )?;
+            }
+            Ok(())
+        })
     }
 
     /// Acceso directo a la conexión.
@@ -146,6 +189,130 @@ impl Store {
     /// escribe.
     pub fn conn(&self) -> &Connection {
         &self.conn
+    }
+
+    /// Una lectura que consulta el control y después el contenido debe ver una
+    /// sola instantánea WAL, incluso si otra conexión confirma una indexación.
+    pub fn read_snapshot<T, E>(
+        &self,
+        f: impl FnOnce(&Store) -> std::result::Result<T, E>,
+    ) -> std::result::Result<T, E>
+    where
+        E: From<Error>,
+    {
+        self.conn
+            .execute_batch("BEGIN DEFERRED")
+            .map_err(Error::from)?;
+        match f(self) {
+            Ok(value) => match self.conn.execute_batch("COMMIT") {
+                Ok(()) => Ok(value),
+                Err(error) => {
+                    let _ = self.conn.execute_batch("ROLLBACK");
+                    Err(Error::from(error).into())
+                }
+            },
+            Err(error) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(error)
+            }
+        }
+    }
+
+    /// Si esta entidad tiene una versión de contenido todavía no publicable.
+    /// Las entidades sin fila son carpetas, sesiones o fixtures sin ingesta.
+    pub fn content_pending(&self, id: &EntityId) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM content_publication WHERE entity=?1 AND state='pending')",
+            [id.as_str()],
+            |r| r.get(0),
+        )?)
+    }
+
+    pub fn content_pending_set(&self) -> Result<std::collections::HashSet<EntityId>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT entity FROM content_publication WHERE state='pending'")?;
+        let rows = stmt.query_map([], |r| Ok(EntityId(r.get(0)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn legacy_publication_pending(&self) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM content_publication WHERE state='pending' AND origin='legacy')",
+            [], |r| r.get(0),
+        )?)
+    }
+
+    /// Se llama en la misma transacción que ingesta una versión nueva. La
+    /// primera preparación conserva los chunks publicados previamente.
+    pub fn prepare_content(&self, id: &EntityId, observed_hash: Option<&str>) -> Result<()> {
+        let captured: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT backup_captured FROM content_publication WHERE entity=?1",
+                [id.as_str()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if captured != Some(1) {
+            let chunks_exist: bool = self.conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='chunks')",
+                [],
+                |r| r.get(0),
+            )?;
+            if chunks_exist {
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO publication_backup_chunks
+                     (entity, chunker, chunker_ver, ordinal, byte_start, byte_end, text)
+                     SELECT entity, chunker, chunker_ver, ordinal, byte_start, byte_end, text
+                       FROM chunks WHERE entity=?1",
+                    [id.as_str()],
+                )?;
+            }
+        }
+        self.conn.execute(
+            "INSERT INTO content_publication
+             (entity, state, origin, observed_hash, backup_captured)
+             VALUES (?1, 'pending', 'index', ?2, 1)
+             ON CONFLICT(entity) DO UPDATE SET
+                state='pending', origin='index', observed_hash=excluded.observed_hash,
+                backup_captured=1",
+            params![id.as_str(), observed_hash],
+        )?;
+        Ok(())
+    }
+
+    /// Publica sólo la versión que se clasificó. Un segundo indexador que haya
+    /// ingresado otra observación entre etapas impide este cambio.
+    pub fn publish_content(&self, id: &EntityId, expected_hash: Option<&str>) -> Result<bool> {
+        let changed = self.conn.execute(
+            "UPDATE content_publication SET state='ready', origin='index',
+                    published_hash=observed_hash, backup_captured=0
+              WHERE entity=?1 AND state='pending' AND observed_hash IS ?2",
+            params![id.as_str(), expected_hash],
+        )?;
+        if changed != 0 {
+            self.conn.execute(
+                "DELETE FROM publication_backup_chunks WHERE entity=?1",
+                [id.as_str()],
+            )?;
+        }
+        Ok(changed != 0)
+    }
+
+    /// Hash de los bytes que pueden presentarse como miniatura. `None` falla
+    /// cerrado para imágenes sin hash comprobable.
+    pub fn published_content_hash(&self, id: &EntityId) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT published_hash FROM content_publication
+              WHERE entity=?1 AND state='ready'",
+                [id.as_str()],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten())
     }
 
     // ───────────────────────────────────────────────────────────── entidades

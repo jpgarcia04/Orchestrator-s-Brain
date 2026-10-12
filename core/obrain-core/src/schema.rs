@@ -5,7 +5,7 @@
 //! motor, no por convención. Ningún código futuro — ni un `DELETE` a mano en
 //! una consola de SQLite — puede violarlos.
 
-pub const SCHEMA_VERSION: i32 = 1;
+pub const SCHEMA_VERSION: i32 = 2;
 
 pub const DDL: &str = r#"
 PRAGMA journal_mode = WAL;
@@ -19,6 +19,33 @@ CREATE TABLE IF NOT EXISTS entities (
     -- puede depender de resolver una proyección. Ver model::Sensitivity.
     sensitivity  TEXT NOT NULL DEFAULT 'normal'
                  CHECK (sensitivity IN ('normal','sensitive','vault'))
+);
+
+-- La visibilidad del contenido es una proyección de control, separada de las
+-- aserciones históricas. Una fila pendiente se confirma antes de escribir
+-- chunks nuevos; ninguna lectura del producto debe servir esos chunks.
+CREATE TABLE IF NOT EXISTS content_publication (
+    entity          TEXT PRIMARY KEY REFERENCES entities(id),
+    state           TEXT NOT NULL CHECK (state IN ('pending','ready')),
+    origin          TEXT NOT NULL CHECK (origin IN ('legacy','index')),
+    observed_hash   TEXT,
+    published_hash  TEXT,
+    backup_captured INTEGER NOT NULL DEFAULT 0 CHECK (backup_captured IN (0,1))
+);
+CREATE INDEX IF NOT EXISTS idx_content_publication_state
+    ON content_publication(state);
+
+-- Copia de recuperación de la proyección anterior. No entra en FTS ni en las
+-- lecturas; se conserva hasta que la nueva versión se publica con éxito.
+CREATE TABLE IF NOT EXISTS publication_backup_chunks (
+    entity      TEXT NOT NULL REFERENCES entities(id),
+    chunker     TEXT NOT NULL,
+    chunker_ver INTEGER NOT NULL,
+    ordinal     INTEGER NOT NULL,
+    byte_start  INTEGER NOT NULL,
+    byte_end    INTEGER NOT NULL,
+    text        TEXT NOT NULL,
+    PRIMARY KEY (entity, chunker, chunker_ver, ordinal)
 );
 
 -- ────────────────────────────────────────────────────────────── predicados

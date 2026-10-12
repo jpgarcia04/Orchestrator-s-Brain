@@ -138,6 +138,13 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    if let Err(e) = Brain::initialize_store(&mut store) {
+        eprintln!(
+            "no se pudo recuperar la base {}: {e}; vuelve a intentarlo",
+            db.display()
+        );
+        return ExitCode::FAILURE;
+    }
     avisar_recuperacion(&store, *orden == "clave");
 
     match *orden {
@@ -661,6 +668,7 @@ fn informe(r: &IndexReport, db: &std::path::Path) {
     println!("  archivos vistos        {}", r.files_seen);
     println!("  nuevos                 {}", r.files_new);
     println!("  documentos leídos      {}", r.documents_read);
+    println!("  pendientes protegidos  {}", r.pending);
     if r.ocr > 0 {
         println!("    con OCR              {}", r.ocr);
     }
