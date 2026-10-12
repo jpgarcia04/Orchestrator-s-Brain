@@ -118,9 +118,12 @@ pub fn forget(
     let at = TimePoint::at(now);
     let objetivo: Vec<EntityId> = match e {
         Some(e) => vec![e.clone()],
-        None => list(store, at)?
+        // También lo oculto por cuarentena: «vaciar» debe purgar sus copias
+        // de recuperación aunque la vista no enseñe aún ese documento.
+        None => store
+            .query(None, Some(MISSING), at)?
             .into_iter()
-            .map(|p| EntityId(p.id))
+            .map(|a| a.subject)
             .collect(),
     };
     obrain_extract::index::migrate(store.conn())?;
@@ -150,9 +153,15 @@ pub fn forget(
 pub fn expire(store: &Store, now: i64) -> crate::Result<usize> {
     let at = TimePoint::at(now);
     let mut n = 0;
-    for p in list(store, at)? {
-        if now - p.since >= PAPELERA_DIAS * DIA_MS {
-            n += forget(store, Some(&EntityId(p.id)), Method::Deterministic, now)?;
+    let mut seen = std::collections::HashSet::new();
+    for a in store.query(None, Some(MISSING), at)? {
+        if !seen.insert(a.subject.clone()) {
+            continue;
+        }
+        if en_papelera(store, &a.subject, at)?
+            .is_some_and(|since| now - since >= PAPELERA_DIAS * DIA_MS)
+        {
+            n += forget(store, Some(&a.subject), Method::Deterministic, now)?;
         }
     }
     Ok(n)
@@ -166,6 +175,16 @@ fn purge(store: &Store, e: &EntityId) -> obrain_core::Result<()> {
     c.execute("DELETE FROM vectors WHERE entity = ?1", [e.as_str()])?;
     c.execute("DELETE FROM chunks WHERE entity = ?1", [e.as_str()])?;
     c.execute("DELETE FROM extractions WHERE entity = ?1", [e.as_str()])?;
+    c.execute(
+        "DELETE FROM publication_backup_chunks WHERE entity = ?1",
+        [e.as_str()],
+    )?;
+    c.execute(
+        "UPDATE content_publication
+            SET state='ready', published_hash=NULL, backup_captured=0
+          WHERE entity=?1",
+        [e.as_str()],
+    )?;
     Ok(())
 }
 

@@ -24,7 +24,7 @@
 //! nada: cada etapa compara con lo que ya sabía (ADR-0001). Por eso la
 //! aplicación puede hacerlo al arrancar sin coste.
 
-use crate::Result;
+use crate::{Result, publication};
 use obrain_core::{Store, TimePoint};
 use obrain_embed::embedder::Embedder;
 use std::collections::{HashMap, HashSet};
@@ -66,6 +66,8 @@ pub struct IndexReport {
     pub ocr: usize,
     /// Fragmentos nuevos en el índice de búsqueda.
     pub chunks_new: usize,
+    /// Documentos cuya nueva versión aún no se pudo publicar.
+    pub pending: usize,
     /// Archivos que la puerta retiene como sensibles o de bóveda, en total: lo
     /// que dijo el clasificador, lo que corregiste y lo que hereda de una
     /// carpeta marcada.
@@ -112,7 +114,10 @@ pub fn index_with(
     ocr: Option<&dyn obrain_ocr::Ocr>,
 ) -> Result<IndexReport> {
     let started = Instant::now();
-    let mut r = IndexReport::default();
+    let mut r = IndexReport {
+        pending: store.content_pending_set()?.len(),
+        ..Default::default()
+    };
     // Las carpetas recorridas de todas las bibliotecas, con su identidad: se
     // apuntan después de enlazar, cuando el enlazador ya ha creado las nuevas.
     let mut carpetas: Vec<obrain_scan::FolderCandidate> = Vec::new();
@@ -250,26 +255,27 @@ pub fn index_with(
     r.documents_read = extraccion.extracted;
     r.ocr = extraccion.ocr;
     r.chunks_new = extraccion.chunks;
+    r.errors.extend(extraccion.errors);
 
-    // ── un documento dentro de otro ──
-    // Con el texto ya leído, y antes de la puerta: un paquete hereda la
-    // sensibilidad de lo que lleva dentro (ADR-0030).
+    // Las relaciones de contenido, la clasificación efectiva y la publicación
+    // comparten un commit. Ningún lector ve una relación nueva con sensibilidad
+    // antigua ni un chunk nuevo que todavía no haya pasado por la puerta.
     let at = obrain_scan::now_ms();
     let mut dentro = obrain_link::dentro::DentroReport::default();
-    store.transaction(|s| obrain_link::dentro::link(s, at, &mut dentro))?;
-    r.inside = dentro.encontrados;
-
-    // ── la puerta · clasificar ──
-    // Se vuelven a leer las filas: la extracción acaba de escribir el texto
-    // con el que clasifica la regla de contenido.
-    let at = obrain_scan::now_ms();
-    let filas = obrain_extract::load_files(store, TimePoint::at(at))?;
     let mut puerta = obrain_guard::GuardReport::default();
-    store.transaction(|s| obrain_guard::classify_all(s, &filas, at, false, &mut puerta))?;
+    store.transaction(|s| -> Result<()> {
+        obrain_link::dentro::link(s, at, &mut dentro)?;
+        let filas = obrain_extract::load_files(s, TimePoint::at(at))?;
+        obrain_guard::classify_all(s, &filas, at, false, &mut puerta)?;
+        publication::publish_pending(s, &filas, ocr.is_some(), None)?;
+        Ok(())
+    })?;
+    r.inside = dentro.encontrados;
     r.sensitive = puerta.effective[1];
     r.vault = puerta.effective[2];
     r.inherited = puerta.inherited;
     r.from_parts = puerta.from_parts;
+    r.pending = store.content_pending_set()?.len();
 
     // ── vencimientos ──
     let at = obrain_scan::now_ms();

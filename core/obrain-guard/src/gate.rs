@@ -122,6 +122,13 @@ pub fn check(
     capability: Capability,
     runs: Runs,
 ) -> Result<Decision> {
+    if store.content_pending(entity)?
+        && !matches!(capability, Capability::Extractor | Capability::Classifier)
+    {
+        return Ok(Decision::Deny(
+            "contenido en preparación: clasificación pendiente",
+        ));
+    }
     // Falla cerrado: si no sabemos qué es, es bóveda.
     let level = store.sensitivity(entity).unwrap_or(Sensitivity::Vault);
     Ok(decide(level, capability, runs))
@@ -137,6 +144,8 @@ pub fn embeddable(conn: &Connection) -> Result<Vec<EntityId>> {
         "SELECT DISTINCT c.entity
            FROM chunks c JOIN entities e ON e.id = c.entity
           WHERE e.sensitivity <> 'vault'
+            AND NOT EXISTS (SELECT 1 FROM content_publication p
+                             WHERE p.entity=c.entity AND p.state='pending')
           ORDER BY c.entity",
     )?;
     let rows = stmt.query_map([], |r| Ok(EntityId(r.get(0)?)))?;

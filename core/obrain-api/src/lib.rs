@@ -45,6 +45,7 @@ pub mod lens;
 pub mod marks;
 pub mod papelera;
 pub mod preview;
+mod publication;
 pub mod seguridad;
 pub mod sky;
 pub mod vigilar;
@@ -52,6 +53,7 @@ pub mod vigilar;
 use obrain_core::{EntityId, Method, NewAssertion, Sensitivity, Store, TimePoint, Value};
 /// El modelo, para quien lo carga y lo presta sin depender de `obrain-embed`.
 pub use obrain_embed::embedder::Embedder;
+use std::io::Read;
 use std::path::Path;
 use std::time::Instant;
 
@@ -80,6 +82,9 @@ pub enum Error {
 
     #[error("la identidad del documento {0} está pendiente de confirmar")]
     IdentityPending(String),
+
+    #[error("el contenido del documento {0} sigue en preparación; actualiza para reintentarlo")]
+    PublicationPending(String),
 
     #[error(transparent)]
     Seguridad(#[from] seguridad::Error),
@@ -241,9 +246,10 @@ impl Brain {
     ///
     /// [ADR-0021]: ../../../docs/adr/0021-cifrado-en-reposo-y-pin.md
     pub fn open(db: impl AsRef<Path>) -> Result<Self> {
-        let store = seguridad::abrir(db.as_ref())?;
+        let mut store = seguridad::abrir(db.as_ref())?;
         obrain_extract::index::migrate(store.conn())?;
         obrain_embed::index::migrate(store.conn())?;
+        publication::bootstrap_legacy(&mut store)?;
         Ok(Self::from_store(store))
     }
 
@@ -350,6 +356,16 @@ impl Brain {
     /// `None`. El filtro se aplica en las dos ramas antes de cortar la lista:
     /// lo de la colección que estaba en el puesto 60 sale igual.
     pub fn search_in(
+        &self,
+        query: &str,
+        limit: usize,
+        coleccion: Option<&EntityId>,
+    ) -> Result<Answer> {
+        self.store
+            .read_snapshot(|_| self.search_in_snapshot(query, limit, coleccion))
+    }
+
+    fn search_in_snapshot(
         &self,
         query: &str,
         limit: usize,
@@ -465,7 +481,8 @@ impl Brain {
     /// instantáneo, cachear será una decisión con un número detrás.
     pub fn sky(&self, target: usize) -> Result<Sky> {
         let (_, at) = Self::now();
-        Ok(sky::regions(&self.store, target, at)?)
+        self.store
+            .read_snapshot(|s| Ok(sky::regions(s, target, at)?))
     }
 
     /// **Qué hay dentro de esto.** El explorador de [ADR-0014]. Ver
@@ -478,18 +495,20 @@ impl Brain {
     /// [ADR-0014]: ../../../docs/adr/0014-dos-vistas-un-solo-estado.md
     pub fn children(&self, focus: Option<&EntityId>) -> Result<Listing> {
         let (_, at) = Self::now();
-        if let Some(id) = focus {
-            if identity::pending(&self.store, id, at)? {
-                return Err(Error::IdentityPending(id.0.clone()));
+        self.store.read_snapshot(|s| {
+            if let Some(id) = focus {
+                if identity::pending(s, id, at)? {
+                    return Err(Error::IdentityPending(id.0.clone()));
+                }
             }
-        }
-        Ok(sky::children(&self.store, focus, at)?)
+            Ok(sky::children(s, focus, at)?)
+        })
     }
 
     /// Los archivos más recientes. Ver [`sky::recent`].
     pub fn recent(&self, limit: usize) -> Result<Vec<Row>> {
         let (_, at) = Self::now();
-        Ok(sky::recent(&self.store, limit, at)?)
+        self.store.read_snapshot(|s| Ok(sky::recent(s, limit, at)?))
     }
 
     /// **Lo que caduca pronto**: la tarjeta del inicio. Ver
@@ -502,14 +521,16 @@ impl Brain {
     /// [ADR-0023]: ../../../docs/adr/0023-vencimientos.md
     pub fn expiring(&self) -> Result<Vec<Expiring>> {
         let (now, at) = Self::now();
-        let ocultar = !self.contenido_visible()?;
-        Ok(sky::expiring(
-            &self.store,
-            at,
-            obrain_expiry::Fecha::hoy(now),
-            obrain_expiry::VENTANA_DIAS,
-            ocultar,
-        )?)
+        self.store.read_snapshot(|s| {
+            let ocultar = !self.contenido_visible()?;
+            Ok(sky::expiring(
+                s,
+                at,
+                obrain_expiry::Fecha::hoy(now),
+                obrain_expiry::VENTANA_DIAS,
+                ocultar,
+            )?)
+        })
     }
 
     /// **Corrige cuándo caduca un documento**: `Some("2027-08-31")`, o `None`
@@ -547,7 +568,7 @@ impl Brain {
     /// [ADR-0025]: ../../../docs/adr/0025-lo-que-ya-no-esta.md
     pub fn trash(&self) -> Result<Vec<EnPapelera>> {
         let (_, at) = Self::now();
-        Ok(papelera::list(&self.store, at)?)
+        self.store.read_snapshot(|s| Ok(papelera::list(s, at)?))
     }
 
     /// **Olvida** lo que se leyó de un documento de la papelera, o de todos
@@ -565,19 +586,20 @@ impl Brain {
     /// Lo que la puerta retiene. Ver [`sky::sensitive`].
     pub fn sensitive(&self) -> Result<Vec<Row>> {
         let (_, at) = Self::now();
-        Ok(sky::sensitive(&self.store, at)?)
+        self.store.read_snapshot(|s| Ok(sky::sensitive(s, at)?))
     }
 
     /// La carpeta con esta ruta, si el log la conoce. Ver [`marks::folder_at`].
     pub fn folder_at(&self, path: &str) -> Result<Option<EntityId>> {
         let (_, at) = Self::now();
-        Ok(marks::folder_at(&self.store, path, at)?)
+        self.store
+            .read_snapshot(|s| Ok(marks::folder_at(s, path, at)?))
     }
 
     /// Las carpetas que marcaste como sensibles. Ver [`marks::marked`].
     pub fn marked_folders(&self) -> Result<Vec<MarkedFolder>> {
         let (_, at) = Self::now();
-        Ok(marks::marked(&self.store, at)?)
+        self.store.read_snapshot(|s| Ok(marks::marked(s, at)?))
     }
 
     /// **Marca una carpeta como sensible** —todo lo que tenga dentro lo hereda,
@@ -615,25 +637,27 @@ impl Brain {
     /// [ADR-0031]: ../../../docs/adr/0031-tus-colecciones.md
     pub fn collections(&self) -> Result<Vec<Coleccion>> {
         let (_, at) = Self::now();
-        colecciones::todas(&self.store, at)
+        self.store.read_snapshot(|s| colecciones::todas(s, at))
     }
 
     /// **Abre una colección**: lo que tiene, cada uno con su carpeta.
     pub fn collection(&self, id: &EntityId) -> Result<Abierta> {
         let (_, at) = Self::now();
-        colecciones::abrir(&self.store, id, at)
+        self.store.read_snapshot(|s| colecciones::abrir(s, id, at))
     }
 
     /// El documento con esta ruta, si está en tu bóveda. Para la terminal.
     pub fn document_at(&self, ruta: &str) -> Result<Option<EntityId>> {
         let (_, at) = Self::now();
-        Ok(colecciones::documento_en(&self.store, ruta, at)?)
+        self.store
+            .read_snapshot(|s| Ok(colecciones::documento_en(s, ruta, at)?))
     }
 
     /// La colección que se llama así, sin distinguir mayúsculas.
     pub fn collection_named(&self, nombre: &str) -> Result<Option<EntityId>> {
         let (_, at) = Self::now();
-        Ok(colecciones::por_nombre(&self.store, nombre, at)?)
+        self.store
+            .read_snapshot(|s| Ok(colecciones::por_nombre(s, nombre, at)?))
     }
 
     /// **Crea una colección** vacía. Devuelve su identificador. `source` dice
@@ -709,27 +733,31 @@ impl Brain {
     /// Es `obrain paquetes`.
     pub fn packages(&self) -> Result<Vec<Paquete>> {
         let (_, at) = Self::now();
-        let mut packages = dentro::packages(&self.store, at)?;
-        if !self.contenido_visible()? {
-            for p in &mut packages {
-                if p.sensitivity != "normal" {
-                    p.parts.clear();
+        self.store.read_snapshot(|s| {
+            let mut packages = dentro::packages(s, at)?;
+            if !self.contenido_visible()? {
+                for p in &mut packages {
+                    if p.sensitivity != "normal" {
+                        p.parts.clear();
+                    }
                 }
             }
-        }
-        Ok(packages)
+            Ok(packages)
+        })
     }
 
     /// Abre la lente sobre una entidad. Ver [`lens`].
     pub fn lens(&self, focus: &[EntityId], radius: u8, budget: usize) -> Result<Lens> {
         let (_, at) = Self::now();
-        let mut lens = lens::open(&self.store, focus, radius, budget, at)?;
-        if !self.contenido_visible()? {
-            for edge in &mut lens.edges {
-                edge.source.clear();
+        self.store.read_snapshot(|s| {
+            let mut lens = lens::open(s, focus, radius, budget, at)?;
+            if !self.contenido_visible()? {
+                for edge in &mut lens.edges {
+                    edge.source.clear();
+                }
             }
-        }
-        Ok(lens)
+            Ok(lens)
+        })
     }
 
     /// Una consulta y **lo que enciende**: la lista de resultados y el sustrato
@@ -769,82 +797,88 @@ impl Brain {
 
     /// Todo lo que se sabe de una entidad. Ver [`entity`].
     pub fn entity(&self, id: &EntityId) -> Result<EntityView> {
-        let (_, at) = Self::now();
-        if identity::pending(&self.store, id, at)? {
-            return Err(Error::IdentityPending(id.0.clone()));
-        }
-        // Que exista se comprueba aquí y no dentro: una entidad desconocida es
-        // un error del llamante, no una vista vacía que parezca un archivo sin
-        // datos.
-        let nivel = self
-            .store
-            .sensitivity(id)
-            .map_err(|_| Error::UnknownEntity(id.0.clone()))?;
-        let mut v = entity::view(&self.store, id, at)?;
-        // Las correcciones históricas tampoco pueden decidir qué archivo
-        // abre la aplicación: la ruta procede de una observación determinista.
-        v.path = self
-            .store
-            .query(Some(id), Some("path_observed_at"), at)?
-            .into_iter()
-            .find(|a| a.method == Method::Deterministic)
-            .and_then(|a| a.object.as_text().map(str::to_string));
-        let locked = nivel != Sensitivity::Normal && !self.contenido_visible()?;
-        // Lista pública explícita; cualquier literal nuevo queda protegido.
-        // La procedencia/evidencia libre puede contener contenido documental.
-        for claims in [&mut v.observed, &mut v.inferred] {
-            claims.retain(|c| !locked || c.public);
-            for c in claims {
-                if c.predicate == "downloaded_from" {
-                    c.value = obrain_link::provenance::safe_origin(&c.value).unwrap_or_default();
-                    c.evidence = None;
-                    c.source = "linker:zone-identifier".into();
-                }
-                let target_locked = if let Some(target) = &c.value_entity {
-                    self.store.sensitivity(&EntityId(target.clone()))? != Sensitivity::Normal
-                        && !self.contenido_visible()?
-                } else {
-                    false
-                };
-                if locked || target_locked {
-                    c.evidence = None;
-                    c.source.clear();
-                    c.span = None;
-                    c.target_span = None;
+        self.store.read_snapshot(|_| {
+            let (_, at) = Self::now();
+            if self.store.content_pending(id)? {
+                return Err(Error::PublicationPending(id.0.clone()));
+            }
+            if identity::pending(&self.store, id, at)? {
+                return Err(Error::IdentityPending(id.0.clone()));
+            }
+            // Que exista se comprueba aquí y no dentro: una entidad desconocida es
+            // un error del llamante, no una vista vacía que parezca un archivo sin
+            // datos.
+            let nivel = self
+                .store
+                .sensitivity(id)
+                .map_err(|_| Error::UnknownEntity(id.0.clone()))?;
+            let mut v = entity::view(&self.store, id, at)?;
+            // Las correcciones históricas tampoco pueden decidir qué archivo
+            // abre la aplicación: la ruta procede de una observación determinista.
+            v.path = self
+                .store
+                .query(Some(id), Some("path_observed_at"), at)?
+                .into_iter()
+                .find(|a| a.method == Method::Deterministic)
+                .and_then(|a| a.object.as_text().map(str::to_string));
+            let locked = nivel != Sensitivity::Normal && !self.contenido_visible()?;
+            // Lista pública explícita; cualquier literal nuevo queda protegido.
+            // La procedencia/evidencia libre puede contener contenido documental.
+            for claims in [&mut v.observed, &mut v.inferred] {
+                claims.retain(|c| !locked || c.public);
+                for c in claims {
+                    if c.predicate == "downloaded_from" {
+                        c.value =
+                            obrain_link::provenance::safe_origin(&c.value).unwrap_or_default();
+                        c.evidence = None;
+                        c.source = "linker:zone-identifier".into();
+                    }
+                    let target_locked = if let Some(target) = &c.value_entity {
+                        self.store.sensitivity(&EntityId(target.clone()))? != Sensitivity::Normal
+                            && !self.contenido_visible()?
+                    } else {
+                        false
+                    };
+                    if locked || target_locked {
+                        c.evidence = None;
+                        c.source.clear();
+                        c.span = None;
+                        c.target_span = None;
+                    }
                 }
             }
-        }
-        if locked {
-            v.parts.clear();
-        }
-        // Un documento caduca una vez: se enseña **la fecha que manda** —la
-        // tuya si la corregiste (I5)— y no también la inferencia corregida,
-        // que sigue en el log pero ya no es lo que el sistema sostiene
-        // (EXPERIENCE §4.5: de pálida a sólida). Y la fecha sale del texto del
-        // documento: con el PIN bloqueado, la de lo sensible no sale del
-        // núcleo (ADR-0023).
-        let manda = if locked {
-            None
-        } else {
-            self.store
-                .resolve(id, obrain_expiry::PREDICATE, at)?
-                .map(|a| a.id.0)
-        };
-        let vale = |c: &Claim| {
-            c.predicate != obrain_expiry::PREDICATE || Some(&c.assertion) == manda.as_ref()
-        };
-        v.observed.retain(vale);
-        v.inferred.retain(vale);
-        // Lo que está en la papelera no es «Relacionado» de nadie (ADR-0025).
-        let fuera = obrain_scan::ausentes::missing_set(&self.store, at)?;
-        let vivo = |c: &Claim| {
-            c.value_entity
-                .as_ref()
-                .is_none_or(|e| !fuera.contains(&EntityId(e.clone())))
-        };
-        v.observed.retain(vivo);
-        v.inferred.retain(vivo);
-        Ok(v)
+            if locked {
+                v.parts.clear();
+            }
+            // Un documento caduca una vez: se enseña **la fecha que manda** —la
+            // tuya si la corregiste (I5)— y no también la inferencia corregida,
+            // que sigue en el log pero ya no es lo que el sistema sostiene
+            // (EXPERIENCE §4.5: de pálida a sólida). Y la fecha sale del texto del
+            // documento: con el PIN bloqueado, la de lo sensible no sale del
+            // núcleo (ADR-0023).
+            let manda = if locked {
+                None
+            } else {
+                self.store
+                    .resolve(id, obrain_expiry::PREDICATE, at)?
+                    .map(|a| a.id.0)
+            };
+            let vale = |c: &Claim| {
+                c.predicate != obrain_expiry::PREDICATE || Some(&c.assertion) == manda.as_ref()
+            };
+            v.observed.retain(vale);
+            v.inferred.retain(vale);
+            // Lo que está en la papelera no es «Relacionado» de nadie (ADR-0025).
+            let fuera = obrain_scan::ausentes::missing_set(&self.store, at)?;
+            let vivo = |c: &Claim| {
+                c.value_entity
+                    .as_ref()
+                    .is_none_or(|e| !fuera.contains(&EntityId(e.clone())))
+            };
+            v.observed.retain(vivo);
+            v.inferred.retain(vivo);
+            Ok(v)
+        })
     }
 
     /// **Qué se ve del archivo.** Ver [`preview`].
@@ -867,15 +901,18 @@ impl Brain {
         tramo: Option<(usize, usize)>,
     ) -> Result<Preview> {
         let (_, at) = Self::now();
-        if identity::pending(&self.store, id, at)? {
-            return Err(Error::IdentityPending(id.0.clone()));
-        }
-        self.store
-            .sensitivity(id)
-            .map_err(|_| Error::UnknownEntity(id.0.clone()))?;
-        let visible = self.contenido_visible()?;
-        let p = preview::of(&self.store, id, query, tramo, at, !visible)?;
-        Ok(p)
+        self.store.read_snapshot(|s| {
+            if s.content_pending(id)? {
+                return Err(Error::PublicationPending(id.0.clone()));
+            }
+            if identity::pending(s, id, at)? {
+                return Err(Error::IdentityPending(id.0.clone()));
+            }
+            s.sensitivity(id)
+                .map_err(|_| Error::UnknownEntity(id.0.clone()))?;
+            let visible = self.contenido_visible()?;
+            preview::of(s, id, query, tramo, at, !visible)
+        })
     }
 
     // ─────────────────────────────────────────────────────── seguridad (0021)
@@ -913,35 +950,71 @@ impl Brain {
     /// ¿Se puede abrir este archivo con su programa? Lo sensible, con el PIN
     /// puesto, sólo desbloqueado: abrirlo fuera sería saltarse el PIN.
     pub fn may_open(&self, id: &EntityId) -> Result<bool> {
-        if identity::pending(&self.store, id, Self::now().1)? {
-            return Ok(false);
-        }
-        let sensible = self
-            .store
-            .sensitivity(id)
-            .map_err(|_| Error::UnknownEntity(id.0.clone()))?
-            != Sensitivity::Normal;
-        if !sensible || self.contenido_visible()? {
-            return Ok(true);
-        }
-        Ok(false)
+        self.store.read_snapshot(|s| {
+            if identity::pending(s, id, Self::now().1)? {
+                return Ok(false);
+            }
+            let sensible = s
+                .sensitivity(id)
+                .map_err(|_| Error::UnknownEntity(id.0.clone()))?
+                != Sensitivity::Normal;
+            Ok(!sensible || self.contenido_visible()?)
+        })
     }
 
     /// Autoriza abrir/revelar y resuelve sólo rutas observadas por el escáner.
     pub fn path_to_open(&self, id: &EntityId) -> Result<Option<String>> {
-        if identity::pending(&self.store, id, Self::now().1)? {
-            return Ok(None);
-        }
-        if !self.may_open(id)? {
-            return Err(Error::Bloqueado);
-        }
-        let (_, at) = Self::now();
-        Ok(self
-            .store
-            .query(Some(id), Some("path_observed_at"), at)?
-            .into_iter()
-            .find(|a| a.method == Method::Deterministic)
-            .and_then(|a| a.object.as_text().map(str::to_string)))
+        self.store.read_snapshot(|s| {
+            if identity::pending(s, id, Self::now().1)? {
+                return Ok(None);
+            }
+            let sensible = s.sensitivity(id)? != Sensitivity::Normal;
+            if sensible && !self.contenido_visible()? {
+                return Err(Error::Bloqueado);
+            }
+            let (_, at) = Self::now();
+            let readable = s
+                .resolve(id, "availability", at)?
+                .and_then(|a| {
+                    a.object
+                        .as_text()
+                        .and_then(obrain_scan::Availability::parse)
+                })
+                .is_some_and(|a| a.may_read_content());
+            if !readable {
+                return Ok(None);
+            }
+            let path = s
+                .query(Some(id), Some("path_observed_at"), at)?
+                .into_iter()
+                .find(|a| a.method == Method::Deterministic)
+                .and_then(|a| a.object.as_text().map(str::to_string));
+            let Some(path) = path else { return Ok(None) };
+            // La ruta apunta a bytes mutables fuera de SQLite. Comprobarlos
+            // justo antes de entregarla impide abrir una edición detectada
+            // antes de la siguiente ingesta. Sin hash publicado, falla cerrado.
+            let Some(expected) = s.published_content_hash(id)? else {
+                return Ok(None);
+            };
+            let Ok(mut file) = std::fs::File::open(&path) else {
+                return Ok(None);
+            };
+            let mut hasher = blake3::Hasher::new();
+            let mut buffer = [0u8; 64 * 1024];
+            loop {
+                match file.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        hasher.update(&buffer[..n]);
+                    }
+                    Err(_) => return Ok(None),
+                }
+            }
+            if hasher.finalize().to_hex().as_str() != expected {
+                return Ok(None);
+            }
+            Ok(Some(path))
+        })
     }
 
     /// Cómo está la seguridad de la base, para enseñarlo.

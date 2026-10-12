@@ -661,6 +661,7 @@ fn informe(r: &IndexReport, db: &std::path::Path) {
     println!("  archivos vistos        {}", r.files_seen);
     println!("  nuevos                 {}", r.files_new);
     println!("  documentos leídos      {}", r.documents_read);
+    println!("  pendientes protegidos  {}", r.pending);
     if r.ocr > 0 {
         println!("    con OCR              {}", r.ocr);
     }

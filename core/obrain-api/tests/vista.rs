@@ -56,6 +56,11 @@ fn ingerir(store: &Store, path: &Path, availability: &str) -> EntityId {
     );
     w("file_size", Value::Number(bytes.len() as f64));
     w("availability", availability.into());
+    let hash = blake3::hash(&bytes).to_hex().to_string();
+    w("has_hash", hash.clone().into());
+    // Estas fixtures representan la versión que ya pasó la puerta.
+    store.prepare_content(&e, Some(&hash)).unwrap();
+    assert!(store.publish_content(&e, Some(&hash)).unwrap());
     e
 }
 

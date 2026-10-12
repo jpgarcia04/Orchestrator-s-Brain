@@ -293,12 +293,42 @@ pub fn extract_all_with(
         // ── 1 · ¿sabemos leer este formato? Pura ruta, cero disco. ──
         let Some(format) = format::detect(&file.path) else {
             report.skipped_unsupported += 1;
+            if store.content_pending(&file.entity)? && file.may_read_content() {
+                write_outcome(
+                    store,
+                    report,
+                    file,
+                    "unsupported",
+                    Status::Unsupported,
+                    None,
+                    None,
+                    0,
+                    0,
+                    at,
+                    tp,
+                )?;
+            }
             continue;
         };
         // Una imagen sin reconocedor es, a efectos prácticos, un formato que
         // no se sabe leer: lo mismo que era antes de que hubiera OCR.
         if format == Format::Image && ocr.is_none() {
             report.skipped_unsupported += 1;
+            if store.content_pending(&file.entity)? && file.may_read_content() {
+                write_outcome(
+                    store,
+                    report,
+                    file,
+                    "unsupported",
+                    Status::Unsupported,
+                    None,
+                    None,
+                    0,
+                    0,
+                    at,
+                    tp,
+                )?;
+            }
             continue;
         }
 
@@ -318,6 +348,9 @@ pub fn extract_all_with(
         let prev = index::previous(store.conn(), &file.entity, chunker, chunker_ver)?;
         let unchanged = prev.as_ref().is_some_and(|p| {
             p.extractor_ver == format.version()
+                && (p.extractor == format.as_str()
+                    || (format == Format::Pdf && p.extractor == "pdf+ocr"))
+                && p.status != Status::Failed.as_str()
                 && p.file_hash.is_some()
                 && p.file_hash == file.file_hash
                 // Un PDF escaneado que se dio por vacío sin OCR, ahora que hay
@@ -354,6 +387,31 @@ pub fn extract_all_with(
             }
         };
         report.bytes_read += bytes.len() as u64;
+        if file
+            .file_hash
+            .as_deref()
+            .is_some_and(|expected| blake3::hash(&bytes).to_hex().as_str() != expected)
+        {
+            report.failed += 1;
+            report.errors.push(format!(
+                "{} cambió entre inventario y extracción",
+                file.file_name()
+            ));
+            write_outcome(
+                store,
+                report,
+                file,
+                format.as_str(),
+                Status::Failed,
+                None,
+                None,
+                0,
+                0,
+                at,
+                tp,
+            )?;
+            continue;
+        }
 
         let stat = report.by_format.entry(format.as_str()).or_default();
         stat.files += 1;
@@ -446,7 +504,25 @@ pub fn extract_all_with(
                         normalized = text::normalize(&t);
                         leido_con = Some(o.engine());
                     }
-                    Some(Err(e)) => report.errors.push(format!("{}: {e}", file.file_name())),
+                    Some(Err(e)) => {
+                        report.failed += 1;
+                        report.errors.push(format!("{}: {e}", file.file_name()));
+                        report.by_format.entry(format.as_str()).or_default().failed += 1;
+                        write_outcome(
+                            store,
+                            report,
+                            file,
+                            extractor,
+                            Status::Failed,
+                            None,
+                            None,
+                            0,
+                            0,
+                            at,
+                            tp,
+                        )?;
+                        continue;
+                    }
                     None => {}
                 }
             }
@@ -553,11 +629,10 @@ fn write_outcome(
         },
     )?;
 
-    // Si este archivo tenía fragmentos y ahora no produce texto indexable
-    // —lo editaron, se corrompió, resultó ser un bundle—, se van. Una
-    // proyección que conserva el pasado no es una proyección: es un log mal
-    // hecho, y ya hay uno bien hecho al lado.
-    if status != Status::Ok {
+    // Un fallo transitorio deja la versión anterior disponible para recuperar
+    // la proyección y clasificar relaciones heredadas. La cuarentena impide
+    // que las lecturas del producto sirvan esos fragmentos mientras tanto.
+    if status != Status::Ok && status != Status::Failed {
         index::replace_chunks(
             store.conn(),
             &file.entity,

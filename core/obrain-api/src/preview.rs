@@ -122,6 +122,9 @@ pub fn of(
     at: TimePoint,
     locked: bool,
 ) -> crate::Result<Preview> {
+    if store.content_pending(id)? {
+        return Err(crate::Error::PublicationPending(id.0.clone()));
+    }
     if crate::identity::pending(store, id, at)? {
         return Err(crate::Error::IdentityPending(id.0.clone()));
     }
@@ -187,7 +190,13 @@ pub fn of(
     //       delante. Un archivo en la nube no llega nunca a `thumbnail`.
     if p.readable {
         if let Some(ruta) = p.path.as_deref().filter(|r| is_image(r)) {
-            match thumbnail(Path::new(ruta)) {
+            // La ruta es mutable fuera de SQLite. Se decodifican exactamente
+            // los bytes cuyo hash coincide con la versión publicada.
+            let expected = store.published_content_hash(id)?;
+            match expected
+                .as_deref()
+                .and_then(|h| thumbnail(Path::new(ruta), h))
+            {
                 Some((datos, w, h)) => {
                     p.kind = "image";
                     p.image = Some(datos);
@@ -348,16 +357,17 @@ fn is_image(path: &str) -> bool {
 /// **Sólo se llama detrás de la guarda de M1.** Que esta función no la
 /// comprueba es intencionado: una guarda repetida en dos sitios es una guarda
 /// que un día se cambia en uno solo.
-fn thumbnail(path: &Path) -> Option<(String, u32, u32)> {
+fn thumbnail(path: &Path, expected_hash: &str) -> Option<(String, u32, u32)> {
     if std::fs::metadata(path).ok()?.len() > MAX_IMAGE_BYTES {
         return None;
     }
-    let img = image::ImageReader::open(path)
-        .ok()?
-        .with_guessed_format()
-        .ok()?
-        .decode()
-        .ok()?;
+    let bytes = std::fs::read(path).ok()?;
+    if bytes.len() as u64 > MAX_IMAGE_BYTES
+        || blake3::hash(&bytes).to_hex().as_str() != expected_hash
+    {
+        return None;
+    }
+    let img = image::load_from_memory(&bytes).ok()?;
     // Reducir sí, agrandar no. Un icono de 16 px estirado a 720 se ve peor que
     // el icono, y ocupa cien veces más en el puente para no enseñar nada más.
     let img = if img.width() > THUMB || img.height() > THUMB {

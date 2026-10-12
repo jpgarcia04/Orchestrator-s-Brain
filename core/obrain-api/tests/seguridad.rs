@@ -56,6 +56,10 @@ fn documento(s: &Store, ruta: &str, texto: &str) -> EntityId {
         }],
     )
     .unwrap();
+    // La prueba trata del cifrado de una versión ya publicada. Los tests de
+    // publicación comprueban por separado la cuarentena anterior a la puerta.
+    s.prepare_content(&e, None).unwrap();
+    assert!(s.publish_content(&e, None).unwrap());
     e
 }
 

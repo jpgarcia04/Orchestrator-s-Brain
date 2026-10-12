@@ -111,7 +111,9 @@ pub fn search_within(
         "SELECT c.entity, c.ordinal, bm25(chunks_fts) AS score,
                 snippet(chunks_fts, 0, '«', '»', ' … ', 14), c.text
          FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid
-         WHERE chunks_fts MATCH ?1 {filtro}
+         WHERE chunks_fts MATCH ?1
+           AND NOT EXISTS (SELECT 1 FROM content_publication p
+                            WHERE p.entity=c.entity AND p.state='pending') {filtro}
          ORDER BY score
          LIMIT ?2"
     ))?;

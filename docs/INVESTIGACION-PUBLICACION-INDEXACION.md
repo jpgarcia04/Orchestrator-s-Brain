@@ -1,7 +1,8 @@
-# Investigación P1: publicación durante la indexación
+# P1: publicación segura durante la indexación
 
-Estado: propuesta de diseño; no se ha cambiado el esquema ni el pipeline. Rama
+Estado: implementación de cuarentena temporal en la rama
 `codex/publicacion-segura-indexacion`, creada desde `main` en `683e63b`.
+No se ha abierto ni migrado ninguna bóveda personal y no se ha hecho merge.
 
 ## Alcance y reproducción
 
@@ -68,7 +69,7 @@ protecciones decide la visibilidad de una versión aún sin clasificar.
 
 ## Soluciones consideradas
 
-### A. Cuarentena persistente por entidad (preferida para este P1)
+### A. Cuarentena persistente por entidad (elegida para este P1)
 
 Una proyección de publicación guarda, por entidad, la versión de archivo
 observada y si su contenido está publicable. La ingesta deja la entidad en
@@ -107,20 +108,77 @@ pero exige versionar o duplicar chunks/FTS, vectores y datos derivados, y
 adaptar cada lectura a la generación publicada. La migración y la recuperación
 de generaciones incompletas tienen más riesgo.
 
-## Decisión necesaria antes de implementar
+## Decisión e implementación
 
-Recomiendo **A** con cuarentena temporal también de la versión anterior en las
-lecturas del producto. Es la reparación más acotada para el P1. Aun así afecta
-el esquema de bases cifradas existentes y las rutas de lectura de varios
-crates. La decisión de inicialización de bases existentes y la indisponibilidad
-temporal son cambios visibles que conviene aprobar antes de escribir la
-migración. B queda como alternativa si mantener accesible la versión previa
-durante la actualización es un requisito estricto.
+Se eligió **A**, con indisponibilidad temporal sólo de cada documento nuevo o
+cuya ruta, hash o clasificación por nombre/carpeta cambió. La ingesta escribe
+`content_publication.pending` en la misma transacción que la nueva observación.
+La extracción conserva una copia de los fragmentos anteriores hasta publicar;
+un error de lectura no los elimina y se reintenta aunque el hash observado no
+haya cambiado. La extracción verifica los bytes leídos contra el hash del
+escáner. Si el formato deja de ser extraíble, retira sus fragmentos activos y
+conserva la copia hasta que termina la clasificación.
 
-Tras elegir, las primeras pruebas deben demostrar el fallo actual en
-`Brain::search`, `Brain::preview`, lectura concurrente y miniatura; después
-añadir fallo y reintento, identidad pendiente, PIN, herencia, historial,
-reindexación sin cambios y las rutas semánticas. La garantía es sobre las
-lecturas del producto: un programa que abre directamente un archivo mutable
-en el sistema operativo tiene una carrera distinta que debe tratarse en la
-autorización de apertura.
+Las relaciones de contenido, la clasificación efectiva, la revocación y el
+cambio a `ready` comparten una transacción. Sólo se publica si el resultado de
+extracción corresponde al hash y al formato observados; `failed` sigue oculto.
+FTS, kNN y generación de vectores excluyen pendientes en la consulta. Las
+rutas de presentación que usaban el filtro de identidad PR3 incluyen también
+la cuarentena. Búsqueda, ficha y previsualización leen una instantánea WAL
+coherente. La miniatura compara los bytes leídos con el hash publicado. La
+apertura externa comprueba ese hash antes de entregar la ruta. El informe de
+actualización y la interfaz indican cuántos documentos siguen protegidos y
+que se reintentarán al actualizar.
+
+### Migración y recuperación
+
+La versión 2 del esquema añade tablas; no sustituye ni borra aserciones,
+correcciones ni índices previos. Al abrir una base anterior, cada ruta viva
+sin registro queda `pending` y se conserva su hash observado. Antes de fijar
+`user_version=2`, la migración ejecuta `quick_check` y
+`foreign_key_check`. La inserción y el cambio de versión comparten un
+savepoint; una apertura posterior repara también filas que hubieran faltado
+por una interrupción. El arranque reproyecta relaciones y sensibilidad en una
+transacción y sólo libera filas heredadas cuya extracción verificable coincide
+con la observación. Una extracción ausente o fallida permanece protegida hasta
+una indexación posterior. Ni la migración ni el arranque leen los archivos de
+la biblioteca.
+
+El respaldo de `publication_backup_chunks` conserva la proyección textual
+anterior de cada documento pendiente; se elimina tras una publicación válida.
+La copia de la base completa previa a desplegar sigue siendo la vía de
+recuperación ante un defecto desconocido de la nueva versión. Esta rama sólo
+ha ejercitado la migración con bases sintéticas y una copia aislada; ningún
+comando de migración se ha ejecutado sobre la bóveda personal.
+
+### Comprobaciones y límite de la ruta externa
+
+Las regresiones nuevas fallaron antes de la corrección por un resultado BM25
+visible entre extracción y clasificación. Ahora cubren documentos nuevos y
+modificados, fallos de extracción y clasificación con reintento, conservación
+de la corrección y los fragmentos anteriores, aislamiento de los demás
+documentos, miniaturas,
+apertura, idempotencia, renombre a formato sin extractor, migración en copia e
+instantáneas concurrentes. La suite existente comprueba PIN, herencia e
+identidad pendiente.
+
+La apertura con una aplicación del sistema recibe una ruta mutable. El núcleo
+comprueba su hash inmediatamente antes de devolverla, pero otro proceso puede
+cambiar el archivo entre esa comprobación y la apertura por el sistema
+operativo. Esa carrera externa no afecta al texto ni a las miniaturas que
+sirve el núcleo. No se debe ejecutar simultáneamente un indexador de una
+versión anterior durante el despliegue: ese binario desconoce la cuarentena.
+Si una versión publicada no tiene hash verificable, no se entrega su ruta para
+abrirla ni se genera miniatura: se puede reintentar tras una observación
+completa del archivo.
+
+### Validación en esta rama
+
+- La reproducción inicial hizo fallar las pruebas de búsqueda antes del cambio.
+- `cargo test --locked --workspace` pasó la suite completa de los diez crates.
+- `cargo clippy --locked --workspace --all-targets -- -D warnings` pasó.
+- `cargo check --locked --manifest-path ui/src-tauri/Cargo.toml` pasó.
+- `npm run check` pasó con cero errores y advertencias; `npm test` pasó 12 pruebas.
+- La migración se ejecutó sólo sobre una copia de base sintética, con
+  comprobaciones del log, texto, corrección de usuario, integridad, reparación
+  de un backfill interrumpido y reapertura idempotente.

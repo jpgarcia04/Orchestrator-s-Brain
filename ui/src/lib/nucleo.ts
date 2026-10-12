@@ -484,6 +484,8 @@ export interface Informe {
   edges_new: number;
   documents_read: number;
   chunks_new: number;
+  /** Versiones temporalmente ocultas hasta completar clasificación. */
+  pending: number;
   /** De los documentos leídos, los que se leyeron con OCR. */
   ocr: number;
   sensitive: number;
