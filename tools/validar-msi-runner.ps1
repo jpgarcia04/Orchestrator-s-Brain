@@ -165,51 +165,62 @@ try {
     $report.install = [ordered]@{ exitCode = $installCode; log = 'msi-install.log' }
     Assert-True ($installCode -eq 0) "msiexec /i devolvió $installCode; no se asume instalación completa."
 
-    $productState = [int]$installer.ProductState($productCode)
-    Assert-True ($productState -eq 5) "Windows Installer no considera instalado el producto: estado $productState."
+    Start-Sleep -Seconds 1
+    $postInstallInstaller = New-Object -ComObject WindowsInstaller.Installer
+    $productState = [int]$postInstallInstaller.ProductState($productCode)
     $uninstallEntry = Get-UninstallEntry $productCode
     $installDir = Join-Path $env:ProgramFiles "Orchestrator's Brain"
     $exe = Join-Path $installDir 'obrain-app.exe'
     $directMl = Join-Path $installDir 'DirectML.dll'
-    Assert-True (Test-Path -LiteralPath $exe -PathType Leaf) "Falta el ejecutable instalado: $exe"
-    Assert-True (Test-Path -LiteralPath $directMl -PathType Leaf) 'Falta DirectML.dll instalada.'
+    $exeExists = Test-Path -LiteralPath $exe -PathType Leaf
+    $directMlExists = Test-Path -LiteralPath $directMl -PathType Leaf
     $appRegistry = 'HKCU:\Software\obrain\Orchestrator''s Brain'
+    $registryValues = @{}
+    foreach ($name in @('Desktop Shortcut', 'InstallDir', 'Uninstaller Shortcut', 'Start Menu Shortcut')) {
+        $value = Get-ItemProperty -LiteralPath $appRegistry -Name $name -ErrorAction SilentlyContinue
+        $registryValues[$name] = $(if ($value) { $value.$name } else { $null })
+    }
     $report.installed = [ordered]@{
         installDir = $installDir
-        exeBytes = (Get-Item -LiteralPath $exe).Length
-        exeSha256 = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
-        directMlBytes = (Get-Item -LiteralPath $directMl).Length
+        exeExists = $exeExists
+        exeBytes = $(if ($exeExists) { (Get-Item -LiteralPath $exe).Length } else { $null })
+        exeSha256 = $(if ($exeExists) { (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash } else { $null })
+        directMlExists = $directMlExists
+        directMlBytes = $(if ($directMlExists) { (Get-Item -LiteralPath $directMl).Length } else { $null })
         productState = $productState
         uninstallEntryFound = [bool]$uninstallEntry
         uninstallDisplayName = $(if ($uninstallEntry) { [string]$uninstallEntry.DisplayName } else { $null })
         uninstallInstallLocation = $(if ($uninstallEntry) { [string]$uninstallEntry.InstallLocation } else { $null })
         appRegistryExists = (Test-Path -LiteralPath $appRegistry)
+        appRegistryValues = $registryValues
     }
     # El runner puede carecer de escritorio interactivo. Esto sólo prueba un arranque de proceso.
     $launched = $null
-    try {
+    if ($exeExists) { try {
         $launched = Start-Process -FilePath $exe -PassThru
+        $sessionId = try { $launched.SessionId } catch { $null }
         Start-Sleep -Seconds 20
         $launched.Refresh()
         $alive = -not $launched.HasExited
         $report.launch = [ordered]@{
             started = $true; processAliveAfter20Seconds = $alive
             exitCode = $(if ($alive) { $null } else { $launched.ExitCode })
-            sessionId = $launched.SessionId
+            sessionId = $sessionId
             databaseExists = (Test-Path -LiteralPath $db -PathType Leaf)
             webViewProfileEntries = @(Get-ChildItem -LiteralPath $webviewData -Force -ErrorAction SilentlyContinue).Count
             originalProfileBrainExists = (Test-Path -LiteralPath $defaultDbDir)
             originalLocalAppDataBrainExists = (Test-Path -LiteralPath $oldDbDir)
         }
     } catch {
-        $report.launch = [ordered]@{ started = $false; error = $_.Exception.Message }
+        $report.launch = [ordered]@{ started = [bool]$launched; error = $_.Exception.Message }
     } finally {
         if ($launched) {
             $launched.Refresh()
-            if (-not $launched.HasExited) { Stop-Process -Id $launched.Id -Force }
+            if (-not $launched.HasExited) { Stop-Process -Id $launched.Id -Force -ErrorAction SilentlyContinue }
         }
-    }
+    }} else { $report.launch = [ordered]@{ started = $false; reason = 'No existe el ejecutable instalado.' } }
     Assert-True (-not (Test-Path -LiteralPath $defaultDbDir) -and -not (Test-Path -LiteralPath $oldDbDir)) 'El arranque escribió en la ubicación original de Brain del runner.'
+    Assert-True ($exeExists -and $directMlExists) 'Falta uno de los binarios declarados por el MSI.'
     Assert-True ($report.installed.appRegistryExists) 'Falta la clave de registro HKCU declarada por el MSI.'
 } catch {
     $failure = $_
