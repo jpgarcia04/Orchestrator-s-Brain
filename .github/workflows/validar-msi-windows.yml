@@ -1,0 +1,57 @@
+name: Validar MSI en Windows temporal
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/validar-msi-windows.yml'
+      - 'tools/validar-msi-runner.ps1'
+      - 'ui/**'
+      - 'core/**'
+      - 'tests/fixtures/producto-windows/**'
+      - 'tools/biblioteca-sintetica.ps1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  instalar-y-desinstalar:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      CARGO_TARGET_DIR: ${{ runner.temp }}\obrain-cargo-target
+      CARGO_INCREMENTAL: '0'
+      RUNNER_ENVIRONMENT: ${{ runner.environment }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Identificar origen y herramientas
+        shell: pwsh
+        run: |
+          git rev-parse HEAD
+          node --version
+          npm --version
+          rustc --version
+          cargo --version
+          Get-ComputerInfo | Select-Object WindowsProductName, OsVersion, OsBuildNumber
+      - name: Instalar dependencias declaradas del frontend
+        working-directory: ui
+        run: npm ci
+      - name: Compilar MSI del commit evaluado
+        working-directory: ui
+        run: npm run tauri -- build --ci --no-sign --bundles msi
+      - name: Compilar CLI para preparar la base sintética
+        run: cargo build --manifest-path core/Cargo.toml --locked --release -p obrain-api --bin obrain
+      - name: Inspeccionar, instalar, arrancar y desinstalar
+        shell: pwsh
+        run: ./tools/validar-msi-runner.ps1
+      - name: Conservar evidencias del runner
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validacion-msi-windows-${{ github.run_id }}
+          path: ${{ runner.temp }}\obrain-msi-evidence\
+          if-no-files-found: warn
+          retention-days: 7
