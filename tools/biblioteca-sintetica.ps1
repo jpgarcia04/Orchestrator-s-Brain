@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)][string]$Root,
     [ValidateSet('Inicial', 'Cambio')][string]$Fase = 'Inicial'
 )
@@ -7,7 +7,9 @@ $ErrorActionPreference = 'Stop'
 $origen = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\tests\fixtures\producto-windows'))
 $destino = [IO.Path]::GetFullPath($Root)
 $temp = [IO.Path]::GetFullPath($env:TEMP).TrimEnd('\')
-if (-not [IO.Path]::IsPathFullyQualified($Root)) { throw 'Root debe ser una ruta absoluta' }
+if (-not [IO.Path]::IsPathRooted($Root) -or $Root -match '^[A-Za-z]:[^\\/]') {
+    throw 'Root debe ser una ruta absoluta'
+}
 if (-not $destino.StartsWith($temp + '\', [StringComparison]::OrdinalIgnoreCase)) {
     throw "Root debe quedar dentro de TEMP: $temp"
 }

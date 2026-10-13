@@ -8,6 +8,8 @@ Fecha: 13 de octubre de 2026. Base: `origin/main` en `5421cee` (PR #6 fusionada)
 
 La biblioteca y las pruebas automáticas permiten repetir el ensayo en una VM desechable. No apareció un defecto funcional de Brain en los casos automáticos comprobados. La ausencia de una VM sigue siendo el bloqueo principal de **validación**, no un fallo observado del producto.
 
+El alcance de esta PR termina en la biblioteca sintética, sus regresiones y este informe. La instalación real del MSI y los ocho recorridos visuales forman una etapa posterior independiente.
+
 ## Preparación, aislamiento y paquete
 
 - `ui/src-tauri/tauri.conf.json` declara Tauri 2, producto `Orchestrator's Brain`, versión `0.0.1`, identificador `dev.obrain.app` y bundle activo. La orden de esta validación solicita **sólo MSI** (`--bundles msi`); no intenta corregir NSIS. La PR #5 documentó un fallo de macro de NSIS y un MSI cuya carga extraída arrancó, sin instalación.
@@ -35,6 +37,13 @@ La biblioteca y las pruebas automáticas permiten repetir el ensayo en una VM de
 
 El oráculo está en `core/obrain-api/tests/producto_windows.rs` y usa el pipeline de indexación real sobre una copia temporal y un `Store` en memoria. No prueba persistencia entre procesos, temporizadores visuales del PIN ni interacción con ventanas.
 
+Para repetirlo desde la raíz del repositorio en Windows, con Rust disponible y `CARGO_TARGET_DIR` fuera de la ruta del repositorio que contiene un apóstrofo:
+
+```powershell
+$env:CARGO_TARGET_DIR = Join-Path $env:TEMP 'obrain-cargo-target'
+cargo test --manifest-path core/Cargo.toml --locked -p obrain-api --test producto_windows
+```
+
 ## Recorridos de interfaz e instalación
 
 | Recorrido solicitado | Estado | Evidencia que falta |
@@ -53,14 +62,14 @@ El oráculo está en `core/obrain-api/tests/producto_windows.rs` y usa el pipeli
 
 | Tipo | Comando o comprobación | Resultado |
 | --- | --- | --- |
-| Automática | `cargo test --locked -p obrain-api --test producto_windows` | 2/2 casos pasaron en Windows |
+| Automática | `cargo test --manifest-path core/Cargo.toml --locked -p obrain-api --test producto_windows` desde la raíz | 2/2 casos pasaron en Windows |
 | Automática | `npm test` en `ui` | 12/12 pruebas pasaron |
 | Automática | `npm run build` en `ui` | 0 errores y 0 avisos de Svelte; Vite construyó assets |
-| Automática, empaquetado | `npm run tauri -- build --ci --no-sign --bundles msi` | MSI x64 generado; sin instalación |
+| Automática, empaquetado | `npm run tauri -- build --ci --no-sign --bundles msi` en `ui` | MSI x64 generado; sin instalación |
 | Manual, lectura del MSI | Tablas Windows Installer y extracción `dark.exe` | Instalación por máquina, accesos directos, registro y bootstrapper WebView2 condicional identificados |
 | Automática | `cargo fmt --all -- --check` | Pasó tras formatear la nueva prueba |
 | Manual, artefacto | Render de PDF y lectura de una página | Legible, sin cortes; texto extraíble |
-| Manual, preparación | `biblioteca-sintetica.ps1` en fases Inicial y Cambio | 11 documentos; cambios aplicados; ruta real de Brain rechazada |
+| Manual, preparación | `biblioteca-sintetica.ps1` en fases Inicial y Cambio con Windows PowerShell 5.1 | 11 documentos; cambios y acentos conservados; ruta real de Brain rechazada |
 | Manual, producto instalado | MSI, ventanas, clics, desinstalación | No ejecutado por falta de invitado aislado |
 
 ## Prioridad y siguiente ensayo

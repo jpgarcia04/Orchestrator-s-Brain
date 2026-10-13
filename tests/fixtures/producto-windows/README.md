@@ -4,6 +4,19 @@ Todos los documentos son inventados. No hay datos personales auténticos ni cred
 
 No registres esta carpeta del repositorio como biblioteca: cópiala a una raíz temporal de una VM o Windows Sandbox. `tools/biblioteca-sintetica.ps1` prepara la copia y realiza el cambio posterior.
 
+Desde la raíz del repositorio, **dentro del invitado Windows**:
+
+```powershell
+$root = Join-Path $env:TEMP ('obrain-demo-' + [guid]::NewGuid().ToString('N'))
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\biblioteca-sintetica.ps1 -Root $root -Fase Inicial
+# Registra $root en Brain y comprueba los casos iniciales antes del cambio.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\biblioteca-sintetica.ps1 -Root $root -Fase Cambio
+```
+
+El PDF ya está versionado y no requiere Python para usar la biblioteca. Para regenerarlo en un entorno que ya tenga `reportlab==4.4.9`, ejecuta `python tools/generar-pdf-fixture.py`. Con esa versión, `invariant=1` reprodujo el SHA-256 `574E96FF764EC8965603D486C5C7C2801ED4E41475E0FE0C3BB6C27FE665E455`.
+
+El BOM UTF-8 de `tools/biblioteca-sintetica.ps1` es intencional: Windows PowerShell 5.1 lo necesita para leer correctamente los acentos que escribe la fase `Cambio`.
+
 ## Resultado esperado
 
 | Caso | Consulta / acción | Resultado esperado |
