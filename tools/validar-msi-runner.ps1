@@ -31,16 +31,14 @@ function Assert-True([bool]$condition, [string]$message) {
 function Read-MsiRows($database, [string]$sql, [int]$columns) {
     $view = $database.OpenView($sql)
     try {
-        $view.Execute()
-        $rows = @()
+        $view.Execute() | Out-Null
         while ($record = $view.Fetch()) {
             $row = @()
             for ($i = 1; $i -le $columns; $i++) { $row += [string]$record.StringData($i) }
-            $rows += ,$row
+            [pscustomobject]@{ Columns = $row }
         }
-        return $rows
     } finally {
-        $view.Close()
+        $view.Close() | Out-Null
     }
 }
 
@@ -96,15 +94,15 @@ try {
     $installer = New-Object -ComObject WindowsInstaller.Installer
     $database = $installer.OpenDatabase($msi, 0)
     $properties = @{}
-    foreach ($row in (Read-MsiRows $database 'SELECT `Property`, `Value` FROM `Property`' 2)) { $properties[$row[0]] = $row[1] }
+    foreach ($row in (Read-MsiRows $database 'SELECT `Property`, `Value` FROM `Property`' 2)) { $properties[$row.Columns[0]] = $row.Columns[1] }
     $productCode = $properties['ProductCode']
-    $tables = @((Read-MsiRows $database 'SELECT `Name` FROM `_Tables`' 1) | ForEach-Object { $_[0] })
-    $files = @((Read-MsiRows $database 'SELECT `FileName` FROM `File`' 1) | ForEach-Object { $_[0] })
-    $directories = @((Read-MsiRows $database 'SELECT `Directory`, `Directory_Parent`, `DefaultDir` FROM `Directory`' 3) | ForEach-Object { $_ -join ' | ' })
-    $actions = @((Read-MsiRows $database 'SELECT `Action`, `Type`, `Source`, `Target` FROM `CustomAction`' 4) | ForEach-Object { $_ -join ' | ' })
-    $sequence = @((Read-MsiRows $database 'SELECT `Action`, `Condition`, `Sequence` FROM `InstallExecuteSequence`' 3) | ForEach-Object { $_ -join ' | ' })
-    $registry = @((Read-MsiRows $database 'SELECT `Root`, `Key`, `Name` FROM `Registry`' 3) | ForEach-Object { $_ -join ' | ' })
-    $shortcuts = @((Read-MsiRows $database 'SELECT `Directory_`, `Name`, `Target` FROM `Shortcut`' 3) | ForEach-Object { $_ -join ' | ' })
+    $tables = @((Read-MsiRows $database 'SELECT `Name` FROM `_Tables`' 1) | ForEach-Object { $_.Columns[0] })
+    $files = @((Read-MsiRows $database 'SELECT `FileName` FROM `File`' 1) | ForEach-Object { $_.Columns[0] })
+    $directories = @((Read-MsiRows $database 'SELECT `Directory`, `Directory_Parent`, `DefaultDir` FROM `Directory`' 3) | ForEach-Object { $_.Columns -join ' | ' })
+    $actions = @((Read-MsiRows $database 'SELECT `Action`, `Type`, `Source`, `Target` FROM `CustomAction`' 4) | ForEach-Object { $_.Columns -join ' | ' })
+    $sequence = @((Read-MsiRows $database 'SELECT `Action`, `Condition`, `Sequence` FROM `InstallExecuteSequence`' 3) | ForEach-Object { $_.Columns -join ' | ' })
+    $registry = @((Read-MsiRows $database 'SELECT `Root`, `Key`, `Name` FROM `Registry`' 3) | ForEach-Object { $_.Columns -join ' | ' })
+    $shortcuts = @((Read-MsiRows $database 'SELECT `Directory_`, `Name`, `Target` FROM `Shortcut`' 3) | ForEach-Object { $_.Columns -join ' | ' })
     $report.msi = [ordered]@{
         file = $msis[0].Name; bytes = $msis[0].Length; sha256 = $hash; signature = $signature
         productName = $properties['ProductName']; productVersion = $properties['ProductVersion']
