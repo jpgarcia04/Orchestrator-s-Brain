@@ -19,10 +19,6 @@ jobs:
   instalar-y-desinstalar:
     runs-on: windows-2022
     timeout-minutes: 90
-    env:
-      CARGO_TARGET_DIR: ${{ runner.temp }}\obrain-cargo-target
-      CARGO_INCREMENTAL: '0'
-      RUNNER_ENVIRONMENT: ${{ runner.environment }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,6 +26,9 @@ jobs:
       - name: Identificar origen y herramientas
         shell: pwsh
         run: |
+          "CARGO_TARGET_DIR=$env:RUNNER_TEMP\obrain-cargo-target" >> $env:GITHUB_ENV
+          'CARGO_INCREMENTAL=0' >> $env:GITHUB_ENV
+          'RUNNER_ENVIRONMENT=${{ runner.environment }}' >> $env:GITHUB_ENV
           git rev-parse HEAD
           node --version
           npm --version
