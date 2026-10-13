@@ -208,6 +208,50 @@ impl Legacy {
     pub fn path(&self) -> &Path {
         &self.db
     }
+
+    /// Completa la fixture con las identidades de disco que tenía una base v1
+    /// procedente de un escaneo real. Así la reindexación puede reconocer las
+    /// mismas entidades en vez de aplazar una ruta ambigua por seguridad.
+    #[allow(dead_code)] // Algunos tests v1 usan la fixture anterior sin identidades.
+    pub fn add_current_identities(&self) {
+        let conn = Connection::open(&self.db).unwrap();
+        for predicate in ["folder_id", "file_id"] {
+            conn.execute(
+                "INSERT INTO predicates(id,label,cardinality,default_method)
+                 VALUES(?1,?1,'one','deterministic')",
+                [predicate],
+            )
+            .unwrap();
+        }
+        for (predicate, path_predicate) in [
+            ("folder_id", "folder_path"),
+            ("file_id", "path_observed_at"),
+        ] {
+            let mut stmt = conn
+                .prepare("SELECT subject,object_text FROM assertions WHERE predicate=?1")
+                .unwrap();
+            let paths: Vec<(String, String)> = stmt
+                .query_map([path_predicate], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .collect::<obrain_core::rusqlite::Result<_>>()
+                .unwrap();
+            drop(stmt);
+            for (entity, path) in paths {
+                let identity = obrain_scan::identity::file_identity(Path::new(&path))
+                    .unwrap()
+                    .to_hex();
+                text_assertion(
+                    &conn,
+                    &format!("{entity}-{predicate}"),
+                    &entity,
+                    predicate,
+                    &identity,
+                    "deterministic",
+                    "scan@v1",
+                );
+            }
+        }
+    }
 }
 
 fn text_assertion(

@@ -64,10 +64,10 @@ mod windows_ocr {
         BitmapAlphaMode, BitmapDecoder, BitmapInterpolationMode, BitmapPixelFormat,
         BitmapTransform, ColorManagementMode, ExifOrientationMode, SoftwareBitmap,
     };
-    use windows::Media::Ocr::OcrEngine;
+    use windows::Media::Ocr::{IOcrEngineStatics, OcrEngine};
     use windows::Storage::Streams::{DataWriter, InMemoryRandomAccessStream};
-    use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize};
-    use windows::core::HSTRING;
+    use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize, RoUninitialize};
+    use windows::core::{HSTRING, Interface, Type, factory};
 
     type R<T> = windows::core::Result<T>;
 
@@ -80,28 +80,74 @@ mod windows_ocr {
 
     /// WinRT necesita el hilo inicializado. El indexador corre en un hilo
     /// propio que nadie ha inicializado; si ya lo estaba, esto no hace nada.
-    fn init() {
-        // SAFETY: inicializar WinRT en el hilo actual; un hilo ya inicializado
-        // devuelve un código que no es un error para lo que se hace aquí.
+    struct WinRtInit(bool);
+
+    impl Drop for WinRtInit {
+        fn drop(&mut self) {
+            if self.0 {
+                // Cada RoInitialize exitoso se equilibra en el mismo hilo.
+                unsafe { RoUninitialize() };
+            }
+        }
+    }
+
+    fn init() -> WinRtInit {
+        // Si Tauri ya inicializó el hilo como STA, no cambiamos su apartamento.
+        WinRtInit(unsafe { RoInitialize(RO_INIT_MULTITHREADED) }.is_ok())
+    }
+
+    // La factoría generada por windows-rs se guarda en una caché global. El
+    // objeto de OCR de Windows queda inválido al terminar el primer hilo MTA
+    // aunque anuncie IAgileObject; usarlo desde el siguiente hilo causa una
+    // violación de acceso. Cargar la factoría para cada llamada evita conservar
+    // esa referencia entre hilos.
+    fn ocr_factory() -> R<IOcrEngineStatics> {
+        factory::<OcrEngine, IOcrEngineStatics>()
+    }
+
+    fn engine_for_profile() -> R<OcrEngine> {
+        let f = ocr_factory()?;
         unsafe {
-            let _ = RoInitialize(RO_INIT_MULTITHREADED);
+            let mut result = std::ptr::null_mut();
+            (Interface::vtable(&f).TryCreateFromUserProfileLanguages)(
+                Interface::as_raw(&f),
+                &mut result,
+            )
+            .and_then(|| Type::from_abi(result))
         }
     }
 
     fn engine_for(tag: &str) -> R<OcrEngine> {
-        OcrEngine::TryCreateFromLanguage(&Language::CreateLanguage(&HSTRING::from(tag))?)
+        let language = Language::CreateLanguage(&HSTRING::from(tag))?;
+        let f = ocr_factory()?;
+        unsafe {
+            let mut result = std::ptr::null_mut();
+            (Interface::vtable(&f).TryCreateFromLanguage)(
+                Interface::as_raw(&f),
+                Interface::as_raw(&language),
+                &mut result,
+            )
+            .and_then(|| Type::from_abi(result))
+        }
+    }
+
+    fn max_image_dimension() -> R<u32> {
+        let f = ocr_factory()?;
+        unsafe {
+            let mut result = 0;
+            (Interface::vtable(&f).MaxImageDimension)(Interface::as_raw(&f), &mut result)
+                .map(|| result)
+        }
     }
 
     impl WindowsOcr {
         pub fn create() -> Option<Self> {
-            init();
-            let engine = OcrEngine::TryCreateFromUserProfileLanguages()
-                .ok()
-                .or_else(|| {
-                    ["es-ES", "es-MX", "es", "en-US"]
-                        .iter()
-                        .find_map(|t| engine_for(t).ok())
-                })?;
+            let _winrt = init();
+            let engine = engine_for_profile().ok().or_else(|| {
+                ["es-ES", "es-MX", "es", "en-US"]
+                    .iter()
+                    .find_map(|t| engine_for(t).ok())
+            })?;
             let tag = engine
                 .RecognizerLanguage()
                 .ok()?
@@ -128,7 +174,7 @@ mod windows_ocr {
     /// orientación va en el EXIF— y reducida si pasa del máximo que acepta el
     /// reconocedor.
     fn preparar(decoder: &BitmapDecoder) -> R<SoftwareBitmap> {
-        let max = OcrEngine::MaxImageDimension()?;
+        let max = max_image_dimension()?;
         let t = BitmapTransform::new()?;
         let lado = decoder
             .OrientedPixelWidth()?
@@ -168,7 +214,7 @@ mod windows_ocr {
         }
 
         fn image(&self, bytes: &[u8]) -> Result<String, String> {
-            init();
+            let _winrt = init();
             let r = (|| -> R<String> {
                 let engine = engine_for(&self.tag)?;
                 let decoder = BitmapDecoder::CreateAsync(&stream(bytes)?)?.get()?;
@@ -178,10 +224,10 @@ mod windows_ocr {
         }
 
         fn pdf(&self, bytes: &[u8], max_pages: u32) -> Option<Result<String, String>> {
-            init();
+            let _winrt = init();
             let r = (|| -> R<String> {
                 let engine = engine_for(&self.tag)?;
-                let max = f64::from(OcrEngine::MaxImageDimension()?);
+                let max = f64::from(max_image_dimension()?);
                 let doc = PdfDocument::LoadFromStreamAsync(&stream(bytes)?)?.get()?;
                 let mut out = String::new();
                 for i in 0..doc.PageCount()?.min(max_pages) {
@@ -214,6 +260,24 @@ mod windows_ocr {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    #[test]
+    fn reconocedor_en_hilos_sucesivos() {
+        for _ in 0..3 {
+            std::thread::spawn(|| {
+                if let Some(ocr) = super::platform() {
+                    eprintln!("reconocedor disponible: {}", ocr.engine());
+                    assert!(ocr.image(b"imagen sintetica invalida").is_err());
+                    assert!(ocr.pdf(b"pdf sintetico invalido", 1).unwrap().is_err());
+                } else {
+                    eprintln!("reconocedor no disponible en este Windows");
+                }
+            })
+            .join()
+            .unwrap();
+        }
+    }
+
     /// Fuera de Windows no hay reconocedor: las imágenes siguen sin texto, que
     /// es lo que había. En Windows depende del idioma instalado, y no se
     /// afirma nada.
