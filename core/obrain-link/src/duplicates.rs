@@ -5,10 +5,20 @@
 //! columna determinista de §4.4 es donde está el valor inicial del grafo.
 
 use crate::{Edge, FileView, LinkReport, write_edge};
-use obrain_core::{Method, Result, Store, Value};
-use std::collections::HashMap;
+use obrain_core::{EntityId, Method, Result, Store, TimePoint, Value};
+use std::collections::{HashMap, HashSet};
+
+const SOURCE: &str = "linker:hash";
 
 pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport) -> Result<()> {
+    let tp = TimePoint::at(at);
+    // Una identidad sin resolver no prueba que la relación anterior haya
+    // dejado de ser cierta. Se espera a una pasada concluyente.
+    let pending: HashSet<EntityId> = store
+        .query(None, Some("identity_pending_path"), tp)?
+        .into_iter()
+        .map(|a| a.subject)
+        .collect();
     let mut by_hash: HashMap<&str, Vec<&FileView>> = HashMap::new();
     for f in files {
         // Un archivo vacío tiene el mismo hash que todos los demás archivos
@@ -18,7 +28,7 @@ pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport)
         //
         // Encontrado auditando el grafo real con `--sample`. Los contadores no
         // lo habrían delatado nunca.
-        if f.size == 0 {
+        if f.size == 0 || pending.contains(&f.entity) {
             continue;
         }
         if let Some(h) = &f.hash {
@@ -26,6 +36,7 @@ pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport)
         }
     }
 
+    let mut wanted: HashSet<(EntityId, EntityId)> = HashSet::new();
     for (_, mut group) in by_hash {
         if group.len() < 2 {
             continue;
@@ -39,21 +50,44 @@ pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport)
         // N(N−1)/2 entre todos. Con un grupo de 40 copias eso es 39 aristas
         // en lugar de 780, y la información es exactamente la misma.
         for dup in &group[1..] {
-            if write_edge(
-                store,
-                report,
-                Edge {
-                    subject: &dup.entity,
-                    predicate: "duplicate_of",
-                    object: Value::Entity(canonical.entity.clone()),
-                    method: Method::Deterministic,
-                    confidence: 1.0,
-                    source: "linker:hash",
-                },
-                at,
-            )? {
-                report.duplicate_of += 1;
-            }
+            wanted.insert((dup.entity.clone(), canonical.entity.clone()));
+        }
+    }
+
+    // Sólo se retracta lo que afirmó este enlazador. El corte temporal deja
+    // consultable la historia y conserva correcciones y otras procedencias.
+    for a in store.query(None, Some("duplicate_of"), tp)? {
+        if a.method != Method::Deterministic || a.source != SOURCE {
+            continue;
+        }
+        let Some(object) = a.object.as_entity() else {
+            continue;
+        };
+        if pending.contains(&a.subject) || pending.contains(object) {
+            continue;
+        }
+        if !wanted.contains(&(a.subject.clone(), object.clone())) {
+            store.retract(&a.id, at)?;
+        }
+    }
+
+    let mut wanted: Vec<_> = wanted.into_iter().collect();
+    wanted.sort();
+    for (subject, object) in wanted {
+        if write_edge(
+            store,
+            report,
+            Edge {
+                subject: &subject,
+                predicate: "duplicate_of",
+                object: Value::Entity(object),
+                method: Method::Deterministic,
+                confidence: 1.0,
+                source: SOURCE,
+            },
+            at,
+        )? {
+            report.duplicate_of += 1;
         }
     }
     Ok(())
@@ -155,5 +189,133 @@ mod tests {
         super::link(&s, &files, 3000, &mut r2).unwrap();
         assert_eq!(r2.duplicate_of, 0, "idempotente");
         assert_eq!(r2.already_present, 1);
+    }
+
+    #[test]
+    fn al_cambiar_el_canonico_reconcilia_la_estrella_y_respeta_al_usuario() {
+        let s = Store::open_in_memory().unwrap();
+        let mut files = vec![
+            file(&s, "a.pdf", "H", 100),
+            file(&s, "b.pdf", "H", 200),
+            file(&s, "c.pdf", "H", 300),
+        ];
+        super::link(&s, &files, 2000, &mut LinkReport::default()).unwrap();
+        let before = s
+            .query(None, Some("duplicate_of"), TimePoint::at(2000))
+            .unwrap();
+        assert_eq!(before.len(), 2);
+
+        s.assert(
+            NewAssertion::new(
+                files[1].entity.clone(),
+                "duplicate_of",
+                Value::Entity(files[0].entity.clone()),
+                Method::User,
+                2500,
+            )
+            .source("user:test"),
+        )
+        .unwrap();
+        files[0].modified_ms = 400; // mismos bytes, nuevo canónico: b
+        super::link(&s, &files, 3000, &mut LinkReport::default()).unwrap();
+
+        let active = s
+            .query(None, Some("duplicate_of"), TimePoint::at(3001))
+            .unwrap();
+        assert_eq!(active.len(), 3);
+        assert!(
+            active
+                .iter()
+                .any(|a| a.method == Method::User && a.subject == files[1].entity)
+        );
+        assert!(active.iter().any(|a| {
+            a.source == "linker:hash"
+                && a.subject == files[2].entity
+                && a.object.as_entity() == Some(&files[1].entity)
+        }));
+        assert!(active.iter().any(|a| {
+            a.source == "linker:hash"
+                && a.subject == files[0].entity
+                && a.object.as_entity() == Some(&files[1].entity)
+        }));
+        assert_eq!(
+            s.query(None, Some("duplicate_of"), TimePoint::at(2500))
+                .unwrap()
+                .len(),
+            3,
+            "la historia conserva las dos aristas originales y la corrección"
+        );
+    }
+
+    #[test]
+    fn quitar_y_reponer_una_copia_retracta_y_reafirma_sin_duplicar() {
+        let s = Store::open_in_memory().unwrap();
+        let files = vec![file(&s, "a.pdf", "H", 100), file(&s, "b.pdf", "H", 200)];
+        super::link(&s, &files, 2000, &mut LinkReport::default()).unwrap();
+        super::link(&s, &files[..1], 3000, &mut LinkReport::default()).unwrap();
+        assert!(
+            s.query(None, Some("duplicate_of"), TimePoint::at(3001))
+                .unwrap()
+                .is_empty()
+        );
+
+        super::link(&s, &files, 4000, &mut LinkReport::default()).unwrap();
+        super::link(&s, &files, 5000, &mut LinkReport::default()).unwrap();
+        let active = s
+            .query(None, Some("duplicate_of"), TimePoint::at(5001))
+            .unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].asserted_at, 4000);
+        assert_eq!(
+            s.query(None, Some("duplicate_of"), TimePoint::at(2500))
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn identidad_pendiente_espera_y_otras_procedencias_se_conservan() {
+        let s = Store::open_in_memory().unwrap();
+        let files = vec![file(&s, "a.pdf", "H", 100), file(&s, "b.pdf", "H", 200)];
+        super::link(&s, &files, 2000, &mut LinkReport::default()).unwrap();
+        let pending = s
+            .assert(
+                NewAssertion::new(
+                    files[1].entity.clone(),
+                    "identity_pending_path",
+                    "b.pdf",
+                    Method::Deterministic,
+                    2500,
+                )
+                .source("scan@m1"),
+            )
+            .unwrap();
+        super::link(&s, &files[..1], 3000, &mut LinkReport::default()).unwrap();
+        assert_eq!(
+            s.query(None, Some("duplicate_of"), TimePoint::at(3001))
+                .unwrap()
+                .len(),
+            1
+        );
+
+        s.retract(&pending, 4000).unwrap();
+        s.assert(
+            NewAssertion::new(
+                files[1].entity.clone(),
+                "duplicate_of",
+                Value::Entity(files[0].entity.clone()),
+                Method::Imported,
+                4000,
+            )
+            .source("import:test"),
+        )
+        .unwrap();
+        super::link(&s, &files[..1], 5000, &mut LinkReport::default()).unwrap();
+        let active = s
+            .query(None, Some("duplicate_of"), TimePoint::at(5001))
+            .unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].source, "import:test");
     }
 }
