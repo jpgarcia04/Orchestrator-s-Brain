@@ -56,7 +56,9 @@ function Get-WebView2Version {
 
 function Get-UninstallEntry([string]$code) {
     foreach ($root in @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
-                         'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall')) {
+                         'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall',
+                         'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+                         'HKCU:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall')) {
         $key = Join-Path $root $code
         if (Test-Path -LiteralPath $key) { return Get-ItemProperty -LiteralPath $key }
     }
@@ -163,10 +165,10 @@ try {
     $report.install = [ordered]@{ exitCode = $installCode; log = 'msi-install.log' }
     Assert-True ($installCode -eq 0) "msiexec /i devolvió $installCode; no se asume instalación completa."
 
+    $productState = [int]$installer.ProductState($productCode)
+    Assert-True ($productState -eq 5) "Windows Installer no considera instalado el producto: estado $productState."
     $uninstallEntry = Get-UninstallEntry $productCode
-    Assert-True ([bool]$uninstallEntry) 'Falta la entrada de desinstalación en HKLM.'
-    $installDir = [string]$uninstallEntry.InstallLocation
-    if (-not $installDir) { $installDir = Join-Path $env:ProgramFiles "Orchestrator's Brain" }
+    $installDir = Join-Path $env:ProgramFiles "Orchestrator's Brain"
     $exe = Join-Path $installDir 'obrain-app.exe'
     $directMl = Join-Path $installDir 'DirectML.dll'
     Assert-True (Test-Path -LiteralPath $exe -PathType Leaf) "Falta el ejecutable instalado: $exe"
@@ -177,11 +179,12 @@ try {
         exeBytes = (Get-Item -LiteralPath $exe).Length
         exeSha256 = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
         directMlBytes = (Get-Item -LiteralPath $directMl).Length
-        uninstallDisplayName = [string]$uninstallEntry.DisplayName
+        productState = $productState
+        uninstallEntryFound = [bool]$uninstallEntry
+        uninstallDisplayName = $(if ($uninstallEntry) { [string]$uninstallEntry.DisplayName } else { $null })
+        uninstallInstallLocation = $(if ($uninstallEntry) { [string]$uninstallEntry.InstallLocation } else { $null })
         appRegistryExists = (Test-Path -LiteralPath $appRegistry)
     }
-    Assert-True ($report.installed.appRegistryExists) 'Falta la clave de registro HKCU declarada por el MSI.'
-
     # El runner puede carecer de escritorio interactivo. Esto sólo prueba un arranque de proceso.
     $launched = $null
     try {
@@ -207,6 +210,7 @@ try {
         }
     }
     Assert-True (-not (Test-Path -LiteralPath $defaultDbDir) -and -not (Test-Path -LiteralPath $oldDbDir)) 'El arranque escribió en la ubicación original de Brain del runner.'
+    Assert-True ($report.installed.appRegistryExists) 'Falta la clave de registro HKCU declarada por el MSI.'
 } catch {
     $failure = $_
     $report.error = $_.Exception.Message
@@ -217,13 +221,16 @@ try {
             & msiexec.exe /x $productCode /qn /norestart /L*V $uninstallLog
             $uninstallCode = $LASTEXITCODE
             $remainingEntry = [bool](Get-UninstallEntry $productCode)
+            $remainingState = [int]$installer.ProductState($productCode)
             $remainingExe = $false
             if ($report.installed) { $remainingExe = Test-Path -LiteralPath (Join-Path $report.installed.installDir 'obrain-app.exe') }
+            $appRegistryValueRemains = [bool](Get-ItemProperty -LiteralPath 'HKCU:\Software\obrain\Orchestrator''s Brain' -Name InstallDir -ErrorAction SilentlyContinue)
             $report.uninstall = [ordered]@{
                 exitCode = $uninstallCode; log = 'msi-uninstall.log'
-                uninstallRegistryRemains = $remainingEntry; executableRemains = $remainingExe
+                productState = $remainingState; uninstallRegistryRemains = $remainingEntry
+                executableRemains = $remainingExe; appRegistryValueRemains = $appRegistryValueRemains
             }
-            if ($uninstallCode -ne 0 -or $remainingEntry -or $remainingExe) {
+            if ($uninstallCode -ne 0 -or $remainingState -ne -1 -or $remainingEntry -or $remainingExe -or $appRegistryValueRemains) {
                 if (-not $failure) { $failure = 'La desinstalación no se confirmó.' }
             }
         } catch {
