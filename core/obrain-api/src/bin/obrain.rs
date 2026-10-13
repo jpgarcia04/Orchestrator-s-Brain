@@ -165,7 +165,9 @@ fn main() -> ExitCode {
             }
         },
         "clave" => {
-            let b = Brain::from_store(store);
+            let Some(b) = try_brain(store) else {
+                return ExitCode::FAILURE;
+            };
             if guardada {
                 return match b.confirm_recovery_saved() {
                     Ok(()) => {
@@ -213,7 +215,9 @@ fn main() -> ExitCode {
             marcar(store, carpeta, nivel)
         }
         "sensibles" => {
-            let b = Brain::from_store(store);
+            let Some(b) = try_brain(store) else {
+                return ExitCode::FAILURE;
+            };
             match b.marked_folders() {
                 Ok(v) if v.is_empty() => {
                     println!(
@@ -239,7 +243,9 @@ fn main() -> ExitCode {
             }
         }
         "vencimientos" => {
-            let b = Brain::from_store(store);
+            let Some(b) = try_brain(store) else {
+                return ExitCode::FAILURE;
+            };
             match b.expiring() {
                 Ok(v) if v.is_empty() => {
                     println!("nada caduca en los próximos 90 días.");
@@ -266,7 +272,9 @@ fn main() -> ExitCode {
             }
         }
         "paquetes" => {
-            let b = Brain::from_store(store);
+            let Some(b) = try_brain(store) else {
+                return ExitCode::FAILURE;
+            };
             match b.packages() {
                 Ok(v) if v.is_empty() => {
                     println!("ningún documento lleva otro dentro.");
@@ -306,7 +314,9 @@ fn main() -> ExitCode {
             }
         }
         "colecciones" => {
-            let b = Brain::from_store(store);
+            let Some(b) = try_brain(store) else {
+                return ExitCode::FAILURE;
+            };
             match b.collections() {
                 Ok(v) if v.is_empty() => {
                     println!(
@@ -337,10 +347,15 @@ fn main() -> ExitCode {
                 );
                 return ExitCode::from(2);
             };
-            una_coleccion(Brain::from_store(store), nombre, archivos, coleccion)
+            let Some(b) = try_brain(store) else {
+                return ExitCode::FAILURE;
+            };
+            una_coleccion(b, nombre, archivos, coleccion)
         }
         "papelera" => {
-            let mut b = Brain::from_store(store);
+            let Some(mut b) = try_brain(store) else {
+                return ExitCode::FAILURE;
+            };
             if vaciar {
                 return match b.forget(None) {
                     Ok(0) => {
@@ -454,9 +469,21 @@ fn avisar_recuperacion(store: &Store, ya_la_pide: bool) {
     }
 }
 
+fn try_brain(store: Store) -> Option<Brain> {
+    match Brain::try_from_store(store) {
+        Ok(brain) => Some(brain),
+        Err(e) => {
+            eprintln!("no se pudo recuperar la base: {e}; vuelve a intentarlo");
+            None
+        }
+    }
+}
+
 /// `obrain sensible <carpeta>`: la misma operación que el botón de la cabecera.
 fn marcar(store: Store, carpeta: &str, nivel: Option<Sensitivity>) -> ExitCode {
-    let mut b = Brain::from_store(store);
+    let Some(mut b) = try_brain(store) else {
+        return ExitCode::FAILURE;
+    };
     let ruta = std::path::absolute(carpeta)
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| carpeta.to_string());

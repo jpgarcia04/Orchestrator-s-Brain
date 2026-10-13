@@ -311,10 +311,10 @@ impl Brain {
     }
 
     /// Para los tests y para cualquier otro `Embedder` de §5.1.
-    pub fn with_embedder(store: Store, embedder: Box<dyn Embedder + Send>) -> Self {
-        let mut b = Self::from_store(store);
+    pub fn with_embedder(store: Store, embedder: Box<dyn Embedder + Send>) -> Result<Self> {
+        let mut b = Self::try_from_store(store)?;
         b.embedder = Some(embedder);
-        b
+        Ok(b)
     }
 
     pub fn store(&self) -> &Store {
