@@ -1,0 +1,3 @@
+Este documento contiene únicamente un número de tarjeta de prueba publicado para ensayos de software: 4111 1111 1111 1111.
+
+No hay cuenta bancaria, pago ni titular auténticos. La cifra se usa aquí para comprobar que Brain detecta sensibilidad por contenido.

@@ -1,0 +1,3 @@
+Ficha simulada de pasaporte de Lidia Robles, personaje inventado para este ensayo.
+
+No contiene número de pasaporte, fecha de nacimiento ni identificador real. Su nombre debe bastar para clasificarla como sensible.
