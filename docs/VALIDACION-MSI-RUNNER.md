@@ -42,6 +42,8 @@ Después de cerrar el proceso, `msiexec /x` terminó con código **0** y el log 
 
 Las dos ejecuciones correctas anteriores a esta revisión registraron el estado del producto, la entrada de desinstalación y la supervivencia del proceso sin exigirlos como condiciones de éxito. El script ahora los exige; los resultados de aquellas ejecuciones siguen siendo evidencia observada, pero no sustituyen la ejecución de los criterios reforzados.
 
+La [ejecución de los criterios reforzados](https://github.com/jpgarcia04/Orchestrator-s-Brain/actions/runs/38526434870), sobre `b30da43`, terminó con fallo **antes de iniciar el job**. GitHub emitió la anotación: “The job was not started because recent account payments have failed or your spending limit needs to be increased.” No hay pasos ni logs de compilación, instalación o desinstalación para ese commit. Por tanto, el resultado de los criterios reforzados queda **sin verificar**; no es evidencia de fallo ni de éxito del MSI. No se ha intentado instalar el paquete fuera del runner.
+
 ## Lo que el ensayo no acredita
 
 Un proceso arrancado no equivale a una ventana dibujada. No se ejecutan clics, capturas ni los ocho recorridos visuales de `docs/VALIDACION-PRODUCTO-WINDOWS.md`. Tampoco se prueba un instalador firmado, actualización de versión, otras ediciones de Windows, perfiles reales, búsqueda semántica con modelo, lectura exhaustiva de rutas por el proceso, ni ausencia de efectos de Windows Installer fuera de las ubicaciones inspeccionadas. El runner se desecha al terminar.
