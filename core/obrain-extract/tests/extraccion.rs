@@ -212,6 +212,53 @@ fn busqueda_lexica_de_extremo_a_extremo() {
 }
 
 #[test]
+fn la_prueba_parcial_muestra_las_palabras_que_recuperaron_el_documento() {
+    struct Limpiar(PathBuf);
+    impl Drop for Limpiar {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let dir = temp_dir("prueba-parcial");
+    let _limpiar = Limpiar(dir.clone());
+    let mut store = Store::open_in_memory().unwrap();
+    let texto = format!(
+        "Las notas con fecha antigua. {}La factura corresponde al contrato vigente.",
+        "La documentación contiene descripciones administrativas. ".repeat(8)
+    );
+    let path = escribir(&dir, "nota.txt", &texto);
+    let entity = ingerir(&store, &path, "local", 1_000);
+    correr(&mut store, 2_000);
+
+    let hits = search(
+        &store,
+        "Las facturas con contratos olvidados",
+        10,
+        TimePoint::at(3_000),
+    )
+    .unwrap();
+    assert_eq!(
+        hits.len(),
+        1,
+        "la coincidencia parcial debe recuperar el archivo"
+    );
+    let snippet = &hits[0].snippet;
+    let chunks = index::chunks_of(store.conn(), &entity).unwrap();
+    assert!(
+        chunks.iter().any(|(_, text)| text.contains(snippet)),
+        "la prueba debe ser literal"
+    );
+    assert!(
+        snippet.contains("factura"),
+        "prueba sin factura: {snippet:?}"
+    );
+    assert!(
+        snippet.contains("contrato"),
+        "prueba sin contrato: {snippet:?}"
+    );
+}
+
+#[test]
 fn la_busqueda_devuelve_un_resultado_por_archivo() {
     let dir = temp_dir("dedupe");
     let mut store = Store::open_in_memory().unwrap();

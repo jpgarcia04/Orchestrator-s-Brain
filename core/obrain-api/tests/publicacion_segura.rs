@@ -103,6 +103,13 @@ fn documento_nuevo_no_se_publica_entre_extraccion_y_clasificacion() {
     );
     let reader = f.reader();
     assert!(reader.search(SECRET, 10).unwrap().hits.is_empty());
+    assert!(
+        reader
+            .search("El archivo con la clave ficticia", 10)
+            .unwrap()
+            .hits
+            .is_empty()
+    );
     assert!(matches!(
         reader.preview(&id, None),
         Err(Error::PublicationPending(_))

@@ -49,6 +49,112 @@ pub fn prepare(raw: &str) -> Option<String> {
     (!terms.is_empty()).then(|| terms.join(" AND "))
 }
 
+/// Una frase recordada puede contener palabras que no están en el archivo.
+/// Si la conjunción literal no encuentra nada, exigimos dos términos distintos
+/// de contenido en *el mismo fragmento*. Un OR simple daría resultados por una
+/// sola palabra común y no justificaría por qué se recuperó el documento.
+struct PartialQuery {
+    match_query: String,
+    evidence_terms: String,
+}
+
+fn partial(raw: &str) -> Option<PartialQuery> {
+    if raw.split_whitespace().count() < 4 {
+        return None;
+    }
+    let mut terms: Vec<(String, bool)> = Vec::new();
+    for word in raw.split(|c: char| !c.is_alphanumeric()) {
+        let mut word = word.to_lowercase();
+        if word.len() < 3
+            || matches!(
+                word.as_str(),
+                "del"
+                    | "las"
+                    | "los"
+                    | "una"
+                    | "unas"
+                    | "unos"
+                    | "con"
+                    | "por"
+                    | "para"
+                    | "que"
+                    | "donde"
+                    | "cuando"
+                    | "cuándo"
+                    | "sobre"
+                    | "como"
+                    | "cómo"
+                    | "era"
+                    | "son"
+                    | "sus"
+                    | "este"
+                    | "esta"
+                    | "estos"
+                    | "estas"
+            )
+        {
+            continue;
+        }
+        let mut plural = false;
+        if word.chars().count() >= 5 && word.ends_with("es") {
+            let root = word.strip_suffix("es").unwrap();
+            if root
+                .chars()
+                .last()
+                .is_some_and(|c| !matches!(c, 'a' | 'e' | 'i' | 'o' | 'u'))
+            {
+                word = root.to_string();
+                plural = true;
+            }
+        }
+        if !plural && word.chars().count() >= 5 && word.ends_with('s') {
+            word.pop();
+            plural = true;
+        }
+        if terms.iter().any(|(t, _)| t == &word) {
+            continue;
+        }
+        terms.push((word, plural));
+        // La relajación es para frases breves, no para convertir párrafos en
+        // centenares de combinaciones FTS5.
+        if terms.len() > 12 {
+            return None;
+        }
+    }
+    if terms.len() < 2 {
+        return None;
+    }
+    let fts_terms: Vec<String> = terms
+        .iter()
+        .map(|(term, plural)| {
+            // La rama de rescate tolera flexión de número: «rutas» puede
+            // recordar «ruta» y «red» puede aparecer como «redes». El prefijo
+            // sólo se usa en palabras cortas o quitando una s final.
+            if *plural || term.chars().count() <= 5 {
+                format!("\"{term}\"*")
+            } else {
+                format!("\"{term}\"")
+            }
+        })
+        .collect();
+    let mut pairs = Vec::new();
+    for i in 0..terms.len() {
+        for j in i + 1..terms.len() {
+            pairs.push(format!("({} AND {})", fts_terms[i], fts_terms[j]));
+        }
+    }
+    Some(PartialQuery {
+        match_query: pairs.join(" OR "),
+        // La cita debe buscar las mismas raíces y prefijos que MATCH; con los
+        // plurales originales puede elegir prosa ajena a la coincidencia.
+        evidence_terms: terms
+            .into_iter()
+            .map(|(term, _)| term)
+            .collect::<Vec<_>>()
+            .join(" "),
+    })
+}
+
 /// El recorte de FTS5 es buena prueba —rodea el término y lo marca— salvo
 /// cuando cae al lado de un sello criptográfico, y entonces la evidencia que
 /// exige I9 se lee como que el programa está roto.
@@ -94,6 +200,33 @@ pub fn search_within(
     let Some(query) = prepare(raw_query) else {
         return Ok(Vec::new());
     };
+    let exact = search_match(store, &query, raw_query, limit, at, within, false)?;
+    if !exact.is_empty() || limit == 0 {
+        return Ok(exact);
+    }
+    match partial(raw_query) {
+        Some(query) => search_match(
+            store,
+            &query.match_query,
+            &query.evidence_terms,
+            limit,
+            at,
+            within,
+            true,
+        ),
+        None => Ok(exact),
+    }
+}
+
+fn search_match(
+    store: &Store,
+    query: &str,
+    evidence_query: &str,
+    limit: usize,
+    at: TimePoint,
+    within: Option<&HashSet<EntityId>>,
+    relaxed: bool,
+) -> Result<Vec<Hit>> {
     let dentro: Vec<&str> = within
         .map(|w| w.iter().map(EntityId::as_str).collect())
         .unwrap_or_default();
@@ -129,7 +262,15 @@ pub fn search_within(
             entity: EntityId(r.get(0)?),
             ordinal: r.get(1)?,
             score: r.get(2)?,
-            snippet: guard(fts, &text, raw_query),
+            snippet: if relaxed {
+                // La prueba de la coincidencia parcial es una rebanada literal
+                // del fragmento publicado; no una explicación generada.
+                crate::evidence::pick(&text, evidence_query, crate::evidence::BUDGET)
+                    .map(|e| e.text)
+                    .unwrap_or_default()
+            } else {
+                guard(fts, &text, evidence_query)
+            },
             path: String::new(),
         })
     })?;
@@ -188,5 +329,19 @@ mod tests {
     fn una_consulta_vacia_no_es_una_consulta() {
         assert!(prepare("   ").is_none());
         assert!(prepare("\"\"").is_none());
+    }
+
+    #[test]
+    fn la_frase_parcial_exige_dos_terminos_y_admite_flexion() {
+        let query = partial("Los apuntes de la práctica donde hablábamos de rutas de red").unwrap();
+        assert!(query.match_query.contains("\"práctica\""));
+        assert!(query.match_query.contains("\"ruta\"*"));
+        assert!(query.match_query.contains("\"red\"*"));
+        assert!(!query.match_query.contains("\"donde\""));
+        assert!(query.evidence_terms.contains("ruta"));
+        assert!(!query.evidence_terms.contains("rutas"));
+        assert!(partial("nodo azafrán").is_none());
+        assert!(partial("La ruta y rutas").is_none());
+        assert!(partial("La red y redes").is_none());
     }
 }
