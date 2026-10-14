@@ -65,6 +65,104 @@ fn copiar(from: &Path, to: &Path) {
 }
 
 #[test]
+fn recordar_documentos_con_frases_y_comprobar_su_prueba() {
+    let lib = Biblioteca::nueva();
+    let mut store = Store::open_in_memory().unwrap();
+    lib.indexar(&mut store);
+    let mut brain = Brain::from_store(store);
+
+    let cases: [(&str, &[&str]); 5] = [
+        (
+            "El contrato donde decía cuándo terminaba el alquiler",
+            &["Contrato alquiler ficticio.txt"],
+        ),
+        (
+            "Los apuntes de la práctica donde hablábamos de rutas de red",
+            &["apuntes-redes.md"],
+        ),
+        (
+            "El documento del trámite que mencionaba la matrícula",
+            &["constancia-matricula.pdf", "expediente-AURORA.txt"],
+        ),
+        (
+            "El recibo correspondiente al alquiler de septiembre",
+            &["recibo-septiembre.txt"],
+        ),
+        (
+            "El archivo que tenía información sobre una cita de consulado",
+            &["cita-consulado.html"],
+        ),
+    ];
+    for (query, expected) in cases {
+        let answer = brain.search(query, 10).unwrap();
+        assert!(!answer.semantic && answer.branches == ["bm25"]);
+        let labels: Vec<&str> = answer.hits.iter().map(|h| h.label.as_str()).collect();
+        if query.contains("recibo correspondiente") {
+            assert!(
+                labels[..2].contains(&"recibo-septiembre.txt")
+                    && labels[..2].contains(&"recibo-septiembre-copia.txt"),
+                "{query}: {labels:?}"
+            );
+        } else {
+            assert!(labels.starts_with(expected), "{query}: {labels:?}");
+        }
+        let proof_count = if query.contains("recibo correspondiente") {
+            2
+        } else {
+            expected.len()
+        };
+        for hit in answer.hits.iter().take(proof_count) {
+            assert!(!hit.snippet.is_empty(), "sin prueba: {query}");
+            assert_eq!(hit.ranks.len(), 1);
+            assert_eq!(hit.ranks[0].0, "bm25");
+            let text = brain
+                .preview(&EntityId(hit.entity.clone()), None)
+                .unwrap()
+                .text
+                .unwrap();
+            assert!(
+                text.contains(&hit.snippet),
+                "la prueba de {} no es texto literal del documento",
+                hit.label
+            );
+        }
+    }
+
+    // Una consulta corta y específica conserva el comportamiento exacto.
+    let exact = brain.search("nodo azafrán", 10).unwrap();
+    assert_eq!(exact.hits[0].label, "apuntes-redes.md");
+    assert!(exact.hits[0].snippet.contains("nodo"));
+    assert!(exact.hits[0].snippet.contains("azafrán"));
+
+    let collection = EntityId(
+        brain
+            .create_collection("Trámite AURORA", "user@test")
+            .unwrap(),
+    );
+    let pdf = lib.id(brain.store(), "01 estudios/constancia-matricula.pdf");
+    brain
+        .add_to_collection(&collection, &[pdf.clone()], "user@test")
+        .unwrap();
+    let within = brain
+        .search_in(
+            "El documento del trámite que mencionaba la matrícula",
+            10,
+            Some(&collection),
+        )
+        .unwrap();
+    assert_eq!(within.hits.len(), 1);
+    assert_eq!(within.hits[0].entity, pdf.0);
+
+    brain.set_pin("482916", None).unwrap();
+    brain.lock();
+    let locked = brain
+        .search("El contrato donde decía cuándo terminaba el alquiler", 10)
+        .unwrap();
+    assert_eq!(locked.hits[0].label, "Contrato alquiler ficticio.txt");
+    assert!(locked.hits[0].snippet.is_empty());
+}
+
+#[test]
 fn busqueda_evidencia_coleccion_y_proteccion_de_la_biblioteca() {
     let lib = Biblioteca::nueva();
     let mut store = Store::open_in_memory().unwrap();

@@ -218,6 +218,11 @@ fn identidad_aplazada_no_llega_a_busqueda_ni_a_presentacion() {
             .is_empty()
     );
     assert!(
+        obrain_extract::search(&f.store, "El documento que tenía palabraexclusiva", 10, tp)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
         !obrain_link::load_files(&f.store, tp)
             .unwrap()
             .iter()
