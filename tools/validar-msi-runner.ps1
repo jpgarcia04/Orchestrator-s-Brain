@@ -28,6 +28,12 @@ function Assert-True([bool]$condition, [string]$message) {
     if (-not $condition) { throw $message }
 }
 
+function Invoke-Msiexec([string]$operation, [string]$target, [string]$log) {
+    $arguments = '{0} "{1}" /qn /norestart /L*V "{2}"' -f $operation, $target, $log
+    $process = Start-Process -FilePath (Get-Command msiexec.exe).Source -ArgumentList $arguments -Wait -PassThru
+    return $process.ExitCode
+}
+
 function Read-MsiRows($database, [string]$sql, [int]$columns) {
     $view = $database.OpenView($sql)
     try {
@@ -160,8 +166,7 @@ try {
 
     $installLog = Join-Path $evidence 'msi-install.log'
     $installAttempted = $true
-    & msiexec.exe /i $msi /qn /norestart /L*V $installLog
-    $installCode = $LASTEXITCODE
+    $installCode = Invoke-Msiexec '/i' $msi $installLog
     $report.install = [ordered]@{ exitCode = $installCode; log = 'msi-install.log' }
     Assert-True ($installCode -eq 0) "msiexec /i devolvió $installCode; no se asume instalación completa."
 
@@ -229,8 +234,7 @@ try {
     if ($installAttempted -and $productCode) {
         try {
             $uninstallLog = Join-Path $evidence 'msi-uninstall.log'
-            & msiexec.exe /x $productCode /qn /norestart /L*V $uninstallLog
-            $uninstallCode = $LASTEXITCODE
+            $uninstallCode = Invoke-Msiexec '/x' $productCode $uninstallLog
             $remainingEntry = [bool](Get-UninstallEntry $productCode)
             $remainingState = [int]$installer.ProductState($productCode)
             $remainingExe = $false
