@@ -199,8 +199,16 @@ try {
         appRegistryExists = (Test-Path -LiteralPath $appRegistry)
         appRegistryValues = $registryValues
     }
+    Assert-True ($productState -eq 5) "Windows Installer no confirmó el producto instalado: ProductState=$productState."
+    Assert-True ([bool]$uninstallEntry) 'Falta la entrada de desinstalación del producto instalado.'
+    Assert-True ($report.installed.uninstallDisplayName -eq $properties['ProductName']) 'El nombre de la entrada de desinstalación no coincide con el producto.'
+    Assert-True (([string]$report.installed.uninstallInstallLocation).TrimEnd([char]92) -eq $installDir) 'La ubicación registrada de desinstalación no coincide con INSTALLDIR.'
+    Assert-True ($exeExists -and $directMlExists) 'Falta uno de los binarios declarados por el MSI.'
+    Assert-True ($report.installed.appRegistryExists) 'Falta la clave de registro HKCU declarada por el MSI.'
+    Assert-True (([string]$registryValues['InstallDir']).TrimEnd([char]92) -eq $installDir) 'El valor HKCU InstallDir no coincide con INSTALLDIR.'
     # El runner puede carecer de escritorio interactivo. Esto sólo prueba un arranque de proceso.
     $launched = $null
+    $alive = $false
     if ($exeExists) { try {
         $launched = Start-Process -FilePath $exe -PassThru
         $sessionId = try { $launched.SessionId } catch { $null }
@@ -225,8 +233,8 @@ try {
         }
     }} else { $report.launch = [ordered]@{ started = $false; reason = 'No existe el ejecutable instalado.' } }
     Assert-True (-not (Test-Path -LiteralPath $defaultDbDir) -and -not (Test-Path -LiteralPath $oldDbDir)) 'El arranque escribió en la ubicación original de Brain del runner.'
-    Assert-True ($exeExists -and $directMlExists) 'Falta uno de los binarios declarados por el MSI.'
-    Assert-True ($report.installed.appRegistryExists) 'Falta la clave de registro HKCU declarada por el MSI.'
+    Assert-True ([bool]$launched -and $alive) 'La aplicación no arrancó y permaneció viva durante los 20 segundos esperados.'
+    Assert-True ($report.launch.databaseExists) 'La base sintética no sigue disponible después del arranque.'
 } catch {
     $failure = $_
     $report.error = $_.Exception.Message
@@ -238,14 +246,19 @@ try {
             $remainingEntry = [bool](Get-UninstallEntry $productCode)
             $remainingState = [int]$installer.ProductState($productCode)
             $remainingExe = $false
-            if ($report.installed) { $remainingExe = Test-Path -LiteralPath (Join-Path $report.installed.installDir 'obrain-app.exe') }
+            $remainingDirectMl = $false
+            if ($report.installed) {
+                $remainingExe = Test-Path -LiteralPath (Join-Path $report.installed.installDir 'obrain-app.exe')
+                $remainingDirectMl = Test-Path -LiteralPath (Join-Path $report.installed.installDir 'DirectML.dll')
+            }
             $appRegistryValueRemains = [bool](Get-ItemProperty -LiteralPath 'HKCU:\Software\obrain\Orchestrator''s Brain' -Name InstallDir -ErrorAction SilentlyContinue)
             $report.uninstall = [ordered]@{
                 exitCode = $uninstallCode; log = 'msi-uninstall.log'
                 productState = $remainingState; uninstallRegistryRemains = $remainingEntry
-                executableRemains = $remainingExe; appRegistryValueRemains = $appRegistryValueRemains
+                executableRemains = $remainingExe; directMlRemains = $remainingDirectMl
+                appRegistryValueRemains = $appRegistryValueRemains
             }
-            if ($uninstallCode -ne 0 -or $remainingState -ne -1 -or $remainingEntry -or $remainingExe -or $appRegistryValueRemains) {
+            if ($uninstallCode -ne 0 -or $remainingState -ne -1 -or $remainingEntry -or $remainingExe -or $remainingDirectMl -or $appRegistryValueRemains) {
                 if (-not $failure) { $failure = 'La desinstalación no se confirmó.' }
             }
         } catch {
