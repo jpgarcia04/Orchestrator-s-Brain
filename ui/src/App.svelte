@@ -130,7 +130,7 @@
 
       {#if app.seleccion}
         {#key app.seleccion}
-          <VistaPrevia id={app.seleccion} consulta={app.consulta} tramo={app.tramo} expectedHash={app.expectedHash} expectedTextHash={app.expectedTextHash} />
+          <VistaPrevia id={app.seleccion} consulta={app.consulta} tramo={app.tramo} expectedHash={app.expectedHash} expectedTextHash={app.expectedTextHash} seleccionVersion={app.seleccionVersion} />
         {/key}
       {/if}
     </div>

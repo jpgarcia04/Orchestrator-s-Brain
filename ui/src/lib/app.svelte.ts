@@ -111,6 +111,10 @@ class App {
   /** Versión publicada de un pasaje elegido en la búsqueda. */
   expectedHash = $state<string | null>(null);
   expectedTextHash = $state<string | null>(null);
+  /** Cada elección explícita invalida una marca interna anterior, incluso en el mismo documento. */
+  seleccionVersion = $state(0);
+  /** Sólo guarda la intención de consultar citas, nunca su contenido. */
+  pasajeAbierto = $state<{ entity: string; query: string } | null>(null);
   modo = $state<Modo>(leer("obrain.modo") === "lista" ? "lista" : "cuadricula");
   tema = $state<Tema>(leer("obrain.tema") === "dia" ? "dia" : "noche");
   buscando = $state(false);
@@ -177,6 +181,7 @@ class App {
     pinSession.subscribe(() => {
       this.seguridad = pinSession.state as Seguridad | null;
       this.securityEpoch = pinSession.epoch;
+      this.pasajeAbierto = null;
       this.version++;
     });
   }
@@ -220,6 +225,7 @@ class App {
     this.lente = null;
     this.lenteColeccion = null;
     this.buscando = false;
+    this.pasajeAbierto = null;
     this.resolverPin?.(false);
     this.resolverPin = null;
     this.pidiendoPin = false;
@@ -357,6 +363,7 @@ class App {
     this.tramo = tramo;
     this.expectedHash = expectedHash;
     this.expectedTextHash = expectedTextHash;
+    this.seleccionVersion++;
     this.elegidos = [];
   }
 
@@ -413,6 +420,7 @@ class App {
   pedirPin(): Promise<boolean> {
     if (!this.seguridad) return Promise.resolve(false);
     if (!this.seguridad.pin) return Promise.resolve(true);
+    if (this.seguridad.desbloqueada) return Promise.resolve(true);
     return new Promise((resolver) => {
       this.resolverPin?.(false);
       this.resolverPin = resolver;
@@ -455,6 +463,7 @@ class App {
     this.tramo = tramo;
     this.expectedHash = expectedHash;
     this.expectedTextHash = expectedTextHash;
+    this.seleccionVersion++;
   }
 
   cerrarPanel(): void {
@@ -769,6 +778,7 @@ class App {
   abrirBuscador(semilla = ""): void {
     if (!this.presentacionLista) return;
     this.semilla = semilla;
+    this.pasajeAbierto = null;
     // Desde una colección abierta, se busca dentro de ella (ADR-0031); la ✕ del
     // buscador lo quita.
     this.buscarEn = this.vista === "coleccion" ? (this.abierta?.id ?? null) : null;

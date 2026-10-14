@@ -240,6 +240,15 @@ fn pasaje_indexado_no_afirma_vigencia_del_original_y_respeta_pin() {
         .find(|h| h.entity == id.0)
         .unwrap()
         .passages[0];
+    assert_eq!(
+        answer
+            .hits
+            .iter()
+            .find(|h| h.entity == id.0)
+            .unwrap()
+            .sensitivity,
+        "sensitive"
+    );
     assert!(
         passage.text.contains("31 de agosto de 2027"),
         "el pasaje no permite comprobar la fecha: {}",
@@ -313,6 +322,15 @@ fn pasaje_indexado_no_afirma_vigencia_del_original_y_respeta_pin() {
     let locked = brain.search("contrato alquiler", 10).unwrap();
     let locked_hit = locked.hits.iter().find(|h| h.entity == id.0).unwrap();
     assert!(locked_hit.passages.is_empty());
+    brain.unlock("482916").unwrap();
+    let unlocked = brain.search("contrato alquiler", 10).unwrap();
+    let unlocked_hit = unlocked.hits.iter().find(|h| h.entity == id.0).unwrap();
+    assert!(
+        unlocked_hit
+            .passages
+            .iter()
+            .any(|p| p.text.contains("31 de agosto de 2027"))
+    );
 }
 
 #[test]
