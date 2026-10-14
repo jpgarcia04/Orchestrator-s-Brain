@@ -53,7 +53,12 @@ pub fn prepare(raw: &str) -> Option<String> {
 /// Si la conjunción literal no encuentra nada, exigimos dos términos distintos
 /// de contenido en *el mismo fragmento*. Un OR simple daría resultados por una
 /// sola palabra común y no justificaría por qué se recuperó el documento.
-fn partial(raw: &str) -> Option<String> {
+struct PartialQuery {
+    match_query: String,
+    evidence_terms: String,
+}
+
+fn partial(raw: &str) -> Option<PartialQuery> {
     if raw.split_whitespace().count() < 4 {
         return None;
     }
@@ -138,7 +143,16 @@ fn partial(raw: &str) -> Option<String> {
             pairs.push(format!("({} AND {})", fts_terms[i], fts_terms[j]));
         }
     }
-    Some(pairs.join(" OR "))
+    Some(PartialQuery {
+        match_query: pairs.join(" OR "),
+        // La cita debe buscar las mismas raíces y prefijos que MATCH; con los
+        // plurales originales puede elegir prosa ajena a la coincidencia.
+        evidence_terms: terms
+            .into_iter()
+            .map(|(term, _)| term)
+            .collect::<Vec<_>>()
+            .join(" "),
+    })
 }
 
 /// El recorte de FTS5 es buena prueba —rodea el término y lo marca— salvo
@@ -191,7 +205,15 @@ pub fn search_within(
         return Ok(exact);
     }
     match partial(raw_query) {
-        Some(query) => search_match(store, &query, raw_query, limit, at, within, true),
+        Some(query) => search_match(
+            store,
+            &query.match_query,
+            &query.evidence_terms,
+            limit,
+            at,
+            within,
+            true,
+        ),
         None => Ok(exact),
     }
 }
@@ -199,7 +221,7 @@ pub fn search_within(
 fn search_match(
     store: &Store,
     query: &str,
-    raw_query: &str,
+    evidence_query: &str,
     limit: usize,
     at: TimePoint,
     within: Option<&HashSet<EntityId>>,
@@ -243,11 +265,11 @@ fn search_match(
             snippet: if relaxed {
                 // La prueba de la coincidencia parcial es una rebanada literal
                 // del fragmento publicado; no una explicación generada.
-                crate::evidence::pick(&text, raw_query, crate::evidence::BUDGET)
+                crate::evidence::pick(&text, evidence_query, crate::evidence::BUDGET)
                     .map(|e| e.text)
                     .unwrap_or_default()
             } else {
-                guard(fts, &text, raw_query)
+                guard(fts, &text, evidence_query)
             },
             path: String::new(),
         })
@@ -312,10 +334,12 @@ mod tests {
     #[test]
     fn la_frase_parcial_exige_dos_terminos_y_admite_flexion() {
         let query = partial("Los apuntes de la práctica donde hablábamos de rutas de red").unwrap();
-        assert!(query.contains("\"práctica\""));
-        assert!(query.contains("\"ruta\"*"));
-        assert!(query.contains("\"red\"*"));
-        assert!(!query.contains("\"donde\""));
+        assert!(query.match_query.contains("\"práctica\""));
+        assert!(query.match_query.contains("\"ruta\"*"));
+        assert!(query.match_query.contains("\"red\"*"));
+        assert!(!query.match_query.contains("\"donde\""));
+        assert!(query.evidence_terms.contains("ruta"));
+        assert!(!query.evidence_terms.contains("rutas"));
         assert!(partial("nodo azafrán").is_none());
         assert!(partial("La ruta y rutas").is_none());
         assert!(partial("La red y redes").is_none());
