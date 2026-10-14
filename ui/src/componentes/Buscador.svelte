@@ -19,7 +19,7 @@
   import Tipo from "./Tipo.svelte";
   import { app } from "../lib/app.svelte";
   import { recientes, vistazo } from "../lib/nucleo";
-  import type { Fila, Hit } from "../lib/nucleo";
+  import type { Fila, Hit, SearchPassage } from "../lib/nucleo";
   import { carpetaDe, tipoDe, tituloDe } from "../lib/nombres";
 
   let q = $state(app.semilla);
@@ -29,6 +29,7 @@
   let marcado = $state(0);
   let ultimos = $state<Fila[]>([]);
   let campo: HTMLInputElement | undefined = $state();
+  const pregunta = $derived(/^\s*(?:¿|cu[aá]ndo\b|qu[eé]\b|cu[aá]l\b|cu[aá]nto\b|d[oó]nde\b|tengo\b)|[?？]\s*$/i.test(buscado));
 
   /** La colección donde se busca, o `null` para todo. */
   const dentroDe = $derived(app.buscarEn ? (app.colecciones.find((c) => c.id === app.buscarEn) ?? null) : null);
@@ -88,6 +89,17 @@
     if (app.buscarEn && app.vista === "coleccion" && o.consulta) app.ver(o.id, o.consulta);
     else void app.irA(o.id, o.consulta);
   }
+
+  function elegirPasaje(h: Hit, p: SearchPassage): void {
+    cerrar();
+    if (app.buscarEn && app.vista === "coleccion") app.ver(h.entity, buscado, p.span, p.published_hash, p.text_hash);
+    else void app.irA(h.entity, buscado, p.span, p.published_hash, p.text_hash);
+  }
+
+  function mostrarPasajes(h: Hit): boolean {
+    return h.sensitivity === "normal" || !!(app.seguridad?.pin && app.seguridad.desbloqueada);
+  }
+  const hayPasajes = $derived(resultados.some((h) => mostrarPasajes(h) && h.passages.length > 0));
 
   function buscarEnTodo(): void {
     app.buscarEn = null;
@@ -170,6 +182,13 @@
           <span class="texto"><span class="nombre">El mapa de tu bóveda</span></span>
         </button>
       {:else if resultados.length > 0}
+        {#if pregunta}
+          <div class="rotulo seccion">Pasajes relacionados con tu pregunta</div>
+          <p class="aviso">Son citas de la versión indexada, no respuestas confirmadas. Comprueba el contexto y el original.</p>
+          {#if !hayPasajes}
+            <p class="aviso">Hay documentos relacionados, pero ningún pasaje visible que permita comprobar una respuesta.</p>
+          {/if}
+        {/if}
         {#each resultados as h, i (h.entity)}
           <!-- ADR-0030: lo que está dentro de un paquete de la lista va justo debajo de él, metido. -->
           <button
@@ -191,6 +210,14 @@
             </span>
             <span class="como" class:significado={como(h) === "por significado"}>{como(h)}</span>
           </button>
+          {#if pregunta && mostrarPasajes(h)}
+            {#each h.passages as p (p.published_hash + ':' + p.text_hash + ':' + p.span[0] + ':' + p.span[1])}
+              <button class="pasaje hov" onclick={() => elegirPasaje(h, p)}>
+                <span class="cita">«{p.text}»</span>
+                <span class="ver-pasaje">Ver tramo en el documento</span>
+              </button>
+            {/each}
+          {/if}
         {/each}
       {:else if buscado}
         <p class="nada">
@@ -198,7 +225,7 @@
             En «{dentroDe.name}» no hay nada con «{buscado}».
             <button class="enlace" onclick={buscarEnTodo}>Buscar en toda tu bóveda</button>
           {:else}
-          No encuentro nada con «{buscado}». Busqué en los nombres y en el texto de tus documentos{semantica
+          {pregunta ? `No encontré pasajes relacionados con «${buscado}». Esto no demuestra que la respuesta no esté en tus documentos. ` : `No encuentro nada con «${buscado}». `}Busqué en los nombres y en el texto de tus documentos{semantica
             ? ", también por significado"
             : ""}{app.info?.ocr
             ? ", y en lo que se leyó de tus fotos y escaneos."
@@ -351,6 +378,38 @@
     padding: 14px 12px 16px;
     line-height: 1.55;
     color: var(--tenue);
+  }
+  .aviso {
+    margin: 0 10px 8px;
+    color: var(--tenue);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .pasaje {
+    display: block;
+    width: calc(100% - 40px);
+    margin: 0 10px 8px 30px;
+    padding: 8px 10px;
+    border-left: 2px solid var(--acento);
+    border-radius: 0 8px 8px 0;
+    background: var(--sel);
+    text-align: left;
+  }
+  .cita {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    color: var(--tinta);
+    font-size: 12.5px;
+    line-height: 1.45;
+  }
+  .ver-pasaje {
+    display: block;
+    margin-top: 5px;
+    color: var(--acento);
+    font-size: 11.5px;
   }
 
   .pie {

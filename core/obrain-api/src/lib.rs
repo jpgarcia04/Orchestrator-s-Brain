@@ -85,6 +85,8 @@ pub enum Error {
 
     #[error("el contenido del documento {0} sigue en preparación; actualiza para reintentarlo")]
     PublicationPending(String),
+    #[error("la versión indexada de este pasaje ha cambiado; repite la búsqueda")]
+    EvidenceChanged,
 
     #[error(transparent)]
     Seguridad(#[from] seguridad::Error),
@@ -139,6 +141,23 @@ pub struct Hit {
     /// El paquete de la lista bajo el que va este resultado: está dentro de
     /// él (ADR-0030). La lista ya viene ordenada así; la fila no se esconde.
     pub inside: Option<String>,
+    /// Pasajes literales de la versión indexada. No son respuestas confirmadas.
+    pub passages: Vec<SearchPassage>,
+    #[serde(skip)]
+    semantic_chunk: Option<i64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SearchPassage {
+    pub text: String,
+    /// Rango UTF-8 del texto normalizado que acepta `preview_at`.
+    pub span: [usize; 2],
+    /// Hash de los bytes publicados al indexar; no asegura que el archivo
+    /// externo conserve hoy esos mismos bytes.
+    pub published_hash: String,
+    /// Hash del texto normalizado; un extractor nuevo puede cambiar los
+    /// offsets aunque el archivo conserve los mismos bytes.
+    pub text_hash: String,
 }
 
 /// La respuesta a una consulta, con lo que se ha usado para producirla.
@@ -347,6 +366,8 @@ impl Brain {
             score: 0.0,
             ranks: Vec::new(),
             inside: None,
+            passages: Vec::new(),
+            semantic_chunk: None,
         }
     }
 
@@ -407,6 +428,7 @@ impl Brain {
                         snippet: h.snippet,
                         score: h.score,
                         ranks: h.ranks,
+                        semantic_chunk: h.chunk,
                         ..self.decorate(&h.entity, h.path, at)
                     })
                     .collect();
@@ -437,6 +459,33 @@ impl Brain {
             for h in hits.iter_mut().filter(|h| h.sensitivity != "normal") {
                 h.snippet.clear();
             }
+        }
+
+        // La cita se calcula bajo la misma instantánea que la búsqueda y sólo
+        // para contenido que puede salir del núcleo en este momento.
+        let visible = self.contenido_visible()?;
+        for h in &mut hits {
+            if h.sensitivity != "normal" && !visible {
+                continue;
+            }
+            let id = EntityId(h.entity.clone());
+            let Some(hash) = self.store.published_content_hash(&id)? else {
+                continue;
+            };
+            let Some(text_hash) = obrain_extract::index::indexed_text_hash(self.store.conn(), &id)?
+            else {
+                continue;
+            };
+            h.passages =
+                obrain_extract::search::passages_for(&self.store, &id, query, h.semantic_chunk, 2)?
+                    .into_iter()
+                    .map(|p| SearchPassage {
+                        text: p.text,
+                        span: [p.span.0, p.span.1],
+                        published_hash: hash.clone(),
+                        text_hash: text_hash.clone(),
+                    })
+                    .collect();
         }
 
         // Lo de dentro, justo debajo de su paquete si el paquete también
@@ -907,10 +956,35 @@ impl Brain {
         query: Option<&str>,
         tramo: Option<(usize, usize)>,
     ) -> Result<Preview> {
+        self.preview_at_version(id, query, tramo, None, None)
+    }
+
+    /// Igual que `preview_at`, pero impide que un rango de una búsqueda anterior
+    /// se aplique silenciosamente a otra versión publicada del documento.
+    pub fn preview_at_version(
+        &self,
+        id: &EntityId,
+        query: Option<&str>,
+        tramo: Option<(usize, usize)>,
+        expected_hash: Option<&str>,
+        expected_text_hash: Option<&str>,
+    ) -> Result<Preview> {
         let (_, at) = Self::now();
         self.store.read_snapshot(|s| {
             if s.content_pending(id)? {
                 return Err(Error::PublicationPending(id.0.clone()));
+            }
+            if let Some(expected) = expected_hash {
+                if s.published_content_hash(id)?.as_deref() != Some(expected) {
+                    return Err(Error::EvidenceChanged);
+                }
+            }
+            if let Some(expected) = expected_text_hash {
+                if obrain_extract::index::indexed_text_hash(s.conn(), id)?.as_deref()
+                    != Some(expected)
+                {
+                    return Err(Error::EvidenceChanged);
+                }
             }
             if identity::pending(s, id, at)? {
                 return Err(Error::IdentityPending(id.0.clone()));
@@ -971,6 +1045,14 @@ impl Brain {
 
     /// Autoriza abrir/revelar y resuelve sólo rutas observadas por el escáner.
     pub fn path_to_open(&self, id: &EntityId) -> Result<Option<String>> {
+        self.path_to_open_version(id, None)
+    }
+
+    pub fn path_to_open_version(
+        &self,
+        id: &EntityId,
+        expected_hash: Option<&str>,
+    ) -> Result<Option<String>> {
         self.store.read_snapshot(|s| {
             if identity::pending(s, id, Self::now().1)? {
                 return Ok(None);
@@ -1003,6 +1085,9 @@ impl Brain {
             let Some(expected) = s.published_content_hash(id)? else {
                 return Ok(None);
             };
+            if expected_hash.is_some_and(|hash| hash != expected) {
+                return Err(Error::EvidenceChanged);
+            }
             let Ok(mut file) = std::fs::File::open(&path) else {
                 return Ok(None);
             };

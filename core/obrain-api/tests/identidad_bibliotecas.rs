@@ -300,6 +300,14 @@ fn identidad_aplazada_no_revela_chunks_por_api_de_previsualizacion() {
         "la API devolvió los chunks conservados"
     );
     assert!(
+        brain
+            .search("contenido reservado", 10)
+            .unwrap()
+            .hits
+            .is_empty(),
+        "la búsqueda ofreció pasajes de identidad incierta"
+    );
+    assert!(
         brain.entity(&id).is_err(),
         "el acceso directo mostró su ficha"
     );

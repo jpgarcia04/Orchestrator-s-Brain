@@ -23,6 +23,103 @@ pub struct Hit {
     pub snippet: String,
 }
 
+/// Rebanada literal de la proyección publicada, situada en el texto normalizado.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Passage {
+    pub span: (usize, usize),
+    pub text: String,
+}
+
+/// Una cita de pregunta necesita más contexto que la línea breve del resultado.
+const PASSAGE_BUDGET: usize = 420;
+
+/// Hasta `limit` pasajes distintos de una entidad. Se buscan primero las
+/// coincidencias léxicas; el fragmento vectorial es una opción adicional.
+/// Esta función sólo lee el índice: el llamante comprueba publicación y PIN.
+pub fn passages_for(
+    store: &Store,
+    entity: &EntityId,
+    raw_query: &str,
+    semantic_chunk: Option<i64>,
+    limit: usize,
+) -> Result<Vec<Passage>> {
+    if limit == 0 || store.content_pending(entity)? {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    if let Some(exact) = prepare(raw_query) {
+        collect_passages(store, entity, &exact, raw_query, limit, &mut out)?;
+    }
+    if out.len() < limit {
+        if let Some(relaxed) = partial(raw_query) {
+            collect_passages(
+                store,
+                entity,
+                &relaxed.match_query,
+                &relaxed.evidence_terms,
+                limit,
+                &mut out,
+            )?;
+        }
+    }
+    if out.len() < limit {
+        if let Some(id) = semantic_chunk {
+            let row = store.conn().query_row(
+                "SELECT byte_start, text FROM chunks WHERE id=?1 AND entity=?2",
+                obrain_core::rusqlite::params![id, entity.as_str()],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+            );
+            if let Ok((base, text)) = row {
+                add_passage(&mut out, base, &text, raw_query);
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn collect_passages(
+    store: &Store,
+    entity: &EntityId,
+    query: &str,
+    evidence_query: &str,
+    limit: usize,
+    out: &mut Vec<Passage>,
+) -> Result<()> {
+    let mut stmt = store.conn().prepare(
+        "SELECT c.byte_start, c.text FROM chunks_fts
+         JOIN chunks c ON c.id=chunks_fts.rowid
+         WHERE chunks_fts MATCH ?1 AND c.entity=?2
+         ORDER BY bm25(chunks_fts) LIMIT 24",
+    )?;
+    let rows = stmt.query_map(
+        obrain_core::rusqlite::params![query, entity.as_str()],
+        |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+    )?;
+    for row in rows {
+        let (base, text) = row?;
+        add_passage(out, base, &text, evidence_query);
+        if out.len() >= limit {
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn add_passage(out: &mut Vec<Passage>, base: i64, text: &str, query: &str) {
+    let Some(evidence) = crate::evidence::pick(text, query, PASSAGE_BUDGET) else {
+        return;
+    };
+    let start = base.max(0) as usize + evidence.byte_start;
+    let end = base.max(0) as usize + evidence.byte_end;
+    if out.iter().any(|p| start < p.span.1 && end > p.span.0) {
+        return;
+    }
+    out.push(Passage {
+        span: (start, end),
+        text: evidence.text,
+    });
+}
+
 /// Traduce lo que escribe una persona a una expresión MATCH de FTS5.
 ///
 /// Sin esto, buscar `consultaExpte_X0000000X-2025` es un error de sintaxis y

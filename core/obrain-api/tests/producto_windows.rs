@@ -1,7 +1,7 @@
 //! Oráculo documental de la biblioteca sintética de producto.
 //! Usa el pipeline real, sin modelo ni interfaz; no acredita el instalador.
 
-use obrain_api::{Brain, indexar};
+use obrain_api::{Brain, Error, indexar};
 use obrain_core::{EntityId, Sensitivity, Store, TimePoint};
 use std::path::{Path, PathBuf};
 
@@ -160,6 +160,159 @@ fn recordar_documentos_con_frases_y_comprobar_su_prueba() {
         .unwrap();
     assert_eq!(locked.hits[0].label, "Contrato alquiler ficticio.txt");
     assert!(locked.hits[0].snippet.is_empty());
+}
+
+#[test]
+fn pasajes_literales_multiples_y_navegacion_unicode() {
+    let lib = Biblioteca::nueva();
+    let ruta = lib.ruta("03 contratos/pasajes-unicode.txt");
+    let relleno: String = (0..35)
+        .map(|n| format!("Nota {n}: la biblioteca ficticia registra una observación cotidiana de vivienda sin una fecha relevante.\n\n"))
+        .collect();
+    std::fs::write(
+        &ruta,
+        format!(
+            "El contrato de alquiler de Ñandú empieza en enero.\n\n{relleno}\n\nEl contrato de alquiler de Muñoz termina en otoño.\n\n{relleno}"
+        ),
+    )
+    .unwrap();
+    let mut store = Store::open_in_memory().unwrap();
+    lib.indexar(&mut store);
+    let id = lib.id(&store, "03 contratos/pasajes-unicode.txt");
+    assert!(
+        obrain_extract::index::chunks_of(store.conn(), &id)
+            .unwrap()
+            .len()
+            > 1,
+        "estado de extracción: {:?}",
+        obrain_extract::index::previous(store.conn(), &id, "paragraph-pack", 1).unwrap()
+    );
+    let brain = Brain::from_store(store);
+    let answer = brain.search("contrato alquiler", 12).unwrap();
+    let hit = answer
+        .hits
+        .iter()
+        .find(|h| h.entity == id.0)
+        .unwrap_or_else(|| {
+            panic!(
+                "falta documento; resultados: {:?}",
+                answer.hits.iter().map(|h| &h.label).collect::<Vec<_>>()
+            )
+        });
+    assert_eq!(hit.passages.len(), 2);
+    let doc = obrain_extract::index::document_text(brain.store().conn(), &id)
+        .unwrap()
+        .unwrap();
+    for p in &hit.passages {
+        assert_eq!(doc.get(p.span[0]..p.span[1]), Some(p.text.as_str()));
+        let preview = brain
+            .preview_at_version(
+                &id,
+                None,
+                Some((p.span[0], p.span[1])),
+                Some(&p.published_hash),
+                Some(&p.text_hash),
+            )
+            .unwrap();
+        let shown = preview.text.unwrap();
+        let (start, end) = preview.highlight.unwrap();
+        assert_eq!(shown.get(start..end), Some(p.text.as_str()));
+    }
+    assert!(
+        hit.passages[0].span[1] <= hit.passages[1].span[0]
+            || hit.passages[1].span[1] <= hit.passages[0].span[0]
+    );
+}
+
+#[test]
+fn pasaje_indexado_no_afirma_vigencia_del_original_y_respeta_pin() {
+    let lib = Biblioteca::nueva();
+    let mut store = Store::open_in_memory().unwrap();
+    lib.indexar(&mut store);
+    let id = lib.id(&store, "03 contratos/Contrato alquiler ficticio.txt");
+    let brain = Brain::from_store(store);
+    let answer = brain
+        .search("El contrato donde decía cuándo terminaba el alquiler", 10)
+        .unwrap();
+    let passage = &answer
+        .hits
+        .iter()
+        .find(|h| h.entity == id.0)
+        .unwrap()
+        .passages[0];
+    assert!(
+        passage.text.contains("31 de agosto de 2027"),
+        "el pasaje no permite comprobar la fecha: {}",
+        passage.text
+    );
+    std::fs::write(
+        lib.ruta("03 contratos/Contrato alquiler ficticio.txt"),
+        "Edición externa sintética todavía no indexada.",
+    )
+    .unwrap();
+    assert!(
+        brain
+            .path_to_open_version(&id, Some(&passage.published_hash))
+            .unwrap()
+            .is_none()
+    );
+    let old = brain
+        .preview_at_version(
+            &id,
+            None,
+            Some((passage.span[0], passage.span[1])),
+            Some(&passage.published_hash),
+            Some(&passage.text_hash),
+        )
+        .unwrap();
+    assert!(old.text.unwrap().contains(&passage.text));
+
+    brain.store().conn().execute(
+        "UPDATE content_publication SET published_hash='otra-version-sintetica' WHERE entity=?1",
+        [id.as_str()],
+    ).unwrap();
+    assert!(matches!(
+        brain.preview_at_version(
+            &id,
+            None,
+            Some((passage.span[0], passage.span[1])),
+            Some(&passage.published_hash),
+            Some(&passage.text_hash)
+        ),
+        Err(Error::EvidenceChanged)
+    ));
+    brain
+        .store()
+        .conn()
+        .execute(
+            "UPDATE content_publication SET published_hash=?2 WHERE entity=?1",
+            obrain_core::rusqlite::params![id.as_str(), passage.published_hash],
+        )
+        .unwrap();
+    brain
+        .store()
+        .conn()
+        .execute(
+            "UPDATE extractions SET text_hash='otro-texto-sintetico' WHERE entity=?1",
+            [id.as_str()],
+        )
+        .unwrap();
+    assert!(matches!(
+        brain.preview_at_version(
+            &id,
+            None,
+            Some((passage.span[0], passage.span[1])),
+            Some(&passage.published_hash),
+            Some(&passage.text_hash)
+        ),
+        Err(Error::EvidenceChanged)
+    ));
+
+    brain.set_pin("482916", None).unwrap();
+    brain.lock();
+    let locked = brain.search("contrato alquiler", 10).unwrap();
+    let locked_hit = locked.hits.iter().find(|h| h.entity == id.0).unwrap();
+    assert!(locked_hit.passages.is_empty());
 }
 
 #[test]

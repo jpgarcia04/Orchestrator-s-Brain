@@ -55,7 +55,9 @@
     id,
     consulta,
     tramo = null,
-  }: { id: string; consulta: string; tramo?: [number, number] | null } = $props();
+    expectedHash = null,
+    expectedTextHash = null,
+  }: { id: string; consulta: string; tramo?: [number, number] | null; expectedHash?: string | null; expectedTextHash?: string | null } = $props();
 
   let ficha = $state<VistaEntidad | null>(null);
   let vista = $state<Vista | null>(null);
@@ -85,13 +87,15 @@
   $effect(() => {
     const miId = id;
     const q = consulta;
+    const hash = expectedHash;
+    const textHash = expectedTextHash;
     const clave = tramoActual;
     const t = clave ? (clave.split("..").map(Number) as [number, number]) : null;
     void app.version;
     void recarga;
     let vigente = true;
     error = "";
-    Promise.all([entidad(miId), previsualizar(miId, q || undefined, t)])
+    Promise.all([entidad(miId), previsualizar(miId, q || undefined, t, hash, textHash)])
       .then(([f, v]) => {
         if (!vigente) return;
         ficha = f;
@@ -475,11 +479,11 @@
   }
 
   function abrirArchivo(): void {
-    void conPin(() => abrir(id), "No se pudo abrir");
+    void conPin(() => abrir(id, expectedHash), "No se pudo abrir");
   }
 
   function mostrarEnCarpeta(): void {
-    void conPin(() => revelar(id), "No se pudo enseñar en su carpeta");
+    void conPin(() => revelar(id, expectedHash), "No se pudo enseñar en su carpeta");
   }
 
   async function desbloquear(): Promise<void> {
@@ -522,6 +526,9 @@
     <div class="contenido">
       <Apartado id="documento" titulo="Documento">
       <div class="caja">
+        {#if expectedHash && !bloqueado}
+          <p class="rotulo">Pasaje de la versión indexada. El original se comprueba al abrirlo.</p>
+        {/if}
         {#if bloqueado}
           <div class="sin-vista protegida">
             <Lock size={24} />
