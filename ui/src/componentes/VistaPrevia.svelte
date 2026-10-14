@@ -11,16 +11,8 @@
   Cada apartado se pliega desde su título, y lo plegado se recuerda para
   todos los documentos (`Apartado`).
 -->
-<script lang="ts" module>
-  import { SvelteSet } from "svelte/reactivity";
-  import { pinSession } from "../lib/pin-session";
-
-  /** Lo sensible que has pedido ver en esta sesión. No se recuerda al cerrar. */
-  const revelados = new SvelteSet<string>();
-  pinSession.subscribe(() => revelados.clear());
-</script>
-
 <script lang="ts">
+  import { SvelteSet } from "svelte/reactivity";
   import Cloud from "@lucide/svelte/icons/cloud";
   import Check from "@lucide/svelte/icons/check";
   import ExternalLink from "@lucide/svelte/icons/external-link";
@@ -55,10 +47,15 @@
     id,
     consulta,
     tramo = null,
-  }: { id: string; consulta: string; tramo?: [number, number] | null } = $props();
+    expectedHash = null,
+    expectedTextHash = null,
+    seleccionVersion,
+  }: { id: string; consulta: string; tramo?: [number, number] | null; expectedHash?: string | null; expectedTextHash?: string | null; seleccionVersion: number } = $props();
 
   let ficha = $state<VistaEntidad | null>(null);
   let vista = $state<Vista | null>(null);
+  /** «Mostrar» vale sólo para esta selección y se pierde al cambiar de documento o tramo. */
+  let reveladoVersion = $state<number | null>(null);
   let error = $state("");
   let recarga = $state(0);
   /** El menú de «Colecciones», abierto (ADR-0031). */
@@ -69,29 +66,33 @@
   let guardando = $state(false);
   /**
    * El documento de dentro cuyo «¿por qué?» está abierto (ADR-0030): la
-   * previa se abre por su tramo y lo marca. Manda sobre el tramo con el que
-   * se llegó.
+   * previa se abre por su tramo y lo marca. Sólo vale para esta elección del
+   * documento: una selección posterior debe abrir por el nuevo tramo.
    */
-  let parteAbierta = $state<string | null>(null);
+  let parteAbierta = $state<{ id: string; version: number } | null>(null);
+  const parteVigente = $derived(parteAbierta?.version === seleccionVersion ? parteAbierta.id : null);
   /**
    * El tramo por el que se abre, como texto: cada carga trae una ficha nueva
    * con arrays nuevos, y comparar por valor es lo que evita recargar en bucle.
    */
   const tramoActual = $derived.by((): string | null => {
-    const t = ficha?.parts.find((x) => x.id === parteAbierta)?.span ?? tramo;
+    const t = ficha?.parts.find((x) => x.id === parteVigente)?.span ?? tramo;
     return t ? `${t[0]}..${t[1]}` : null;
   });
 
   $effect(() => {
     const miId = id;
     const q = consulta;
+    const hash = expectedHash;
+    const textHash = expectedTextHash;
     const clave = tramoActual;
     const t = clave ? (clave.split("..").map(Number) as [number, number]) : null;
     void app.version;
     void recarga;
     let vigente = true;
     error = "";
-    Promise.all([entidad(miId), previsualizar(miId, q || undefined, t)])
+    vista = null;
+    Promise.all([entidad(miId), previsualizar(miId, q || undefined, t, hash, textHash)])
       .then(([f, v]) => {
         if (!vigente) return;
         ficha = f;
@@ -127,12 +128,12 @@
   const modificado = $derived(buscar("modified_at")?.value_time ?? 0);
   const enLaNube = $derived(!!vista && vista.availability !== null && vista.availability !== "local");
   /**
-   * Sin PIN, lo sensible llega y se tapa hasta «Mostrar». Con PIN, o no llega
-   * (bloqueado) o llega porque ya lo desbloqueaste: el PIN fue el gesto.
+   * El núcleo no entrega contenido con el PIN bloqueado. Una vez autorizado,
+   * sigue tapado hasta «Mostrar», también cuando no hay PIN configurado.
    */
   const bloqueado = $derived(!!vista?.locked);
   const oculto = $derived(
-    !!ficha && ficha.sensitivity !== "normal" && !app.seguridad?.pin && !revelados.has(id),
+    !!ficha && ficha.sensitivity !== "normal" && !bloqueado && reveladoVersion !== seleccionVersion,
   );
 
   /**
@@ -140,11 +141,11 @@
    * lo marca; otra vez, lo cierra.
    */
   function alternarParte(p: Parte): void {
-    if (parteAbierta === p.id) {
+    if (parteVigente === p.id) {
       parteAbierta = null;
       return;
     }
-    parteAbierta = p.id;
+    parteAbierta = { id: p.id, version: seleccionVersion };
     if (!app.abierto("documento", true)) app.ponerApartado("documento", true);
   }
 
@@ -475,11 +476,11 @@
   }
 
   function abrirArchivo(): void {
-    void conPin(() => abrir(id), "No se pudo abrir");
+    void conPin(() => abrir(id, expectedHash), "No se pudo abrir");
   }
 
   function mostrarEnCarpeta(): void {
-    void conPin(() => revelar(id), "No se pudo enseñar en su carpeta");
+    void conPin(() => revelar(id, expectedHash), "No se pudo enseñar en su carpeta");
   }
 
   async function desbloquear(): Promise<void> {
@@ -522,16 +523,21 @@
     <div class="contenido">
       <Apartado id="documento" titulo="Documento">
       <div class="caja">
+        {#if expectedHash && !bloqueado}
+          <p class="rotulo">Pasaje de la versión indexada. El original se comprueba al abrirlo.</p>
+        {/if}
         {#if bloqueado}
           <div class="sin-vista protegida">
             <Lock size={24} />
             <p>Protegido con tu PIN</p>
             <button class="boton hov" onclick={desbloquear}><LockOpen size={15} /> Desbloquear</button>
           </div>
+        {:else if oculto}
+          <div class="sin-vista protegida" aria-hidden="true"><Lock size={24} /></div>
         {:else if vista.kind === "image" && vista.image}
-          <img src={vista.image} alt={titulo.titulo} class:velado={oculto} />
+          <img src={vista.image} alt={titulo.titulo} />
         {:else if vista.kind === "text" && vista.text}
-          <pre class="papel" class:velado={oculto}>{texto.antes}{#if texto.marca}<mark use:centrar={texto.antes.length}>{texto.marca}</mark>{/if}{texto.despues}</pre>
+          <pre class="papel">{texto.antes}{#if texto.marca}<mark use:centrar={texto.antes.length}>{texto.marca}</mark>{/if}{texto.despues}</pre>
         {:else}
           <div class="sin-vista">
             <Tipo {tipo} />
@@ -542,7 +548,7 @@
           <div class="velo">
             <Lock size={22} />
             <span>Contenido oculto por ser sensible</span>
-            <button class="boton hov" onclick={() => revelados.add(id)}>
+            <button class="boton hov" onclick={() => (reveladoVersion = seleccionVersion)}>
               <Eye size={15} /> Mostrar
             </button>
           </div>
@@ -737,7 +743,7 @@
                 <button class="enlace" onclick={() => alternarParte(p)}>¿por qué?</button>
               {/if}
             </div>
-            {#if parteAbierta === p.id}
+            {#if parteVigente === p.id}
               <span class="porque">{porqueParte(p)}</span>
             {/if}
           {/each}
@@ -899,10 +905,6 @@
     background: rgba(242, 194, 123, 0.45);
     color: inherit;
     border-radius: 3px;
-  }
-  .velado {
-    filter: blur(7px);
-    user-select: none;
   }
   .velo {
     position: absolute;

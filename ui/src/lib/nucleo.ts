@@ -46,6 +46,16 @@ export interface Hit {
    * lista ya viene en ese orden; la fila no se esconde.
    */
   inside: string | null;
+  /** Citas de la versión indexada; su relación con la pregunta se comprueba leyendo. */
+  passages: SearchPassage[];
+}
+
+export interface SearchPassage {
+  text: string;
+  /** Rango UTF-8 en el texto normalizado del documento. */
+  span: [number, number];
+  published_hash: string;
+  text_hash: string;
 }
 
 /** Un grupo de resultados: los que comparten carpeta. */
@@ -628,8 +638,8 @@ export const entidad = (id: string) => read<VistaEntidad>("entidad", { id });
  * Lo que se ve de un documento. `consulta` y `tramo` sólo deciden por dónde se
  * abre; el tramo —dónde está algo que lleva dentro (ADR-0030)— manda.
  */
-export const previsualizar = (id: string, consulta?: string, tramo?: [number, number] | null) =>
-  read<Vista>("previsualizar", { id, consulta: consulta ?? null, tramo: tramo ?? null });
+export const previsualizar = (id: string, consulta?: string, tramo?: [number, number] | null, expectedHash?: string | null, expectedTextHash?: string | null) =>
+  read<Vista>("previsualizar", { id, consulta: consulta ?? null, tramo: tramo ?? null, expectedHash: expectedHash ?? null, expectedTextHash: expectedTextHash ?? null });
 
 /**
  * Abre el archivo con el programa del sistema.
@@ -639,10 +649,10 @@ export const previsualizar = (id: string, consulta?: string, tramo?: [number, nu
  * ventana, y la aplicación pasaría de poder tocar lo indexado a poder tocar
  * cualquier cosa del disco.
  */
-export const abrir = (id: string) => invoke<void>("abrir", { id });
+export const abrir = (id: string, expectedHash?: string | null) => invoke<void>("abrir", { id, expectedHash: expectedHash ?? null });
 
 /** Lo revela en el explorador de Windows. Nunca lo ejecuta. */
-export const revelar = (id: string) => invoke<void>("revelar", { id });
+export const revelar = (id: string, expectedHash?: string | null) => invoke<void>("revelar", { id, expectedHash: expectedHash ?? null });
 
 /** La corrección de I5. Gana para siempre y ningún reescaneo la pisa. */
 export const corregir = (subject: string, predicate: string, object: { kind: "text" | "entity"; value: string }) =>

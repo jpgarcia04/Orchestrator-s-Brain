@@ -277,6 +277,23 @@ pub fn document_text(conn: &Connection, entity: &EntityId) -> Result<Option<Stri
     Ok(costura.hubo.then_some(costura.out))
 }
 
+/// Huella del texto normalizado que produjo los fragmentos vigentes.
+/// Se combina con el hash publicado de archivo para validar rangos antiguos.
+pub fn indexed_text_hash(conn: &Connection, entity: &EntityId) -> Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT text_hash FROM extractions
+             WHERE entity=?1 AND chunker=?2 AND chunker_ver=?3 AND status='ok'",
+            params![
+                entity.as_str(),
+                crate::chunk::CHUNKER,
+                crate::chunk::CHUNKER_VERSION
+            ],
+            |r| r.get(0),
+        )
+        .optional()?)
+}
+
 /// Los textos de **todas** las entidades, de una pasada, uno cada vez.
 ///
 /// Es [`document_text`] para quien tiene que leerlo todo —comparar cada

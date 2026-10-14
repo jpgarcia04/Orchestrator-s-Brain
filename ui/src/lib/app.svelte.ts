@@ -108,6 +108,13 @@ class App {
    * un documento dentro de su paquete (ADR-0030). Manda sobre la consulta.
    */
   tramo = $state<[number, number] | null>(null);
+  /** Versión publicada de un pasaje elegido en la búsqueda. */
+  expectedHash = $state<string | null>(null);
+  expectedTextHash = $state<string | null>(null);
+  /** Cada elección explícita invalida una marca interna anterior, incluso en el mismo documento. */
+  seleccionVersion = $state(0);
+  /** Sólo guarda la intención de consultar citas, nunca su contenido. */
+  pasajeAbierto = $state<{ entity: string; query: string } | null>(null);
   modo = $state<Modo>(leer("obrain.modo") === "lista" ? "lista" : "cuadricula");
   tema = $state<Tema>(leer("obrain.tema") === "dia" ? "dia" : "noche");
   buscando = $state(false);
@@ -174,6 +181,7 @@ class App {
     pinSession.subscribe(() => {
       this.seguridad = pinSession.state as Seguridad | null;
       this.securityEpoch = pinSession.epoch;
+      this.pasajeAbierto = null;
       this.version++;
     });
   }
@@ -217,6 +225,7 @@ class App {
     this.lente = null;
     this.lenteColeccion = null;
     this.buscando = false;
+    this.pasajeAbierto = null;
     this.resolverPin?.(false);
     this.resolverPin = null;
     this.pidiendoPin = false;
@@ -338,7 +347,7 @@ class App {
   }
 
   /** Abre una carpeta en el explorador; `null` es la raíz de la bóveda. */
-  async abrirCarpeta(id: string | null, seleccionar: string | null = null, consulta = ""): Promise<void> {
+  async abrirCarpeta(id: string | null, seleccionar: string | null = null, consulta = "", tramo: [number, number] | null = null, expectedHash: string | null = null, expectedTextHash: string | null = null): Promise<void> {
     const epoch = this.datosEpoch;
     try {
       const listado = await explorar(id);
@@ -351,7 +360,10 @@ class App {
     this.vista = "carpeta";
     this.seleccion = seleccionar;
     this.consulta = consulta;
-    this.tramo = null;
+    this.tramo = tramo;
+    this.expectedHash = expectedHash;
+    this.expectedTextHash = expectedTextHash;
+    this.seleccionVersion++;
     this.elegidos = [];
   }
 
@@ -361,13 +373,13 @@ class App {
    * La carpeta se le pregunta al grafo (`contained_by`) y no a la ruta: es el
    * mismo árbol que dibuja el mapa, así que las dos vistas no pueden discrepar.
    */
-  async irA(id: string, consulta = ""): Promise<void> {
+  async irA(id: string, consulta = "", tramo: [number, number] | null = null, expectedHash: string | null = null, expectedTextHash: string | null = null): Promise<void> {
     const epoch = this.datosEpoch;
     try {
       const v = await entidad(id);
       if (epoch !== this.datosEpoch || !this.presentacionLista) return;
       const casa = v.observed.find((c) => c.predicate === "contained_by")?.value_entity ?? null;
-      await this.abrirCarpeta(casa, id, consulta);
+      await this.abrirCarpeta(casa, id, consulta, tramo, expectedHash, expectedTextHash);
     } catch (e) {
       this.avisar(`No se pudo abrir — ${e}`);
     }
@@ -408,6 +420,7 @@ class App {
   pedirPin(): Promise<boolean> {
     if (!this.seguridad) return Promise.resolve(false);
     if (!this.seguridad.pin) return Promise.resolve(true);
+    if (this.seguridad.desbloqueada) return Promise.resolve(true);
     return new Promise((resolver) => {
       this.resolverPin?.(false);
       this.resolverPin = resolver;
@@ -443,11 +456,14 @@ class App {
    * Enseña algo en la vista previa sin moverse de donde estás. Con `tramo`,
    * abierto por ese sitio de su texto y marcado.
    */
-  ver(id: string, consulta = "", tramo: [number, number] | null = null): void {
+  ver(id: string, consulta = "", tramo: [number, number] | null = null, expectedHash: string | null = null, expectedTextHash: string | null = null): void {
     if (!this.presentacionLista) return;
     this.seleccion = id;
     this.consulta = consulta;
     this.tramo = tramo;
+    this.expectedHash = expectedHash;
+    this.expectedTextHash = expectedTextHash;
+    this.seleccionVersion++;
   }
 
   cerrarPanel(): void {
@@ -513,6 +529,8 @@ class App {
     this.seleccion = seleccionar;
     this.consulta = "";
     this.tramo = null;
+    this.expectedHash = null;
+    this.expectedTextHash = null;
     this.elegidos = [];
   }
 
@@ -760,6 +778,7 @@ class App {
   abrirBuscador(semilla = ""): void {
     if (!this.presentacionLista) return;
     this.semilla = semilla;
+    this.pasajeAbierto = null;
     // Desde una colección abierta, se busca dentro de ella (ADR-0031); la ✕ del
     // buscador lo quita.
     this.buscarEn = this.vista === "coleccion" ? (this.abierta?.id ?? null) : null;

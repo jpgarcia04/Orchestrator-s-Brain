@@ -324,13 +324,17 @@ fn previsualizar(
     id: String,
     consulta: Option<String>,
     tramo: Option<[usize; 2]>,
+    expected_hash: Option<String>,
+    expected_text_hash: Option<String>,
     cerebro: State<'_, Cerebro>,
 ) -> Result<Preview, String> {
     con(&cerebro, |b| {
-        b.preview_at(
+        b.preview_at_version(
             &EntityId(id),
             consulta.as_deref(),
             tramo.map(|[x, y]| (x, y)),
+            expected_hash.as_deref(),
+            expected_text_hash.as_deref(),
         )
     })
 }
@@ -340,12 +344,13 @@ fn previsualizar(
 fn operar_archivo(
     cerebro: &State<'_, Cerebro>,
     id: String,
+    expected_hash: Option<String>,
     accion: impl FnOnce(String) -> Result<(), String>,
 ) -> Result<(), String> {
     let guarda = cerebro.0.lock().map_err(texto)?;
     let brain = guarda.as_ref().ok_or_else(|| CERRADA.to_string())?;
     let ruta = brain
-        .path_to_open(&EntityId(id))
+        .path_to_open_version(&EntityId(id), expected_hash.as_deref())
         .map_err(texto)?
         .ok_or_else(|| "esta entidad no es un archivo con ruta".to_string())?;
     accion(ruta)
@@ -362,8 +367,8 @@ fn operar_archivo(
 ///    efecto secundario, **sólo como acto explícito del usuario y dicho con
 ///    todas las letras**. Decirlo es responsabilidad del botón que llama aquí.
 #[tauri::command]
-fn abrir(id: String, app: tauri::AppHandle, cerebro: State<'_, Cerebro>) -> Result<(), String> {
-    operar_archivo(&cerebro, id, |ruta| {
+fn abrir(id: String, expected_hash: Option<String>, app: tauri::AppHandle, cerebro: State<'_, Cerebro>) -> Result<(), String> {
+    operar_archivo(&cerebro, id, expected_hash, |ruta| {
         app.opener().open_path(ruta, None::<&str>).map_err(texto)
     })
 }
@@ -372,8 +377,8 @@ fn abrir(id: String, app: tauri::AppHandle, cerebro: State<'_, Cerebro>) -> Resu
 ///
 /// Nunca ejecuta el archivo, así que no hereda el primer coste de [`abrir`].
 #[tauri::command]
-fn revelar(id: String, app: tauri::AppHandle, cerebro: State<'_, Cerebro>) -> Result<(), String> {
-    operar_archivo(&cerebro, id, |ruta| {
+fn revelar(id: String, expected_hash: Option<String>, app: tauri::AppHandle, cerebro: State<'_, Cerebro>) -> Result<(), String> {
+    operar_archivo(&cerebro, id, expected_hash, |ruta| {
         app.opener().reveal_item_in_dir(ruta).map_err(texto)
     })
 }
