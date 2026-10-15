@@ -1,0 +1,553 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.39s
+     Running tests/recuperacion_banco.rs (core/target/debug/deps/recuperacion_banco-a08d93edd4094c84)
+
+running 1 test
+{
+  "answerable": 14,
+  "document_top1": 11,
+  "document_top3": 11,
+  "indexing_ms": 124.552708,
+  "lexical_required_failures": [],
+  "mode": "lexical",
+  "model": null,
+  "questions": 17,
+  "results": [
+    {
+      "candidates_without_answer": false,
+      "elapsed_ms": 4.102151,
+      "evidence_top3": [
+        {
+          "document": "Contrato alquiler ficticio.txt",
+          "passages": [
+            "Contrato de alquiler de demostración entre Lidia Robles y Viviendas Aurora, entidades imaginarias.\n\nLa vivienda inventada se encuentra en Plaza del Ensayo 4, Ciudad Modelo. La renta de prueba es de 700 unidades al mes.\n\nLa vigencia empieza el 1 de septiembre de 2026 y vence el 31 de agosto de 2027. Este texto no crea obligaciones reales."
+          ],
+          "ranks": [
+            [
+              "bm25",
+              1
+            ]
+          ]
+        }
+      ],
+      "expected_answers": [
+        "31 de agosto de 2027"
+      ],
+      "expected_documents": [
+        "Contrato alquiler ficticio.txt"
+      ],
+      "first_relevant_rank": 1,
+      "id": "contrato-fin",
+      "kind": "fecha",
+      "query": "El contrato donde decía cuándo terminaba el alquiler",
+      "supporting_passage_top3": true,
+      "top3": [
+        "Contrato alquiler ficticio.txt"
+      ]
+    },
+    {
+      "candidates_without_answer": false,
+      "elapsed_ms": 2.9837219999999998,
+      "evidence_top3": [
+        {
+          "document": "Contrato alquiler ficticio.txt",
+          "passages": [
+            "Contrato de alquiler de demostración entre Lidia Robles y Viviendas Aurora, entidades imaginarias.\n\nLa vivienda inventada se encuentra en Plaza del Ensayo 4, Ciudad Modelo. La renta de prueba es de 700 unidades al mes.\n\nLa vigencia empieza el 1 de septiembre de 2026 y vence el 31 de agosto de 2027. Este texto no crea obligaciones reales."
+          ],
+          "ranks": [
+            [
+              "bm25",
+              1
+            ]
+          ]
+        }
+      ],
+      "expected_answers": [
+        "1 de septiembre de 2026"
+      ],
+      "expected_documents": [
+        "Contrato alquiler ficticio.txt"
+      ],
+      "first_relevant_rank": 1,
+      "id": "contrato-inicio",
+      "kind": "fecha",
+      "query": "¿Cuándo empieza la vigencia del contrato de alquiler?",
+      "supporting_passage_top3": true,
+      "top3": [
+        "Contrato alquiler ficticio.txt"
+      ]
+    },
+    {
+      "candidates_without_answer": false,
+      "elapsed_ms": 3.298806,
+      "evidence_top3": [
+        {
+          "document": "Contrato alquiler ficticio.txt",
+          "passages": [
+            "Contrato de alquiler de demostración entre Lidia Robles y Viviendas Aurora, entidades imaginarias.\n\nLa vivienda inventada se encuentra en Plaza del Ensayo 4, Ciudad Modelo. La renta de prueba es de 700 unidades al mes.\n\nLa vigencia empieza el 1 de septiembre de 2026 y vence el 31 de agosto de 2027. Este texto no crea obligaciones reales."
+          ],
+          "ranks": [
+            [
+              "bm25",
+              1
+            ]
+          ]
+        }
+      ],
+      "expected_answers": [
+        "700 unidades al mes"
+      ],
+      "expected_documents": [
+        "Contrato alquiler ficticio.txt"
+      ],
+      "first_relevant_rank": 1,
+      "id": "contrato-renta",
+      "kind": "importe",
+      "query": "¿Cuál es la renta al mes de la vivienda?",
+      "supporting_passage_top3": true,
+      "top3": [
+        "Contrato alquiler ficticio.txt"
+      ]
+    },
+    {
+      "candidates_without_answer": false,
+      "elapsed_ms": 3.4441710000000003,
+      "evidence_top3": [
+        {
+          "document": "cita-consulado.html",
+          "passages": [
+            "Cita ficticia de consulado\n\nReserva de cita - expediente imaginario AURORA\n\nLa cita de revisión documental se celebrará el 18 de noviembre de 2026 a las 09:30.\n\nSe solicitará el justificante de matrícula y el resumen del alquiler de la persona inventada Lidia Robles."
+          ],
+          "ranks": [
+            [
+              "bm25",
+              1
+            ]
+          ]
+        }
+      ],
+      "expected_answers": [
+        "18 de noviembre de 2026"
+      ],
+      "expected_documents": [
+        "cita-consulado.html"
+      ],
+      "first_relevant_rank": 1,
+      "id": "cita-fecha",
+      "kind": "fecha",
+      "query": "¿Cuándo se celebrará la cita de revisión documental?",
+      "supporting_passage_top3": true,
+      "top3": [
+        "cita-consulado.html"
+      ]
+    },
+    {
+      "candidates_without_answer": false,
+      "elapsed_ms": 2.4396690000000003,
+      "evidence_top3": [
+        {
+          "document": "cita-consulado.html",
+          "passages": [
+            "Cita ficticia de consulado\n\nReserva de cita - expediente imaginario AURORA\n\nLa cita de revisión documental se celebrará el 18 de noviembre de 2026 a las 09:30.\n\nSe solicitará el justificante de matrícula y el resumen del alquiler de la persona inventada Lidia Robles."
+          ],
+          "ranks": [
+            [
+              "bm25",
+              1
+            ]
+          ]
+        }
+      ],
+      "expected_answers": [
+        "justificante de matrícula y el resumen del alquiler"
+      ],
+      "expected_documents": [
+        "cita-consulado.html"
+      ],
+      "first_relevant_rank": 1,
+      "id": "cita-requisitos",
+      "kind": "requisitos",
+      "query": "¿Qué se solicitará para la cita?",
+      "supporting_passage_top3": true,
+      "top3": [
+        "cita-consulado.html"
+      ]
+    },
+    {
+      "candidates_without_answer": false,
+      "elapsed_ms": 1.797021,
+      "evidence_top3": [
+        {
+          "document": "constancia-matricula.pdf",
+          "passages": [
+            "Constancia de matrícula\n\nDocumento de prueba de la Universidad Imaginaria.\n\nLidia Robles participa en el laboratorio de redes del curso 2026.\n\nEl justificante corresponde al expediente ficticio AURORA.\n\nLa matrícula se confirmó el 2 de octubre de 2026.\n\nNo acredita estudios ni identidad de una persona real.\n\nEjemplo sintético para pruebas locales de Orchestrator's Brain"
+          ],
+          "ranks": [
+            [
+              "bm25",
+              1
+            ]
+          ]
+        }
+      ],
+      "expected_answers": [
+        "2 de octubre de 2026"
+      ],
+      "expected_documents": [
+        "constancia-matricula.pdf"
+      ],
+      "first_relevant_rank": 1,
+      "id": "matricula-fecha",
+      "kind": "fecha",
+      "query": "¿Cuándo se confirmó la matrícula?",
+      "supporting_passage_top3": true,
+      "top3": [
+        "constancia-matricula.pdf"
+      ]
+    },
+    {
+      "candidates_without_answer": false,
+      "elapsed_ms": 5.9021159999999995,
+      "evidence_top3": [
+        {
+          "document": "recibo-septiembre-copia.txt",
+          "passages": [
+            "Recibo de demostración de septiembre de 2026 emitido por Viviendas Aurora.\n\nConcepto: alquiler de la vivienda inventada de Plaza del Ensayo 4. Importe: 700 unidades de prueba.\n\nReferencia interna: AURORA-SEP. El justificante se conserva para el expediente ficticio del consulado."
+          ],
+          "ranks": [
+            [
+              "bm25",
+              1
+            ]
+          ]
+        },
+        {
+          "document": "recibo-septiembre.txt",
+          "passages": [
+            "Recibo de demostración de septiembre de 2026 emitido por Viviendas Aurora.\n\nConcepto: alquiler de la vivienda inventada de Plaza del Ensayo 4. Importe: 700 unidades de prueba.\n\nReferencia interna: AURORA-SEP. El justificante se conserva para el expediente ficticio del consulado."
+          ],
+          "ranks": [
+            [
+              "bm25",
+              2
+            ]
+          ]
+        },
+        {
+          "document": "Contrato alquiler ficticio.txt",
+          "passages": [
+            "Contrato de alquiler de demostración entre Lidia Robles y Viviendas Aurora, entidades imaginarias.\n\nLa vivienda inventada se encuentra en Plaza del Ensayo 4, Ciudad Modelo. La renta de prueba es de 700 unidades al mes.\n\nLa vigencia empieza el 1 de septiembre de 2026 y vence el 31 de agosto de 2027. Este texto no crea obligaciones reales."
+          ],
+          "ranks": [
+            [
+              "bm25",
+              3
+            ]
+          ]
+        }
+      ],
+      "expected_answers": [
+        "700 unidades de prueba",
+        "700 unidades de prueba"
+      ],
+      "expected_documents": [
+        "recibo-septiembre.txt",
+        "recibo-septiembre-copia.txt"
+      ],
+      "first_relevant_rank": 1,
+      "id": "recibo-importe",
+      "kind": "importe",
+      "query": "El recibo correspondiente al alquiler de septiembre",
+      "supporting_passage_top3": true,
+      "top3": [
+        "recibo-septiembre-copia.txt",
+        "recibo-septiembre.txt",
+        "Contrato alquiler ficticio.txt"
+      ]
+    },
+    {
+      "candidates_without_answer": false,
+      "elapsed_ms": 2.073268,
+      "evidence_top3": [
+        {
+          "document": "recibo-septiembre-copia.txt",
+          "passages": [
+            "Recibo de demostración de septiembre de 2026 emitido por Viviendas Aurora.\n\nConcepto: alquiler de la vivienda inventada de Plaza del Ensayo 4. Importe: 700 unidades de prueba.\n\nReferencia interna: AURORA-SEP. El justificante se conserva para el expediente ficticio del consulado."
+          ],
+          "ranks": [
+            [
+              "bm25",
+              1
+            ]
+          ]
+        },
+        {
+          "document": "recibo-septiembre.txt",
+          "passages": [
+            "Recibo de demostración de septiembre de 2026 emitido por Viviendas Aurora.\n\nConcepto: alquiler de la vivienda inventada de Plaza del Ensayo 4. Importe: 700 unidades de prueba.\n\nReferencia interna: AURORA-SEP. El justificante se conserva para el expediente ficticio del consulado."
+          ],
+          "ranks": [
+            [
+              "bm25",
+              2
+            ]
+          ]
+        }
+      ],
+      "expected_answers": [
+        "AURORA-SEP",
+        "AURORA-SEP"
+      ],
+      "expected_documents": [
+        "recibo-septiembre.txt",
+        "recibo-septiembre-copia.txt"
+      ],
+      "first_relevant_rank": 1,
+      "id": "recibo-referencia",
+      "kind": "exacta",
+      "query": "AURORA-SEP",
+      "supporting_passage_top3": true,
+      "top3": [
+        "recibo-septiembre-copia.txt",
+        "recibo-septiembre.txt"
+      ]
+    },
+    {
+      "candidates_without_answer": false,
+      "elapsed_ms": 3.958519,
+      "evidence_top3": [
+        {
+          "document": "apuntes-redes.md",
+          "passages": [
+            "# Taller de redes - Universidad Imaginaria\n\nLa profesora Lidia Robles explicó el protocolo de enrutamiento para la práctica del martes.\n\nLa entrega se identifica con la frase faro «nodo azafrán» en el campus simulado.\n\nEl ejercicio compara una ruta directa con otra que atraviesa tres nodos y registra la latencia observada."
+          ],
+          "ranks": [
+            [
+              "bm25",
+              1
+            ]
+          ]
+        }
+      ],
+      "expected_answers": [
+        "tres nodos"
+      ],
+      "expected_documents": [
+        "apuntes-redes.md"
+      ],
+      "first_relevant_rank": 1,
+      "id": "apuntes-recuerdo",
+      "kind": "recuerdo",
+      "query": "Los apuntes de la práctica donde hablábamos de rutas de red",
+      "supporting_passage_top3": true,
+      "top3": [
+        "apuntes-redes.md"
+      ]
+    },
+    {
+      "candidates_without_answer": false,
+      "elapsed_ms": 1.443419,
+      "evidence_top3": [
+        {
+          "document": "apuntes-redes.md",
+          "passages": [
+            "# Taller de redes - Universidad Imaginaria\n\nLa profesora Lidia Robles explicó el protocolo de enrutamiento para la práctica del martes.\n\nLa entrega se identifica con la frase faro «nodo azafrán» en el campus simulado.\n\nEl ejercicio compara una ruta directa con otra que atraviesa tres nodos y registra la latencia observada."
+          ],
+          "ranks": [
+            [
+              "bm25",
+              1
+            ]
+          ]
+        }
+      ],
+      "expected_answers": [
+        "nodo azafrán"
+      ],
+      "expected_documents": [
+        "apuntes-redes.md"
+      ],
+      "first_relevant_rank": 1,
+      "id": "apuntes-faro",
+      "kind": "exacta",
+      "query": "nodo azafrán",
+      "supporting_passage_top3": true,
+      "top3": [
+        "apuntes-redes.md"
+      ]
+    },
+    {
+      "candidates_without_answer": false,
+      "elapsed_ms": 4.384137,
+      "evidence_top3": [
+        {
+          "document": "horario.csv",
+          "passages": [
+            "asignatura,dia,hora,aula\nRedes,martes,10:00,B-14\nHistoria,jueves,12:00,C-03"
+          ],
+          "ranks": [
+            [
+              "bm25",
+              1
+            ]
+          ]
+        },
+        {
+          "document": "apuntes-redes.md",
+          "passages": [
+            "# Taller de redes - Universidad Imaginaria\n\nLa profesora Lidia Robles explicó el protocolo de enrutamiento para la práctica del martes.\n\nLa entrega se identifica con la frase faro «nodo azafrán» en el campus simulado.\n\nEl ejercicio compara una ruta directa con otra que atraviesa tres nodos y registra la latencia observada."
+          ],
+          "ranks": [
+            [
+              "bm25",
+              2
+            ]
+          ]
+        }
+      ],
+      "expected_answers": [
+        "10:00"
+      ],
+      "expected_documents": [
+        "horario.csv"
+      ],
+      "first_relevant_rank": 1,
+      "id": "horario",
+      "kind": "fecha",
+      "query": "¿A qué hora es Redes el martes?",
+      "supporting_passage_top3": true,
+      "top3": [
+        "horario.csv",
+        "apuntes-redes.md"
+      ]
+    },
+    {
+      "candidates_without_answer": false,
+      "elapsed_ms": 0.8066800000000001,
+      "evidence_top3": [],
+      "expected_answers": [
+        "700 unidades al mes"
+      ],
+      "expected_documents": [
+        "Contrato alquiler ficticio.txt"
+      ],
+      "first_relevant_rank": null,
+      "id": "vivienda-parafrasis",
+      "kind": "parafrasis",
+      "query": "¿Cuánto pago mensualmente por el piso?",
+      "supporting_passage_top3": false,
+      "top3": []
+    },
+    {
+      "candidates_without_answer": false,
+      "elapsed_ms": 0.814222,
+      "evidence_top3": [],
+      "expected_answers": [
+        "31 de agosto de 2027"
+      ],
+      "expected_documents": [
+        "Contrato alquiler ficticio.txt"
+      ],
+      "first_relevant_rank": null,
+      "id": "fin-parafrasis",
+      "kind": "parafrasis",
+      "query": "¿En qué fecha se acaba mi arrendamiento?",
+      "supporting_passage_top3": false,
+      "top3": []
+    },
+    {
+      "candidates_without_answer": false,
+      "elapsed_ms": 5.608153000000001,
+      "evidence_top3": [
+        {
+          "document": "apuntes-redes.md",
+          "passages": [
+            "# Taller de redes - Universidad Imaginaria\n\nLa profesora Lidia Robles explicó el protocolo de enrutamiento para la práctica del martes.\n\nLa entrega se identifica con la frase faro «nodo azafrán» en el campus simulado.\n\nEl ejercicio compara una ruta directa con otra que atraviesa tres nodos y registra la latencia observada."
+          ],
+          "ranks": [
+            [
+              "bm25",
+              1
+            ]
+          ]
+        }
+      ],
+      "expected_answers": [
+        "B-14"
+      ],
+      "expected_documents": [
+        "horario.csv"
+      ],
+      "first_relevant_rank": null,
+      "id": "clase-parafrasis",
+      "kind": "parafrasis",
+      "query": "¿En qué salón nos reunimos para la clase del martes?",
+      "supporting_passage_top3": false,
+      "top3": [
+        "apuntes-redes.md"
+      ]
+    },
+    {
+      "candidates_without_answer": false,
+      "elapsed_ms": 0.945465,
+      "evidence_top3": [],
+      "expected_answers": [],
+      "expected_documents": [],
+      "first_relevant_rank": null,
+      "id": "sin-iban",
+      "kind": "sin_respuesta",
+      "query": "¿Cuál es el IBAN para pagar el alquiler?",
+      "supporting_passage_top3": false,
+      "top3": []
+    },
+    {
+      "candidates_without_answer": false,
+      "elapsed_ms": 0.644181,
+      "evidence_top3": [],
+      "expected_answers": [],
+      "expected_documents": [],
+      "first_relevant_rank": null,
+      "id": "sin-telefono",
+      "kind": "sin_respuesta",
+      "query": "¿Cuál es el teléfono del consulado?",
+      "supporting_passage_top3": false,
+      "top3": []
+    },
+    {
+      "candidates_without_answer": true,
+      "elapsed_ms": 2.9144390000000002,
+      "evidence_top3": [
+        {
+          "document": "Contrato alquiler ficticio.txt",
+          "passages": [
+            "Contrato de alquiler de demostración entre Lidia Robles y Viviendas Aurora, entidades imaginarias.\n\nLa vivienda inventada se encuentra en Plaza del Ensayo 4, Ciudad Modelo. La renta de prueba es de 700 unidades al mes.\n\nLa vigencia empieza el 1 de septiembre de 2026 y vence el 31 de agosto de 2027. Este texto no crea obligaciones reales."
+          ],
+          "ranks": [
+            [
+              "bm25",
+              1
+            ]
+          ]
+        }
+      ],
+      "expected_answers": [],
+      "expected_documents": [],
+      "first_relevant_rank": null,
+      "id": "sin-mascota",
+      "kind": "sin_respuesta",
+      "query": "¿El contrato de alquiler permite mascotas?",
+      "supporting_passage_top3": false,
+      "top3": [
+        "Contrato alquiler ficticio.txt"
+      ]
+    }
+  ],
+  "schema": 1,
+  "supporting_passage_top3": 11,
+  "unanswerable": 3,
+  "unanswerable_with_candidates": 1,
+  "vectors": 0
+}
+test evaluar_recuperacion_lexica ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.27s
+

@@ -1,0 +1,177 @@
+{
+  "schema": 1,
+  "comparison": "lexical baseline versus lexical repeat; not hybrid",
+  "baseline": "../recuperacion-lexica-2026-10-15.json",
+  "repeat": "lexical-repeat.json",
+  "non_timing_rows_identical": true,
+  "questions_unchanged": true,
+  "test_unchanged": true,
+  "results": [
+    {
+      "id": "contrato-fin",
+      "kind": "fecha",
+      "non_timing_changed_fields": [],
+      "first_relevant_rank": 1,
+      "supporting_passage_top3": true,
+      "top3": [
+        "Contrato alquiler ficticio.txt"
+      ]
+    },
+    {
+      "id": "contrato-inicio",
+      "kind": "fecha",
+      "non_timing_changed_fields": [],
+      "first_relevant_rank": 1,
+      "supporting_passage_top3": true,
+      "top3": [
+        "Contrato alquiler ficticio.txt"
+      ]
+    },
+    {
+      "id": "contrato-renta",
+      "kind": "importe",
+      "non_timing_changed_fields": [],
+      "first_relevant_rank": 1,
+      "supporting_passage_top3": true,
+      "top3": [
+        "Contrato alquiler ficticio.txt"
+      ]
+    },
+    {
+      "id": "cita-fecha",
+      "kind": "fecha",
+      "non_timing_changed_fields": [],
+      "first_relevant_rank": 1,
+      "supporting_passage_top3": true,
+      "top3": [
+        "cita-consulado.html"
+      ]
+    },
+    {
+      "id": "cita-requisitos",
+      "kind": "requisitos",
+      "non_timing_changed_fields": [],
+      "first_relevant_rank": 1,
+      "supporting_passage_top3": true,
+      "top3": [
+        "cita-consulado.html"
+      ]
+    },
+    {
+      "id": "matricula-fecha",
+      "kind": "fecha",
+      "non_timing_changed_fields": [],
+      "first_relevant_rank": 1,
+      "supporting_passage_top3": true,
+      "top3": [
+        "constancia-matricula.pdf"
+      ]
+    },
+    {
+      "id": "recibo-importe",
+      "kind": "importe",
+      "non_timing_changed_fields": [],
+      "first_relevant_rank": 1,
+      "supporting_passage_top3": true,
+      "top3": [
+        "recibo-septiembre-copia.txt",
+        "recibo-septiembre.txt",
+        "Contrato alquiler ficticio.txt"
+      ]
+    },
+    {
+      "id": "recibo-referencia",
+      "kind": "exacta",
+      "non_timing_changed_fields": [],
+      "first_relevant_rank": 1,
+      "supporting_passage_top3": true,
+      "top3": [
+        "recibo-septiembre-copia.txt",
+        "recibo-septiembre.txt"
+      ]
+    },
+    {
+      "id": "apuntes-recuerdo",
+      "kind": "recuerdo",
+      "non_timing_changed_fields": [],
+      "first_relevant_rank": 1,
+      "supporting_passage_top3": true,
+      "top3": [
+        "apuntes-redes.md"
+      ]
+    },
+    {
+      "id": "apuntes-faro",
+      "kind": "exacta",
+      "non_timing_changed_fields": [],
+      "first_relevant_rank": 1,
+      "supporting_passage_top3": true,
+      "top3": [
+        "apuntes-redes.md"
+      ]
+    },
+    {
+      "id": "horario",
+      "kind": "fecha",
+      "non_timing_changed_fields": [],
+      "first_relevant_rank": 1,
+      "supporting_passage_top3": true,
+      "top3": [
+        "horario.csv",
+        "apuntes-redes.md"
+      ]
+    },
+    {
+      "id": "vivienda-parafrasis",
+      "kind": "parafrasis",
+      "non_timing_changed_fields": [],
+      "first_relevant_rank": null,
+      "supporting_passage_top3": false,
+      "top3": []
+    },
+    {
+      "id": "fin-parafrasis",
+      "kind": "parafrasis",
+      "non_timing_changed_fields": [],
+      "first_relevant_rank": null,
+      "supporting_passage_top3": false,
+      "top3": []
+    },
+    {
+      "id": "clase-parafrasis",
+      "kind": "parafrasis",
+      "non_timing_changed_fields": [],
+      "first_relevant_rank": null,
+      "supporting_passage_top3": false,
+      "top3": [
+        "apuntes-redes.md"
+      ]
+    },
+    {
+      "id": "sin-iban",
+      "kind": "sin_respuesta",
+      "non_timing_changed_fields": [],
+      "first_relevant_rank": null,
+      "supporting_passage_top3": false,
+      "top3": []
+    },
+    {
+      "id": "sin-telefono",
+      "kind": "sin_respuesta",
+      "non_timing_changed_fields": [],
+      "first_relevant_rank": null,
+      "supporting_passage_top3": false,
+      "top3": []
+    },
+    {
+      "id": "sin-mascota",
+      "kind": "sin_respuesta",
+      "non_timing_changed_fields": [],
+      "first_relevant_rank": null,
+      "supporting_passage_top3": false,
+      "top3": [
+        "Contrato alquiler ficticio.txt"
+      ]
+    }
+  ]
+}

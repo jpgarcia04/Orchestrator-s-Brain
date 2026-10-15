@@ -1,0 +1,32 @@
+{
+  "repository": "intfloat/multilingual-e5-small",
+  "revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+  "metadata_url": "https://huggingface.co/api/models/intfloat/multilingual-e5-small/revision/614241f622f53c4eeff9890bdc4f31cfecc418b3?blobs=true",
+  "files": [
+    {
+      "rfilename": "config.json",
+      "blobId": "60a2a84020f1d74cc53ea9e8c4e91cf4af6c2b68",
+      "size": 655
+    },
+    {
+      "rfilename": "onnx/model.onnx",
+      "blobId": "f9c7ec44162ecb2ae1340185b24a43d83d606a00",
+      "size": 470268510,
+      "lfs": {
+        "sha256": "ca456c06b3a9505ddfd9131408916dd79290368331e7d76bb621f1cba6bc8665",
+        "size": 470268510,
+        "pointerSize": 134
+      }
+    },
+    {
+      "rfilename": "tokenizer.json",
+      "blobId": "c9b2fea3119ca8886380e5f47bffc5ea7a6e0ffa",
+      "size": 17082730,
+      "lfs": {
+        "sha256": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39",
+        "size": 17082730,
+        "pointerSize": 133
+      }
+    }
+  ]
+}

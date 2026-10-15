@@ -1,6 +1,51 @@
-# Progreso — 2026-10-11
+# Progreso — registro de la etapa del 11 de octubre de 2026
 
-**Actualización:** la PR #2 quedó fusionada en `main` (`48f73f5`). Las
+**Nota del 15 de octubre:** este documento conserva la evidencia histórica de
+aquella etapa. Identidad entre bibliotecas y publicación segura ya se
+integraron (PR #3 y #4). Para continuar, usa [ESTADO.md](ESTADO.md),
+[PLAN-CONFIANZA.md](PLAN-CONFIANZA.md) y el
+[banco de recuperación](EVALUACION-RECUPERACION.md).
+
+## Reanudación del banco E5 — 15 de octubre de 2026
+
+Checkout en `work`, HEAD `a962e75f9f660b1a17daee4d71c1a0a1f11f69a0`,
+conservando todos los cambios locales. Faltaban el registro de preparación,
+el modelo y la referencia `/workspace/work/obrain-e5/original` del traspaso.
+Se copió el estado encontrado, con hashes y diff, a
+`/workspace/work/obrain-e5/resume-2026-10-15/original`; no se restauró ni
+descartó contenido. El registro de preparación se creó con observaciones nuevas.
+
+Rust 1.99.0 y ONNX Runtime 1.31.0. Repetición del banco léxico: Cargo 0,
+11/14 en documento top 1, documento top 3 y cita suficiente; 11/11 casos
+obligatorios. Comparación por las 17 preguntas: mismos candidatos, orden,
+rangos de ramas y citas; sólo varían tiempos. Pasaron las comprobaciones
+existentes de literalidad, navegación por versión y PIN. Preguntas,
+referencias, criterios y prueba se conservaron byte a byte.
+
+Descarga oficial fijada a `614241f622f53c4eeff9890bdc4f31cfecc418b3`:
+`config.json` responde 200 y su SHA-256 coincide; pesos y tokenizer responden
+302 hacia `us.aws.cdn.hf.co`, cuyo túnel devuelve 403. Sus hashes LFS se
+reconfirmaron en metadatos oficiales; no hay archivos sobre los que verificar
+esos hashes. La configuración sólo declara `huggingface.co` y el preset
+`package_managers`, con estado `unknown`. La instantánea tampoco incluye el
+CDN. La única herramienta de entorno disponible es de consulta; queda añadir
+el CDN, guardar y aplicar por el flujo de configuración. Se mantuvieron proxy
+y verificación TLS.
+
+Intento explícito E5 con el directorio incompleto: Cargo 101, mensaje de
+rechazo del fallback léxico y ausencia de informe híbrido. No hubo inferencia
+real ni comparación BM25/E5. Se guardan informe léxico repetido, comparación,
+metadatos, observaciones de descarga y salidas completas de Cargo junto al
+[registro](evaluaciones/preparacion-e5-2026-10-15.json).
+
+Los tres fallos léxicos siguen siendo de recuperación de documento; no se
+deduce todavía un fallo de selección de pasajes para E5. Mascotas conserva
+un candidato sin respuesta; IBAN y teléfono no devuelven candidatos léxicos.
+La siguiente decisión queda condicionada a medir E5, según
+`EVALUACION-RECUPERACION.md`. Sólo fixtures y bases temporales, sin abrir la
+bóveda personal, fusionar ni desplegar. Validación visual Windows pendiente.
+
+**Actualización histórica:** la PR #2 quedó fusionada en `main` (`48f73f5`). Las
 referencias más abajo a la rama previa y a la base del PR documentan el
 estado de aquella entrega, no el estado actual. La identidad entre bibliotecas
 se trabaja desde `main` en `codex/identidad-entre-bibliotecas` (ADR-0036).

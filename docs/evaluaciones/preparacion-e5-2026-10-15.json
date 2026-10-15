@@ -1,0 +1,210 @@
+{
+  "schema": 1,
+  "date": "2026-10-15",
+  "status": "blocked_cdn_model_incomplete",
+  "real_e5_inference_executed": false,
+  "hybrid_comparison_available": false,
+  "checkout": {
+    "path": "/workspace/Orchestrator-s-Brain",
+    "branch": "work",
+    "head": "a962e75f9f660b1a17daee4d71c1a0a1f11f69a0",
+    "initial_local_changes_preserved": true,
+    "initial_preparation_record_present": false,
+    "referenced_previous_backup_present": false,
+    "referenced_previous_model_directory_present": false,
+    "new_preservation_directory": "/workspace/work/obrain-e5/resume-2026-10-15/original",
+    "preservation_manifest": "preparacion-e5-2026-10-15/preservacion-inicial.json",
+    "note": "Registro creado de nuevo con observaciones de esta sesión; no se recuperó el registro ausente ni se restauró la copia de una sesión anterior."
+  },
+  "runtime": {
+    "activation": "source /workspace/.obrain-env/env.sh",
+    "rustc": "1.99.0 (b940084d7 2026-09-28)",
+    "cargo": "1.99.0 (5f94df478 2026-08-27)",
+    "onnxruntime": "1.31.0",
+    "onnxruntime_version_source": "/workspace/.obrain-env/onnx/onnxruntime/__init__.py"
+  },
+  "network": {
+    "configuration": {
+      "observations_current": true,
+      "observed_phase": "running",
+      "connectivity": "connected",
+      "policy_mode": "restricted",
+      "policy_state": "unknown",
+      "custom_allowed_hosts": [
+        "huggingface.co"
+      ],
+      "presets": [
+        "package_managers"
+      ],
+      "cdn_listed_in_local_policy": false
+    },
+    "observed": {
+      "huggingface_co": "config.json 200; official revision metadata accessible",
+      "tokenizer_redirect": {
+        "status": 302,
+        "host": "us.aws.cdn.hf.co"
+      },
+      "model_redirect": {
+        "status": 302,
+        "host": "us.aws.cdn.hf.co"
+      },
+      "cdn_tunnel": "403 Forbidden"
+    },
+    "pending_configuration": {
+      "add_host": "us.aws.cdn.hf.co",
+      "preserve_hosts": [
+        "huggingface.co"
+      ],
+      "preserve_presets": [
+        "package_managers"
+      ],
+      "action": "Guardar y aplicar desde la configuración del entorno; comprobar después disponibilidad observada."
+    },
+    "available_configuration_tools": [
+      "environment_status (read-only)"
+    ],
+    "configuration_changed_by_this_session": false,
+    "proxy_inherited": true,
+    "tls_verification_enabled": true
+  },
+  "model": {
+    "repository": "intfloat/multilingual-e5-small",
+    "revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+    "directory": "/workspace/models/multilingual-e5-small/614241f622f53c4eeff9890bdc4f31cfecc418b3",
+    "official_metadata": {
+      "repository": "intfloat/multilingual-e5-small",
+      "revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+      "metadata_url": "https://huggingface.co/api/models/intfloat/multilingual-e5-small/revision/614241f622f53c4eeff9890bdc4f31cfecc418b3?blobs=true",
+      "files": [
+        {
+          "rfilename": "config.json",
+          "blobId": "60a2a84020f1d74cc53ea9e8c4e91cf4af6c2b68",
+          "size": 655
+        },
+        {
+          "rfilename": "onnx/model.onnx",
+          "blobId": "f9c7ec44162ecb2ae1340185b24a43d83d606a00",
+          "size": 470268510,
+          "lfs": {
+            "sha256": "ca456c06b3a9505ddfd9131408916dd79290368331e7d76bb621f1cba6bc8665",
+            "size": 470268510,
+            "pointerSize": 134
+          }
+        },
+        {
+          "rfilename": "tokenizer.json",
+          "blobId": "c9b2fea3119ca8886380e5f47bffc5ea7a6e0ffa",
+          "size": 17082730,
+          "lfs": {
+            "sha256": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39",
+            "size": 17082730,
+            "pointerSize": 133
+          }
+        }
+      ]
+    },
+    "artifacts": [
+      {
+        "file": "config.json",
+        "source": "https://huggingface.co/intfloat/multilingual-e5-small/resolve/614241f622f53c4eeff9890bdc4f31cfecc418b3/config.json",
+        "expected_sha256": "69137736cab8b8903a07fe8afaafdda25aac55415a12a55d1bffa9f581abf959",
+        "redirects": [
+          {
+            "status": 307,
+            "from_host": "huggingface.co",
+            "to_host": "huggingface.co"
+          }
+        ],
+        "http_status": 200,
+        "final_host": "huggingface.co",
+        "bytes": 655,
+        "status": "verified",
+        "observed_sha256": "69137736cab8b8903a07fe8afaafdda25aac55415a12a55d1bffa9f581abf959"
+      },
+      {
+        "file": "tokenizer.json",
+        "source": "https://huggingface.co/intfloat/multilingual-e5-small/resolve/614241f622f53c4eeff9890bdc4f31cfecc418b3/tokenizer.json",
+        "expected_sha256": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39",
+        "redirects": [
+          {
+            "status": 302,
+            "from_host": "huggingface.co",
+            "to_host": "us.aws.cdn.hf.co"
+          }
+        ],
+        "status": "download_failed",
+        "error": "Tunnel connection failed: 403 Forbidden",
+        "observed_sha256": null,
+        "bytes": null
+      },
+      {
+        "file": "model.onnx",
+        "source": "https://huggingface.co/intfloat/multilingual-e5-small/resolve/614241f622f53c4eeff9890bdc4f31cfecc418b3/onnx/model.onnx",
+        "expected_sha256": "ca456c06b3a9505ddfd9131408916dd79290368331e7d76bb621f1cba6bc8665",
+        "redirects": [
+          {
+            "status": 302,
+            "from_host": "huggingface.co",
+            "to_host": "us.aws.cdn.hf.co"
+          }
+        ],
+        "status": "download_failed",
+        "error": "Tunnel connection failed: 403 Forbidden",
+        "observed_sha256": null,
+        "bytes": null
+      }
+    ],
+    "expected_lfs_hashes_reconfirmed_from_official_metadata": true,
+    "downloaded_weights_verified": false
+  },
+  "lexical_repeat": {
+    "command": "OBRAIN_EVAL_REPORT=/workspace/work/obrain-e5/resume-2026-10-15/lexical-repeat.json cargo test --manifest-path core/Cargo.toml --locked -p obrain-api --test recuperacion_banco evaluar_recuperacion_lexica -- --exact --nocapture",
+    "cargo_exit_code": 0,
+    "cargo_output": "preparacion-e5-2026-10-15/lexical-cargo.log",
+    "report": "preparacion-e5-2026-10-15/lexical-repeat.json",
+    "comparison": "preparacion-e5-2026-10-15/comparacion-lexica.json",
+    "non_timing_rows_identical_to_baseline": true,
+    "summary": {
+      "questions": 17,
+      "answerable": 14,
+      "document_top1": 11,
+      "document_top3": 11,
+      "supporting_passage_top3": 11,
+      "unanswerable": 3,
+      "unanswerable_with_candidates": 1,
+      "lexical_required_failures": [],
+      "vectors": 0
+    },
+    "literal_passages_version_navigation_pin_checks": "passed within existing bank"
+  },
+  "hybrid_attempt": {
+    "command": "OBRAIN_EVAL_MODEL=/workspace/models/multilingual-e5-small/614241f622f53c4eeff9890bdc4f31cfecc418b3 OBRAIN_EVAL_REPORT=/workspace/work/obrain-e5/resume-2026-10-15/hybrid-unavailable.json cargo test --manifest-path core/Cargo.toml --locked -p obrain-api --test recuperacion_banco evaluar_hibrida_e5 -- --ignored --exact --nocapture",
+    "cargo_exit_code": 101,
+    "cargo_output": "preparacion-e5-2026-10-15/hybrid-cargo.log",
+    "reason": "faltan archivos locales de E5; no se permite fallback léxico",
+    "report_generated": false,
+    "vectors_indexed": false,
+    "real_inference": false,
+    "interpretation": "Rechazo esperado de preparación incompleta; no valida E5."
+  },
+  "next_decision": {
+    "current_observation": "Tres paráfrasis sin documento esperado; los once casos léxicos tienen cita suficiente.",
+    "pending": "Medir E5 real antes de modificar recuperación/fusión o selección de pasajes.",
+    "conditional": [
+      "Si falta documento: recuperación/fusión.",
+      "Si hay documento pero no cita suficiente: selección de pasajes.",
+      "Si ambas capas bastan: experimento acotado de respuesta con citas y abstención."
+    ],
+    "unanswerable_cases": "Mascotas: candidato temático sin respuesta; IBAN y teléfono: sin candidatos léxicos. Conservar los tres."
+  },
+  "constraints": {
+    "synthetic_documents_only": true,
+    "personal_vault_opened": false,
+    "weights_outside_checkout": true,
+    "questions_answers_and_criteria_modified": false,
+    "merged": false,
+    "deployed": false,
+    "windows_visual_validation": "pending"
+  },
+  "observed_at_utc": "2026-10-15T11:32:59.196235+00:00"
+}

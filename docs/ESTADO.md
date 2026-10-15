@@ -1,11 +1,77 @@
 # Estado del proyecto — empieza aquí
 
-**Última revisión:** 2026-10-11
+**Última revisión:** 2026-10-15
 
 Una página para retomar el proyecto sin leer las 2.000 líneas de agosto. El
 diseño completo está en [`PROJECT-MASTER.md`](PROJECT-MASTER.md); el porqué de
 cada decisión, en [`adr/`](adr/); la historia de cada hito, en la
 [bitácora](archivo/bitacora-agosto-2026.md).
+
+## Punto de reanudación — 15 de octubre de 2026
+
+La base inspeccionada es `a962e75` (PR #10, integrada el 14 de octubre).
+Las secciones de uso y las comprobaciones personales de septiembre que siguen
+son históricas: no acreditan haber recorrido las funciones nuevas en la app
+instalada. Los prompts bajo `archivo/` tampoco son instrucciones de rama vigentes.
+
+Desde el último resumen se integraron:
+
+- PR #3: identidad entre bibliotecas con inventario global (ADR-0036).
+- PR #4: publicación del contenido después de clasificarlo, con recuperación
+  de estados pendientes; véase `INVESTIGACION-PUBLICACION-INDEXACION.md`.
+- PR #5: corrección de OCR entre hilos y validación sintética de migración v1
+  en Windows; véase `VALIDACION-WINDOWS-V1.md`.
+- PR #6: reconciliación de relaciones automáticas `duplicate_of` obsoletas.
+- PR #7: biblioteca sintética y prueba integral de producto.
+- PR #8: ensayo de instalación/arranque/desinstalación MSI en runner Windows.
+  Hubo una ejecución correcta observada; la ejecución con criterios reforzados
+  quedó bloqueada antes del job por facturación/límite de GitHub Actions.
+  No acredita los recorridos visuales de la app instalada.
+- PR #9: recuperación léxica desde recuerdos parciales y citas centradas en
+  los términos recuperados.
+- PR #10: pasajes literales verificables desde el buscador, navegación a sus
+  posiciones/versiones y controles de acceso con PIN. Son citas de la versión
+  indexada; no constituyen respuestas confirmadas ni garantizan la vigencia
+  del archivo original.
+
+**Trabajo actual en la nube:** medir «pregunta → documento → pasaje» antes de
+redactar respuestas. El [banco de recuperación](EVALUACION-RECUPERACION.md)
+usa 17 preguntas sobre documentos inventados. La búsqueda léxica encuentra
+el documento y una cita suficiente en 11 de las 14 preguntas con respuesta;
+fallan tres paráfrasis. De tres preguntas sin respuesta, una devuelve un
+candidato relacionado sin resolver lo preguntado. La comparación E5 real
+está preparada, pero no ejecutada: `huggingface.co` ya responde; pesos y
+tokenizer redirigen a `us.aws.cdn.hf.co`, cuyo túnel sigue denegado (403).
+La repetición léxica de esta sesión pasó sin diferencias de documentos, orden
+ni citas respecto al informe previo. E5 rechazó el modelo incompleto con
+Cargo 101 y no generó informe híbrido; no acredita inferencia real.
+
+El checkout reanudado conserva `work`, HEAD `a962e75` y cambios sin commit,
+pero no contenía el registro de preparación, el directorio del modelo ni la
+copia previa indicados en el traspaso. Se preservó el estado encontrado en
+`/workspace/work/obrain-e5/resume-2026-10-15/original`, sin restaurar nada.
+El [registro de preparación](evaluaciones/preparacion-e5-2026-10-15.json)
+se creó de nuevo con evidencias actuales: sólo `config.json` está descargado
+y verificado; los hashes LFS de pesos/tokenizer se reconfirmaron en metadatos
+oficiales, pero no sobre sus archivos ausentes.
+
+**Validación de esta instancia Linux:** al preparar el entorno pasaron 549
+pruebas Rust y 17 de interfaz, compilación web y una prueba de CLI con base
+temporal. El nuevo banco añade una prueba léxica y una prueba E5 ignorada
+por defecto, que exige modelo local explícito. No equivale a validar WebView2,
+OCR de Windows o la inferencia real. Sin modificaciones a la bóveda personal.
+
+**Siguiente paso:** añadir `us.aws.cdn.hf.co` en la configuración del entorno,
+conservando `huggingface.co` y el preset `package_managers`, guardar y aplicar.
+La herramienta disponible sólo consulta; la política declara estado `unknown`
+y no acredita aplicación. Verificar acceso y hashes, ejecutar el mismo banco
+con E5 y comparar documento top 1, top 3 y citas por separado. Si falta el
+documento, mejorar recuperación/fusión; si falta sólo la cita, selección de
+pasajes; si ambas capas bastan, ensayar una respuesta con citas y abstención.
+Pendientes independientes: recorridos
+visuales de Windows, criterios MSI reforzados y respaldo/restauración aislados.
+Para la siguiente sesión en la laptop, usa la
+[guía de continuación local](CONTINUAR-RECUPERACION-LOCAL.md).
 
 ## Qué es, en una frase
 
@@ -26,12 +92,12 @@ Nombres y rutas siguen visibles por diseño; el PIN no aísla de otros procesos
 de la cuenta ni controla documentos ya abiertos fuera de Brain.
 
 Pruebas exclusivamente sintéticas; la bóveda real no se abrió ni se modificó.
-Se verificaron bloqueo y caducidad en una app nativa debug con datos aislados;
-MSI/NSIS release sigue pendiente. Ver [procedimiento](VALIDACION-PIN-AISLADA.md).
+Se verificaron bloqueo y caducidad en una app nativa debug con datos aislados.
+El recorrido visual de PIN en la app instalada sigue pendiente; el ensayo MSI
+posterior tiene un alcance distinto. Ver [procedimiento](VALIDACION-PIN-AISLADA.md).
 La PR #2 de confianza está fusionada en `main` (`48f73f5`). La reconciliación
-entre bibliotecas se corrige en la rama `codex/identidad-entre-bibliotecas`
-(ADR-0036), pendiente de revisión; la publicación antes de clasificar durante
-la indexación sigue siendo el siguiente P1.
+entre bibliotecas (ADR-0036) y la publicación después de clasificar se
+integraron posteriormente mediante las PR #3 y #4.
 
 Contexto versionado: [auditoría](AUDITORIA-CONFIANZA.md),
 [plan](PLAN-CONFIANZA.md), [progreso](PROGRESO-CONFIANZA.md),
@@ -61,10 +127,10 @@ Contexto versionado: [auditoría](AUDITORIA-CONFIANZA.md),
 | **Vigila tus carpetas en vivo** mientras está abierta: guardas un documento y aparece solo, a los 3 segundos de dejar de tocar la carpeta, sin avisos (sólo el indicador de abajo a la izquierda) | ✅ Probado en tu Windows (2026-09-23) |
 | **Papelera**: lo que borras sale de Recientes, «Caduca pronto», el explorador, el mapa y la búsqueda, y se queda 30 días en la vista «Papelera»; después se olvida lo que se leyó de él (o antes, con «Olvidar ya» o «Vaciar papelera»). Mover y renombrar ya no dejan documentos ni carpetas repetidos | ✅ Probado en tu Windows (2026-09-23) |
 
-Núcleo en Rust con 469 tests, todos en verde en Linux (2026-09-25). **Los 452
-de antes, también en tu Windows** (2026-09-23); los 17 nuevos —colecciones,
-copias y mover de una colección a otra— se corren allí la próxima vez que
-abras la laptop. Interfaz en Tauri +
+El recuento histórico era 469 pruebas Rust en Linux (2026-09-25). La
+validación cloud sobre `a962e75` ejecutó 549 pruebas Rust y 17 de interfaz.
+Las verificaciones Windows tienen sus propias bases y alcances documentados;
+no se deben extrapolar a todas las funciones actuales. Interfaz en Tauri +
 Svelte 5, con el mapa en PixiJS.
 
 ## Cómo usarlo hoy (Windows)

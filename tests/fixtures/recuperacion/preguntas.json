@@ -1,0 +1,199 @@
+[
+  {
+    "id": "contrato-fin",
+    "kind": "fecha",
+    "query": "El contrato donde decía cuándo terminaba el alquiler",
+    "expected": [
+      {
+        "document": "Contrato alquiler ficticio.txt",
+        "answer": "31 de agosto de 2027"
+      }
+    ],
+    "lexical_required": true
+  },
+  {
+    "id": "contrato-inicio",
+    "kind": "fecha",
+    "query": "¿Cuándo empieza la vigencia del contrato de alquiler?",
+    "expected": [
+      {
+        "document": "Contrato alquiler ficticio.txt",
+        "answer": "1 de septiembre de 2026"
+      }
+    ],
+    "lexical_required": true
+  },
+  {
+    "id": "contrato-renta",
+    "kind": "importe",
+    "query": "¿Cuál es la renta al mes de la vivienda?",
+    "expected": [
+      {
+        "document": "Contrato alquiler ficticio.txt",
+        "answer": "700 unidades al mes"
+      }
+    ],
+    "lexical_required": true
+  },
+  {
+    "id": "cita-fecha",
+    "kind": "fecha",
+    "query": "¿Cuándo se celebrará la cita de revisión documental?",
+    "expected": [
+      {
+        "document": "cita-consulado.html",
+        "answer": "18 de noviembre de 2026"
+      }
+    ],
+    "lexical_required": true
+  },
+  {
+    "id": "cita-requisitos",
+    "kind": "requisitos",
+    "query": "¿Qué se solicitará para la cita?",
+    "expected": [
+      {
+        "document": "cita-consulado.html",
+        "answer": "justificante de matrícula y el resumen del alquiler"
+      }
+    ],
+    "lexical_required": true
+  },
+  {
+    "id": "matricula-fecha",
+    "kind": "fecha",
+    "query": "¿Cuándo se confirmó la matrícula?",
+    "expected": [
+      {
+        "document": "constancia-matricula.pdf",
+        "answer": "2 de octubre de 2026"
+      }
+    ],
+    "lexical_required": true
+  },
+  {
+    "id": "recibo-importe",
+    "kind": "importe",
+    "query": "El recibo correspondiente al alquiler de septiembre",
+    "expected": [
+      {
+        "document": "recibo-septiembre.txt",
+        "answer": "700 unidades de prueba"
+      },
+      {
+        "document": "recibo-septiembre-copia.txt",
+        "answer": "700 unidades de prueba"
+      }
+    ],
+    "lexical_required": true
+  },
+  {
+    "id": "recibo-referencia",
+    "kind": "exacta",
+    "query": "AURORA-SEP",
+    "expected": [
+      {
+        "document": "recibo-septiembre.txt",
+        "answer": "AURORA-SEP"
+      },
+      {
+        "document": "recibo-septiembre-copia.txt",
+        "answer": "AURORA-SEP"
+      }
+    ],
+    "lexical_required": true
+  },
+  {
+    "id": "apuntes-recuerdo",
+    "kind": "recuerdo",
+    "query": "Los apuntes de la práctica donde hablábamos de rutas de red",
+    "expected": [
+      {
+        "document": "apuntes-redes.md",
+        "answer": "tres nodos"
+      }
+    ],
+    "lexical_required": true
+  },
+  {
+    "id": "apuntes-faro",
+    "kind": "exacta",
+    "query": "nodo azafrán",
+    "expected": [
+      {
+        "document": "apuntes-redes.md",
+        "answer": "nodo azafrán"
+      }
+    ],
+    "lexical_required": true
+  },
+  {
+    "id": "horario",
+    "kind": "fecha",
+    "query": "¿A qué hora es Redes el martes?",
+    "expected": [
+      {
+        "document": "horario.csv",
+        "answer": "10:00"
+      }
+    ],
+    "lexical_required": true
+  },
+  {
+    "id": "vivienda-parafrasis",
+    "kind": "parafrasis",
+    "query": "¿Cuánto pago mensualmente por el piso?",
+    "expected": [
+      {
+        "document": "Contrato alquiler ficticio.txt",
+        "answer": "700 unidades al mes"
+      }
+    ],
+    "lexical_required": false
+  },
+  {
+    "id": "fin-parafrasis",
+    "kind": "parafrasis",
+    "query": "¿En qué fecha se acaba mi arrendamiento?",
+    "expected": [
+      {
+        "document": "Contrato alquiler ficticio.txt",
+        "answer": "31 de agosto de 2027"
+      }
+    ],
+    "lexical_required": false
+  },
+  {
+    "id": "clase-parafrasis",
+    "kind": "parafrasis",
+    "query": "¿En qué salón nos reunimos para la clase del martes?",
+    "expected": [
+      {
+        "document": "horario.csv",
+        "answer": "B-14"
+      }
+    ],
+    "lexical_required": false
+  },
+  {
+    "id": "sin-iban",
+    "kind": "sin_respuesta",
+    "query": "¿Cuál es el IBAN para pagar el alquiler?",
+    "expected": [],
+    "lexical_required": false
+  },
+  {
+    "id": "sin-telefono",
+    "kind": "sin_respuesta",
+    "query": "¿Cuál es el teléfono del consulado?",
+    "expected": [],
+    "lexical_required": false
+  },
+  {
+    "id": "sin-mascota",
+    "kind": "sin_respuesta",
+    "query": "¿El contrato de alquiler permite mascotas?",
+    "expected": [],
+    "lexical_required": false
+  }
+]

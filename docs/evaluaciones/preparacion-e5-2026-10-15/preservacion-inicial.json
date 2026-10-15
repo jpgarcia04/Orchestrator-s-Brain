@@ -1,0 +1,33 @@
+{
+  "docs/ESTADO.md": {
+    "sha256": "bcbe33fbfb7491209a1d96d2fcc152da7e87030b59396af09448ce6df5cb6ef1",
+    "bytes": 37290
+  },
+  "docs/PLAN-CONFIANZA.md": {
+    "sha256": "d498a0c5d0d07be3fe512c0c58883f3e90509e8e72182876c7c87bf052b82d47",
+    "bytes": 2968
+  },
+  "docs/PROGRESO-CONFIANZA.md": {
+    "sha256": "2299f0c0c6392849b719594fed520f30b1b49e950931cceab6520f5bd21fb245",
+    "bytes": 10105
+  },
+  "tests/fixtures/recuperacion/preguntas.json": {
+    "sha256": "5bf01e7e4b1a57f09e3d492cf585961dd8873cb90f4c8f7d9f9c504d2ccfc157",
+    "bytes": 4568
+  },
+  "core/obrain-api/tests/recuperacion_banco.rs": {
+    "sha256": "9078e8baeb43b9fd4a4f702835f983367335570583a1451156c84968ae23552f",
+    "bytes": 10571
+  },
+  "docs/EVALUACION-RECUPERACION.md": {
+    "sha256": "78fa834d6b9aeadab73d1614f3d562e08517f9456cbf7aaac8675c4a1a980eef",
+    "bytes": 6382
+  },
+  "docs/evaluaciones/recuperacion-lexica-2026-10-15.json": {
+    "sha256": "4e4a7e1053aeae5c2e15a1386fe5bb29a38e7f0cdbdd5faaff505e3a23a79b3c",
+    "bytes": 17848
+  },
+  "docs/evaluaciones/preparacion-e5-2026-10-15.json": {
+    "missing": true
+  }
+}
