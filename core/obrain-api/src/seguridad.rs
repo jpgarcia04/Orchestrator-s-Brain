@@ -148,8 +148,9 @@ pub fn abrir_con(db: &Path, kdf: KdfParams) -> Result<Store> {
         return Ok(store);
     }
     if !db.exists() {
+        Store::check_new_path(db)?;
         let c = obrain_keys::create_with(db, kdf)?;
-        let store = Store::open_with(db, Some(&c.key))?;
+        let store = Store::create_with(db, Some(&c.key))?;
         migrate(store.conn())?;
         guardar_recuperacion(store.conn(), &c.recovery)?;
         return Ok(store);
@@ -170,6 +171,7 @@ pub fn abrir_con(db: &Path, kdf: KdfParams) -> Result<Store> {
 /// termina el paso 4 ([`reanudar`]). Si se corta antes de 3, no ha pasado
 /// nada: la original sigue en claro y la copia a medias se tira.
 fn cifrar(db: &Path, kdf: KdfParams) -> Result<Store> {
+    Store::verify_existing(db, None)?;
     let cifrando = con_sufijo(db, ".cifrando");
     for resto in ["", "-wal", "-shm"] {
         let _ = std::fs::remove_file(con_sufijo(&cifrando, resto));
@@ -205,13 +207,16 @@ fn cifrar(db: &Path, kdf: KdfParams) -> Result<Store> {
 
 /// El paso 4: la copia cifrada ocupa el sitio de la original.
 fn reanudar(db: &Path, cifrando: &Path) -> Result<()> {
+    // Una conversión pendiente conserva su origen en claro. Si éste ya está
+    // cifrado o ha desaparecido, los restos son ambiguos: no sustituir una
+    // bóveda válida por una copia potencialmente más antigua.
+    Store::verify_existing(db, None)?;
     // Antes de sustituir nada, que la copia se abra con la llave que ya está
     // escrita: si no, se deja todo como está y se dice.
     {
         let s = Store::open_with(cifrando, Some(&obrain_keys::unlock(db)?))?;
         // Todo dentro del archivo principal: lo que se mueve es sólo ése.
-        s.conn()
-            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
+        Store::checkpoint(s.conn())?;
     }
     for resto in ["-wal", "-shm"] {
         let _ = std::fs::remove_file(con_sufijo(cifrando, resto));
@@ -241,6 +246,12 @@ fn guardar_recuperacion(conn: &Connection, code: &RecoveryCode) -> Result<()> {
 /// Windows. Es la salida cuando [`abrir`] dice que este equipo no puede.
 pub fn recuperar(db: &Path, codigo: &str) -> Result<()> {
     let code = RecoveryCode::parse(codigo)?;
+    let key = obrain_keys::unlock_recovery(db, &code)?;
+    let pending = con_sufijo(db, ".cifrando");
+    if pending.exists() {
+        Store::verify_existing(db, None)?;
+    }
+    Store::verify_existing(if pending.exists() { &pending } else { db }, Some(&key))?;
     obrain_keys::recover(db, &code)?;
     Ok(())
 }

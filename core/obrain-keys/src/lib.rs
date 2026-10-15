@@ -276,6 +276,12 @@ pub fn recover(db: &Path, code: &RecoveryCode) -> Result<DataKey> {
     Ok(key)
 }
 
+/// Abre la caja de recuperación sin modificar el archivo de llave. El producto
+/// comprueba primero la base correspondiente y sólo después llama a `recover`.
+pub fn unlock_recovery(db: &Path, code: &RecoveryCode) -> Result<DataKey> {
+    unwrap_recovery(&read(db)?.recuperacion, code)
+}
+
 /// ¿Es ésta la clave de recuperación de la base? Sin tocar nada. Es lo que
 /// pide restablecer un PIN olvidado.
 pub fn verify_recovery(db: &Path, code: &RecoveryCode) -> Result<()> {

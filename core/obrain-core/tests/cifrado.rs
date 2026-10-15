@@ -48,7 +48,7 @@ fn con_llave_no_hay_nada_en_claro_en_el_disco() {
     let db = d.join("brain.obrain");
     let c = obrain_keys::create_with(&db, KdfParams::FAST_FOR_TESTS).unwrap();
     {
-        let s = Store::open_with(&db, Some(&c.key)).unwrap();
+        let s = Store::create_with(&db, Some(&c.key)).unwrap();
         escribir(&s);
         assert_eq!(leer(&s), vec![SECRETO]);
     }
@@ -64,7 +64,7 @@ fn sin_llave_o_con_otra_no_se_abre() {
     let d = dir("otra");
     let db = d.join("brain.obrain");
     let c = obrain_keys::create_with(&db, KdfParams::FAST_FOR_TESTS).unwrap();
-    escribir(&Store::open_with(&db, Some(&c.key)).unwrap());
+    escribir(&Store::create_with(&db, Some(&c.key)).unwrap());
 
     // En claro, como si no tuviera llave.
     assert!(Store::open_with(&db, None).is_err());

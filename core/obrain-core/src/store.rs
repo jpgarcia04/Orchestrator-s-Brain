@@ -6,6 +6,7 @@
 
 use crate::error::{Error, Result};
 use crate::model::*;
+use crate::opening;
 use crate::schema::{DDL, SCHEMA_VERSION, SEED_PREDICATES};
 use rusqlite::{Connection, OptionalExtension, named_params, params};
 
@@ -51,6 +52,11 @@ impl Store {
     /// producto y la toma `obrain_api::cifrado::abrir`.
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self> {
         let path = path.as_ref();
+        if !path.exists() && opening::has_artifacts(path, true) {
+            return Err(opening::suspect(
+                "hay llave o archivos auxiliares pero falta la base",
+            ));
+        }
         let key = if obrain_keys::exists(path) {
             Some(obrain_keys::unlock(path)?)
         } else {
@@ -64,25 +70,69 @@ impl Store {
         path: impl AsRef<std::path::Path>,
         key: Option<&obrain_keys::DataKey>,
     ) -> Result<Self> {
-        let conn = Connection::open(path)?;
-        if let Some(k) = key {
-            // La llave tiene que ser lo primero que se le dice a la conexión.
-            // En crudo (`x'…'`) no hay derivación: son 256 bits de azar.
-            conn.execute_batch(&format!(
-                "PRAGMA key = \"{}\";",
-                k.sqlcipher_literal().as_str()
-            ))?;
-            // SQLCipher no comprueba la llave hasta leer la primera página.
-            // Se lee aquí para que una llave equivocada sea este error y no un
-            // «file is not a database» tres llamadas más tarde.
-            conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| {
-                r.get::<_, i64>(0)
-            })
-            .map_err(|_| Error::WrongKey)?;
+        let path = path.as_ref();
+        if !path.exists() {
+            if key.is_some() || opening::has_artifacts(path, true) {
+                return Err(opening::suspect(
+                    "falta la base existente; no se reutiliza su llave para crear otra",
+                ));
+            }
+            return Self::create_with(path, None);
         }
-        // Lo temporal, en memoria: un archivo temporal de SQLite en claro al
-        // lado de una base cifrada sería una fuga por la puerta de atrás.
-        conn.execute_batch("PRAGMA temp_store = MEMORY;")?;
+        Self::verify_existing(path, key)?;
+        // Sin CREATE: si desapareció después de verificarla, no se recrea.
+        let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        opening::key(&conn, key)?;
+        // La copia previa no es un respaldo consistente de una base viva.
+        // Revalidamos el estado real antes de ejecutar DDL o migraciones.
+        opening::validate(&conn)?;
+        Self::initialize(conn)
+    }
+
+    /// Creación explícita. Nunca sobrescribe una base ni restos de un WAL.
+    /// La llave puede haberse escrito justo antes; el llamante debe poseerla.
+    pub fn create_with(
+        path: impl AsRef<std::path::Path>,
+        key: Option<&obrain_keys::DataKey>,
+    ) -> Result<Self> {
+        let path = path.as_ref();
+        if opening::has_artifacts(path, false)
+            || (key.is_none() && obrain_keys::key_path(path).exists())
+        {
+            return Err(opening::suspect(
+                "hay restos de una base anterior en la ruta de creación",
+            ));
+        }
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?;
+        let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        opening::key(&conn, key)?;
+        Self::initialize(conn)
+    }
+
+    /// Verifica una base existente sin escribir en ella ni en sus auxiliares.
+    /// Sirve también antes de cifrar o de volver a envolver su llave.
+    pub fn verify_existing(
+        path: impl AsRef<std::path::Path>,
+        key: Option<&obrain_keys::DataKey>,
+    ) -> Result<()> {
+        opening::verify(path.as_ref(), key)
+    }
+
+    /// Antes de generar una llave nueva, exige una ruta sin base ni restos.
+    pub fn check_new_path(path: impl AsRef<std::path::Path>) -> Result<()> {
+        let path = path.as_ref();
+        if path.exists() || opening::has_artifacts(path, true) {
+            return Err(opening::suspect(
+                "la ruta contiene una base, llave o auxiliares anteriores",
+            ));
+        }
+        Ok(())
+    }
+
+    fn initialize(conn: Connection) -> Result<Self> {
         // WAL: la aplicación lee mientras el indexador escribe desde otra
         // conexión. Sin esto, cualquier lectura durante un reindexado fallaría
         // con «database is locked». Y la espera cubre a dos escritores que
@@ -97,15 +147,27 @@ impl Store {
     /// Copia una base **en claro** a `destino`, **cifrada** con esta llave.
     ///
     /// Es `sqlcipher_export`: esquema, datos, índices y triggers —los de I1 e
-    /// I4 incluidos—. No toca el origen; sustituirlo es cosa de quien migra.
+    /// I4 incluidos—. Consolida el WAL del origen; sustituirlo es cosa de quien migra.
     pub fn export_encrypted(
         origen: impl AsRef<std::path::Path>,
         destino: impl AsRef<std::path::Path>,
         key: &obrain_keys::DataKey,
     ) -> Result<()> {
-        let conn = Connection::open(origen)?;
+        Self::verify_existing(origen.as_ref(), None)?;
+        if destino.as_ref().exists() || opening::has_artifacts(destino.as_ref(), false) {
+            return Err(opening::suspect("el destino de cifrado ya existe"));
+        }
+        let conn =
+            Connection::open_with_flags(origen, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        opening::validate(&conn)?;
         // Que el WAL quede volcado en el archivo principal antes de copiar.
-        conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
+        Self::checkpoint(&conn)?;
+        // ATTACH hereda la apertura sin CREATE del origen. Reservamos sólo el
+        // destino, después de validar el origen, sin sobrescribir otro archivo.
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(destino.as_ref())?;
         conn.execute(
             "ATTACH DATABASE ?1 AS cifrada KEY ?2",
             rusqlite::params![
@@ -117,6 +179,20 @@ impl Store {
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         conn.execute_batch(&format!("PRAGMA cifrada.user_version = {version};"))?;
         conn.execute_batch("DETACH DATABASE cifrada;")?;
+        Ok(())
+    }
+
+    /// No se puede mover sólo el principal si el checkpoint quedó ocupado.
+    pub fn checkpoint(conn: &Connection) -> Result<()> {
+        let (busy, frames, copied): (i64, i64, i64) =
+            conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })?;
+        if busy != 0 || (frames >= 0 && frames != copied) {
+            return Err(opening::suspect(
+                "el WAL sigue en uso; cierra las otras conexiones y reintenta",
+            ));
+        }
         Ok(())
     }
 

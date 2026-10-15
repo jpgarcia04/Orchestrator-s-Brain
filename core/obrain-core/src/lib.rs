@@ -47,6 +47,7 @@
 
 pub mod error;
 pub mod model;
+mod opening;
 pub mod schema;
 pub mod sensitivity;
 pub mod store;
