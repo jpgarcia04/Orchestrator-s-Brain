@@ -133,7 +133,8 @@
    cifrar y renombrar. El PIN no prueba completitud y la recuperación en otro
    equipo físico sigue sin ensayarse.
 
-9. **PR.** Pendiente de publicación; no hacer merge ni actualizar la instalación.
+9. **PR.** [PR #11](https://github.com/jpgarcia04/Orchestrator-s-Brain/pull/11),
+   en borrador contra `main`. No se ha hecho merge ni actualizado la instalación.
    El commit utiliza `[skip ci]` para omitir el workflow automático de MSI,
    que instala y desinstala Brain. Las comprobaciones descritas son locales;
    el ensayo del instalador queda pendiente. Es el mecanismo de
