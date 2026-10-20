@@ -46,6 +46,7 @@ pub mod marks;
 pub mod papelera;
 pub mod preview;
 mod publication;
+pub mod respaldo;
 pub mod seguridad;
 pub mod sky;
 pub mod vigilar;
@@ -65,6 +66,7 @@ pub use lens::{Edge, Lens, Node};
 pub use marks::{ByPart, MarkedFolder, Protection};
 pub use papelera::EnPapelera;
 pub use preview::Preview;
+pub use respaldo::{InformeEnsayo, Manifiesto, ResumenInstantanea};
 pub use sky::{Bridge, Cluster, Crumb, Expiring, Listing, Region, Row, Sky};
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -90,6 +92,9 @@ pub enum Error {
 
     #[error(transparent)]
     Seguridad(#[from] seguridad::Error),
+
+    #[error(transparent)]
+    Respaldo(#[from] respaldo::Error),
 
     #[error("está protegido con tu PIN: desbloquéalo para verlo o abrirlo")]
     Bloqueado,
@@ -118,6 +123,16 @@ impl Error {
                 | Error::Seguridad(seguridad::Error::Keys(SistemaNoDisponible(_)))
                 | Error::Seguridad(seguridad::Error::Core(obrain_core::Error::Key(
                     SistemaNoDisponible(_)
+                )))
+                | Error::Respaldo(respaldo::Error::Keys(SistemaNoDisponible(_)))
+                | Error::Respaldo(respaldo::Error::Core(obrain_core::Error::Key(
+                    SistemaNoDisponible(_)
+                )))
+                | Error::Respaldo(respaldo::Error::Seguridad(seguridad::Error::Keys(
+                    SistemaNoDisponible(_)
+                )))
+                | Error::Respaldo(respaldo::Error::Seguridad(seguridad::Error::Core(
+                    obrain_core::Error::Key(SistemaNoDisponible(_))
                 )))
         )
     }

@@ -10,7 +10,9 @@
 //! ([`obrain_api::default_db_path`]). Las herramientas de cada etapa
 //! (`obrain-scan`, `obrain-extract`…) siguen ahí para auditarlas.
 
-use obrain_api::{Brain, Embedder, IndexReport, default_db_path, indexar, load_model, seguridad};
+use obrain_api::{
+    Brain, Embedder, IndexReport, default_db_path, indexar, load_model, respaldo, seguridad,
+};
 use obrain_core::{Sensitivity, Store};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -44,6 +46,13 @@ USO:
   obrain clave                               enseña la clave de recuperación de la base
   obrain clave --guardada                    dice que ya la guardaste (la app deja de pedirlo)
   obrain recuperar <clave>                   abre la base en un equipo que no tiene su llave
+  obrain respaldar <carpeta>                 crea un respaldo cifrado y verificable en una
+                                             carpeta nueva o vacía
+  obrain respaldo <carpeta> --verificar [--clave <clave>]
+                                             comprueba la integridad del respaldo y su llave
+  obrain respaldo <carpeta> --ensayar [--en <carpeta>] [--clave <clave>] [--pin <pin>]
+                                             ensaya la recuperación y apertura en una carpeta
+                                             aislada sin tocar la base activa
 
 La base está siempre cifrada (SQLCipher). La primera vez que se abre —o si
 venía de una versión en claro— se cifra y se enseña su clave de recuperación.
@@ -67,17 +76,51 @@ fn main() -> ExitCode {
     let mut quitar = false;
     let mut guardada = false;
     let mut vaciar = false;
+    let mut verificar = false;
+    let mut ensayar = false;
+    let mut en_carpeta: Option<PathBuf> = None;
+    let mut clave_rec: Option<String> = None;
+    let mut pin_ensayo: Option<String> = None;
     let mut coleccion = Coleccion::Ver;
     let mut sueltos: Vec<&str> = Vec::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
-            "--db" => db = it.next().map(PathBuf::from),
+            "--db" => match it.next() {
+                Some(p) => db = Some(PathBuf::from(p)),
+                None => {
+                    eprintln!("uso: --db <archivo>");
+                    return ExitCode::from(2);
+                }
+            },
             "--sin-modelo" => sin_modelo = true,
             "--boveda" => boveda = true,
             "--quitar" => quitar = true,
             "--guardada" => guardada = true,
             "--vaciar" => vaciar = true,
+            "--verificar" => verificar = true,
+            "--ensayar" => ensayar = true,
+            "--en" => match it.next() {
+                Some(p) => en_carpeta = Some(PathBuf::from(p)),
+                None => {
+                    eprintln!("uso: obrain respaldo <carpeta> --ensayar --en <carpeta-ensayo>");
+                    return ExitCode::from(2);
+                }
+            },
+            "--clave" => match it.next() {
+                Some(c) => clave_rec = Some(c.clone()),
+                None => {
+                    eprintln!("uso: --clave <clave-de-recuperación>");
+                    return ExitCode::from(2);
+                }
+            },
+            "--pin" => match it.next() {
+                Some(p) => pin_ensayo = Some(p.clone()),
+                None => {
+                    eprintln!("uso: --pin <pin>");
+                    return ExitCode::from(2);
+                }
+            },
             "--crear" => coleccion = Coleccion::Crear,
             "--meter" => coleccion = Coleccion::Meter,
             "--sacar" => coleccion = Coleccion::Sacar,
@@ -101,6 +144,178 @@ fn main() -> ExitCode {
         eprint!("{AYUDA}");
         return ExitCode::from(2);
     };
+
+    // Respaldar, verificar y ensayar van antes de abrir o crear la carpeta de
+    // la base activa: no deben crear una base vacía por accidente ni tocar la
+    // base activa durante una verificación o un ensayo aislado.
+    if *orden == "respaldar" {
+        let [destino] = carpetas else {
+            eprintln!("uso: obrain respaldar <carpeta-destino>");
+            return ExitCode::from(2);
+        };
+        let destino = PathBuf::from(destino);
+        return match respaldo::crear(&db, &destino) {
+            Ok(m) => {
+                println!("▸ respaldo creado y verificado en {}", destino.display());
+                println!(
+                    "  base cifrada           {} ({} bytes)",
+                    m.base.nombre, m.base.bytes
+                );
+                println!(
+                    "  llave de cifrado       {} ({} bytes)",
+                    m.llave.nombre, m.llave.bytes
+                );
+                println!(
+                    "  entidades · aserciones {} · {} ({} vigentes)",
+                    m.instantanea.entidades,
+                    m.instantanea.aserciones,
+                    m.instantanea.aserciones_vigentes
+                );
+                println!(
+                    "  fragmentos · vectores  {} · {}",
+                    m.instantanea.fragmentos, m.instantanea.vectores
+                );
+                println!(
+                    "  huella de instantánea  {}",
+                    m.instantanea.huella_contenido
+                );
+                println!(
+                    "  nota: conserva tu clave de recuperación{} y tus carpetas de documentos originales.",
+                    if m.instantanea.tiene_pin {
+                        " y tu PIN"
+                    } else {
+                        ""
+                    }
+                );
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("no se pudo respaldar la base {}: {e}", db.display());
+                ExitCode::FAILURE
+            }
+        };
+    }
+
+    if *orden == "respaldo" {
+        let [carpeta] = carpetas else {
+            eprintln!(
+                "uso:\n  obrain respaldo <carpeta> --verificar [--clave <clave>]\n  \
+                 obrain respaldo <carpeta> --ensayar [--en <carpeta>] [--clave <clave>] [--pin <pin>]"
+            );
+            return ExitCode::from(2);
+        };
+        if verificar == ensayar {
+            eprintln!(
+                "indica una operación (--verificar o --ensayar):\n  \
+                 obrain respaldo <carpeta> --verificar [--clave <clave>]\n  \
+                 obrain respaldo <carpeta> --ensayar [--en <carpeta>] [--clave <clave>] [--pin <pin>]"
+            );
+            return ExitCode::from(2);
+        }
+        let carpeta = PathBuf::from(carpeta);
+        if verificar {
+            if en_carpeta.is_some() || pin_ensayo.is_some() {
+                eprintln!("uso: obrain respaldo <carpeta> --verificar [--clave <clave>]");
+                return ExitCode::from(2);
+            }
+            return match respaldo::verificar_con_clave(&carpeta, clave_rec.as_deref()) {
+                Ok(m) => {
+                    println!("▸ respaldo íntegro y consistente: {}", carpeta.display());
+                    println!(
+                        "  esquema v{} · {} entidades · {} aserciones ({} vigentes)",
+                        m.instantanea.esquema_version,
+                        m.instantanea.entidades,
+                        m.instantanea.aserciones,
+                        m.instantanea.aserciones_vigentes
+                    );
+                    println!(
+                        "  fragmentos · vectores  {} · {}",
+                        m.instantanea.fragmentos, m.instantanea.vectores
+                    );
+                    if clave_rec.is_some() {
+                        println!("  clave de recuperación  verificada contra la llave y la base");
+                    }
+                    println!(
+                        "  huella de instantánea  {}",
+                        m.instantanea.huella_contenido
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("respaldo inválido en {}: {e}", carpeta.display());
+                    ExitCode::FAILURE
+                }
+            };
+        }
+        return match respaldo::ensayar(
+            &carpeta,
+            en_carpeta.as_deref(),
+            clave_rec.as_deref(),
+            pin_ensayo.as_deref(),
+        ) {
+            Ok(inf) => {
+                println!(
+                    "▸ ensayo de recuperación satisfactorio desde {}",
+                    carpeta.display()
+                );
+                if let Some(ruta) = &inf.carpeta_ensayo {
+                    println!("  copia de ensayo en     {}", ruta.display());
+                } else {
+                    println!("  ubicación de ensayo    temporal aislada (limpiada al terminar)");
+                }
+                println!(
+                    "  apertura               {}",
+                    if inf.recuperada_con_clave {
+                        "con clave de recuperación (llave reenvuelta en la copia de ensayo)"
+                    } else {
+                        "con llave del sistema verificada"
+                    }
+                );
+                if inf.con_pin {
+                    println!(
+                        "  protección con PIN     {}",
+                        if inf.pin_desbloqueado {
+                            "activo y verificado en el ensayo"
+                        } else {
+                            "activo (contenido sensible retenido; usa --pin para ensayar el desbloqueo)"
+                        }
+                    );
+                }
+                println!(
+                    "  entidades · aserciones {} · {} ({} vigentes)",
+                    inf.manifiesto.instantanea.entidades,
+                    inf.manifiesto.instantanea.aserciones,
+                    inf.manifiesto.instantanea.aserciones_vigentes
+                );
+                println!(
+                    "  documentos en bóveda   {} ({} en papelera, {} colecciones)",
+                    inf.documentos_en_boveda, inf.en_papelera, inf.colecciones
+                );
+                println!(
+                    "  sensibles · bóveda     {} · {}",
+                    inf.sensibles, inf.boveda
+                );
+                println!(
+                    "  bibliotecas            {} registradas ({} ausentes en este disco)",
+                    inf.bibliotecas_registradas.len(),
+                    inf.bibliotecas_ausentes_en_disco.len()
+                );
+                for ausente in &inf.bibliotecas_ausentes_en_disco {
+                    println!(
+                        "    · falta en disco: {ausente} (el índice y los fragmentos siguen legibles)"
+                    );
+                }
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!(
+                    "falló el ensayo de recuperación de {}: {e}",
+                    carpeta.display()
+                );
+                ExitCode::FAILURE
+            }
+        };
+    }
 
     if let Some(dir) = db.parent() {
         let _ = std::fs::create_dir_all(dir);

@@ -121,6 +121,16 @@ impl Store {
         opening::verify(path.as_ref(), key)
     }
 
+    /// Verifica una instantánea consolidada y cifrada (sin WAL ni restos
+    /// auxiliares), comprobando esquema, triggers, `integrity_check` y
+    /// `cipher_integrity_check` sobre una copia desechable.
+    pub fn verify_snapshot(
+        path: impl AsRef<std::path::Path>,
+        key: &obrain_keys::DataKey,
+    ) -> Result<()> {
+        opening::verify_snapshot(path.as_ref(), key)
+    }
+
     /// Antes de generar una llave nueva, exige una ruta sin base ni restos.
     pub fn check_new_path(path: impl AsRef<std::path::Path>) -> Result<()> {
         let path = path.as_ref();
@@ -179,6 +189,57 @@ impl Store {
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         conn.execute_batch(&format!("PRAGMA cifrada.user_version = {version};"))?;
         conn.execute_batch("DETACH DATABASE cifrada;")?;
+        Ok(())
+    }
+
+    /// Exporta una instantánea consistente y consolidada de una base **ya
+    /// cifrada** con `key` hacia `destino`, utilizando `VACUUM INTO`.
+    ///
+    /// Lee una sola transacción del origen —incluyendo todas las transacciones
+    /// confirmadas en su WAL— sin exigir `wal_checkpoint(TRUNCATE)`, por lo que
+    /// convive con lectores y escritores concurrentes y produce un único
+    /// archivo SQLCipher cifrado con la misma llave y sin `-wal` propio.
+    pub fn export_snapshot_encrypted(
+        origen: impl AsRef<std::path::Path>,
+        destino: impl AsRef<std::path::Path>,
+        key: &obrain_keys::DataKey,
+    ) -> Result<()> {
+        let origen = origen.as_ref();
+        let destino = destino.as_ref();
+        if !origen.is_file() || origen.metadata()?.len() == 0 {
+            return Err(opening::suspect("falta el archivo de base o está vacío"));
+        }
+        if opening::has_migration_artifacts(origen) {
+            return Err(opening::suspect(
+                "hay restos de una conversión o escritura de llave pendiente en el origen",
+            ));
+        }
+        if destino.exists() || opening::has_artifacts(destino, false) {
+            return Err(opening::suspect("el destino de respaldo ya existe"));
+        }
+        // Si no hay conexión WAL activa (-shm ausente), inspeccionamos en una
+        // copia desechable para no crear siquiera -shm en un archivo dañado.
+        if !opening::suffix(origen, "-shm").exists() {
+            Self::verify_existing(origen, Some(key))?;
+        }
+        let conn =
+            Connection::open_with_flags(origen, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        conn.busy_timeout(std::time::Duration::from_secs(10))?;
+        opening::key(&conn, Some(key))?;
+        opening::validate(&conn)?;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(destino)?;
+        if let Err(err) = conn.execute("VACUUM INTO ?1", [destino.to_string_lossy().as_ref()]) {
+            let _ = std::fs::remove_file(destino);
+            return Err(err.into());
+        }
+        drop(conn);
+        if let Err(err) = Self::verify_snapshot(destino, key) {
+            let _ = std::fs::remove_file(destino);
+            return Err(err);
+        }
         Ok(())
     }
 

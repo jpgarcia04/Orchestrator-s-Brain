@@ -288,6 +288,57 @@ pub fn verify_recovery(db: &Path, code: &RecoveryCode) -> Result<()> {
     unwrap_recovery(&read(db)?.recuperacion, code).map(|_| ())
 }
 
+/// Comprueba que la caja de recuperación se abre con `code` y entrega
+/// exactamente la misma llave de datos que `key`.
+pub fn verify_recovery_matches(db: &Path, key: &DataKey, code: &RecoveryCode) -> Result<()> {
+    let recovered = unwrap_recovery(&read(db)?.recuperacion, code)?;
+    if recovered.bytes() != key.bytes() {
+        return Err(Error::Formato(
+            "la caja de recuperación no envuelve la misma llave que la caja del sistema".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Valida la estructura del archivo `.llave` y devuelve la representación
+/// canónica de la caja de recuperación (sin secretos en claro) para que un
+/// manifiesto de respaldo pueda autenticarla incluso si cambia la caja DPAPI.
+pub fn recovery_box_canonical(db: &Path) -> Result<String> {
+    let archivo = read(db)?;
+    if archivo.sistema.tipo.trim().is_empty() {
+        return Err(Error::Formato(
+            "falta el tipo de la caja del sistema".into(),
+        ));
+    }
+    let b64 = |s: &str| B64.decode(s).map_err(|e| Error::Formato(e.to_string()));
+    if b64(&archivo.sistema.datos)?.is_empty() {
+        return Err(Error::Formato("la caja del sistema está vacía".into()));
+    }
+    let c = &archivo.recuperacion;
+    if c.kdf != "argon2id" {
+        return Err(Error::Formato(format!("derivación desconocida: {}", c.kdf)));
+    }
+    Params::new(c.m, c.t, c.p, Some(32)).map_err(|e| Error::Formato(e.to_string()))?;
+    let (sal, nonce, datos) = (b64(&c.sal)?, b64(&c.nonce)?, b64(&c.datos)?);
+    if sal.len() != 16 {
+        return Err(Error::Formato(
+            "sal de recuperación de tamaño incorrecto".into(),
+        ));
+    }
+    if nonce.len() != 24 {
+        return Err(Error::Formato("nonce de tamaño incorrecto".into()));
+    }
+    if datos.len() != 48 {
+        return Err(Error::Formato(
+            "caja de recuperación de tamaño incorrecto".into(),
+        ));
+    }
+    Ok(format!(
+        "{}:{}:{}:{}:{}:{}:{}",
+        c.kdf, c.m, c.t, c.p, c.sal, c.nonce, c.datos
+    ))
+}
+
 /// Cómo está guardada la caja del sistema: `dpapi` en Windows,
 /// `sin-proteger` en el banco de pruebas.
 pub fn protection(db: &Path) -> Result<String> {
@@ -516,5 +567,24 @@ mod tests {
         let db = base(&d);
         std::fs::write(key_path(&db), "{ no es json").unwrap();
         assert!(matches!(unlock(&db), Err(Error::Formato(_))));
+    }
+
+    #[test]
+    fn verificar_correspondencia_de_cajas_detecta_desajuste() {
+        let d = tmp("correspondencia");
+        let db1 = d.join("uno.obrain");
+        let db2 = d.join("dos.obrain");
+        let c1 = create_with(&db1, KdfParams::FAST_FOR_TESTS).unwrap();
+        let c2 = create_with(&db2, KdfParams::FAST_FOR_TESTS).unwrap();
+
+        let canon1 = recovery_box_canonical(&db1).unwrap();
+        let canon2 = recovery_box_canonical(&db2).unwrap();
+        assert_ne!(canon1, canon2);
+
+        verify_recovery_matches(&db1, &c1.key, &c1.recovery).unwrap();
+        assert!(matches!(
+            verify_recovery_matches(&db1, &c2.key, &c1.recovery),
+            Err(Error::Formato(_))
+        ));
     }
 }
