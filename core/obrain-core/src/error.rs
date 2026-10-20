@@ -7,6 +7,14 @@ pub enum Error {
     #[error("sqlite: {0}")]
     Sqlite(#[from] rusqlite::Error),
 
+    #[error("e/s: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error(
+        "no se ha abierto la bóveda: {0}. Puede ser una copia incompleta o una base desconocida. Conserva los archivos y comprueba el respaldo completo y su .llave antes de reintentar"
+    )]
+    UnrecognizedDatabase(String),
+
     #[error("entidad desconocida: {0}")]
     UnknownEntity(String),
 

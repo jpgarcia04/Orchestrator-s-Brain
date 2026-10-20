@@ -16,3 +16,4 @@ rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"]
 obrain-keys = { path = "../obrain-keys" }
 thiserror = "2"
 ulid = "1"
+tempfile = "3"

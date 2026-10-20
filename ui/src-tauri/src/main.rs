@@ -367,7 +367,12 @@ fn operar_archivo(
 ///    efecto secundario, **sólo como acto explícito del usuario y dicho con
 ///    todas las letras**. Decirlo es responsabilidad del botón que llama aquí.
 #[tauri::command]
-fn abrir(id: String, expected_hash: Option<String>, app: tauri::AppHandle, cerebro: State<'_, Cerebro>) -> Result<(), String> {
+fn abrir(
+    id: String,
+    expected_hash: Option<String>,
+    app: tauri::AppHandle,
+    cerebro: State<'_, Cerebro>,
+) -> Result<(), String> {
     operar_archivo(&cerebro, id, expected_hash, |ruta| {
         app.opener().open_path(ruta, None::<&str>).map_err(texto)
     })
@@ -377,7 +382,12 @@ fn abrir(id: String, expected_hash: Option<String>, app: tauri::AppHandle, cereb
 ///
 /// Nunca ejecuta el archivo, así que no hereda el primer coste de [`abrir`].
 #[tauri::command]
-fn revelar(id: String, expected_hash: Option<String>, app: tauri::AppHandle, cerebro: State<'_, Cerebro>) -> Result<(), String> {
+fn revelar(
+    id: String,
+    expected_hash: Option<String>,
+    app: tauri::AppHandle,
+    cerebro: State<'_, Cerebro>,
+) -> Result<(), String> {
     operar_archivo(&cerebro, id, expected_hash, |ruta| {
         app.opener().reveal_item_in_dir(ruta).map_err(texto)
     })
@@ -756,7 +766,17 @@ fn main() {
                     eprintln!("{e}");
                     None
                 }
-                Err(e) => return Err(e.into()),
+                Err(e) => {
+                    // setup corre en el hilo principal: el diálogo debe ser
+                    // asíncrono y el proceso seguir vivo hasta que se lea.
+                    let handle = app.handle().clone();
+                    app.dialog()
+                        .message(e.to_string())
+                        .title("No se ha podido abrir la bóveda")
+                        .kind(tauri_plugin_dialog::MessageDialogKind::Error)
+                        .show(move |_| handle.exit(1));
+                    None
+                }
             };
             let abierta = brain.is_some();
             app.manage(Cerebro(Mutex::new(brain)));
