@@ -10,7 +10,9 @@
 //! ([`obrain_api::default_db_path`]). Las herramientas de cada etapa
 //! (`obrain-scan`, `obrain-extract`…) siguen ahí para auditarlas.
 
-use obrain_api::{Brain, Embedder, IndexReport, default_db_path, indexar, load_model, seguridad};
+use obrain_api::{
+    Brain, Embedder, IndexReport, default_db_path, indexar, load_model, respaldo, seguridad,
+};
 use obrain_core::{Sensitivity, Store};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -43,7 +45,16 @@ USO:
                                              archivos no se tocan)
   obrain clave                               enseña la clave de recuperación de la base
   obrain clave --guardada                    dice que ya la guardaste (la app deja de pedirlo)
-  obrain recuperar <clave>                   abre la base en un equipo que no tiene su llave
+  obrain recuperar [<clave> | -]             abre la base en un equipo que no tiene su llave
+                                             (sin argumentos o con «-», la pide de forma segura)
+  obrain respaldar <carpeta>                 crea un respaldo cifrado y verificable en una
+                                             carpeta nueva o vacía
+  obrain respaldo <carpeta> --verificar [--clave [<clave>|-] | --pedir-clave]
+                                             comprueba la integridad del respaldo y su llave
+  obrain respaldo <carpeta> --ensayar [--en <carpeta>] [--clave [<clave>|-] | --pedir-clave]
+                                                      [--pin [<pin>|-] | --pedir-pin]
+                                             ensaya la recuperación y apertura en una carpeta
+                                             aislada sin tocar la base activa
 
 La base está siempre cifrada (SQLCipher). La primera vez que se abre —o si
 venía de una versión en claro— se cifra y se enseña su clave de recuperación.
@@ -51,6 +62,12 @@ venía de una versión en claro— se cifra y se enseña su clave de recuperaci�
 OPCIONES:
   --db <archivo>   usar otra base (por defecto, la misma que la aplicación)
   --sin-modelo     no vectorizar aunque el modelo esté descargado
+  --pedir-clave    solicitar la clave de recuperación de forma segura
+  --pedir-pin      solicitar el PIN de forma segura
+
+Los secretos pueden introducirse sin exponerlos en el historial de comandos:
+con «--pedir-clave», «--pedir-pin» o «-» (por entrada estándar), o mediante las
+variables de entorno OBRAIN_CLAVE y OBRAIN_PIN.
 ";
 
 fn main() -> ExitCode {
@@ -67,17 +84,67 @@ fn main() -> ExitCode {
     let mut quitar = false;
     let mut guardada = false;
     let mut vaciar = false;
+    let mut verificar = false;
+    let mut ensayar = false;
+    let mut en_carpeta: Option<PathBuf> = None;
+    let mut clave_rec: Option<String> = None;
+    let mut pin_ensayo: Option<String> = None;
+    let mut pedir_clave = false;
+    let mut pedir_pin = false;
     let mut coleccion = Coleccion::Ver;
     let mut sueltos: Vec<&str> = Vec::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
-            "--db" => db = it.next().map(PathBuf::from),
+            "--db" => match it.next() {
+                Some(p) => db = Some(PathBuf::from(p)),
+                None => {
+                    eprintln!("uso: --db <archivo>");
+                    return ExitCode::from(2);
+                }
+            },
             "--sin-modelo" => sin_modelo = true,
             "--boveda" => boveda = true,
             "--quitar" => quitar = true,
             "--guardada" => guardada = true,
             "--vaciar" => vaciar = true,
+            "--verificar" => verificar = true,
+            "--ensayar" => ensayar = true,
+            "--en" => match it.next() {
+                Some(p) => en_carpeta = Some(PathBuf::from(p)),
+                None => {
+                    eprintln!("uso: obrain respaldo <carpeta> --ensayar --en <carpeta-ensayo>");
+                    return ExitCode::from(2);
+                }
+            },
+            "--clave" => match it.as_slice().first() {
+                Some(s) if !s.starts_with("--") => {
+                    let c = it.next().unwrap();
+                    if c == "-" {
+                        pedir_clave = true;
+                    } else {
+                        clave_rec = Some(c.clone());
+                    }
+                }
+                _ => {
+                    pedir_clave = true;
+                }
+            },
+            "--pedir-clave" => pedir_clave = true,
+            "--pin" => match it.as_slice().first() {
+                Some(s) if !s.starts_with("--") => {
+                    let p = it.next().unwrap();
+                    if p == "-" {
+                        pedir_pin = true;
+                    } else {
+                        pin_ensayo = Some(p.clone());
+                    }
+                }
+                _ => {
+                    pedir_pin = true;
+                }
+            },
+            "--pedir-pin" => pedir_pin = true,
             "--crear" => coleccion = Coleccion::Crear,
             "--meter" => coleccion = Coleccion::Meter,
             "--sacar" => coleccion = Coleccion::Sacar,
@@ -102,15 +169,274 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     };
 
+    // Respaldar, verificar y ensayar van antes de abrir o crear la carpeta de
+    // la base activa: no deben crear una base vacía por accidente ni tocar la
+    // base activa durante una verificación o un ensayo aislado.
+    if *orden == "respaldar" {
+        let [destino] = carpetas else {
+            eprintln!("uso: obrain respaldar <carpeta-destino>");
+            return ExitCode::from(2);
+        };
+        let destino = PathBuf::from(destino);
+        return match respaldo::crear(&db, &destino) {
+            Ok(m) => {
+                println!("▸ respaldo creado y verificado en {}", destino.display());
+                println!(
+                    "  base cifrada           {} ({} bytes)",
+                    m.base.nombre, m.base.bytes
+                );
+                println!(
+                    "  llave de cifrado       {} ({} bytes)",
+                    m.llave.nombre, m.llave.bytes
+                );
+                println!(
+                    "  entidades · aserciones {} · {} ({} vigentes)",
+                    m.instantanea.entidades,
+                    m.instantanea.aserciones,
+                    m.instantanea.aserciones_vigentes
+                );
+                println!(
+                    "  fragmentos · vectores  {} · {}",
+                    m.instantanea.fragmentos, m.instantanea.vectores
+                );
+                println!(
+                    "  huella de instantánea  {}",
+                    m.instantanea.huella_contenido
+                );
+                println!(
+                    "  nota: conserva tu clave de recuperación{} y tus carpetas de documentos originales.",
+                    if m.instantanea.tiene_pin {
+                        " y tu PIN"
+                    } else {
+                        ""
+                    }
+                );
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("no se pudo respaldar la base {}: {e}", db.display());
+                ExitCode::FAILURE
+            }
+        };
+    }
+
+    if *orden == "respaldo" {
+        let [carpeta] = carpetas else {
+            eprintln!(
+                "uso:\n  obrain respaldo <carpeta> --verificar [--clave [<clave>|-] | --pedir-clave]\n  \
+                 obrain respaldo <carpeta> --ensayar [--en <carpeta>] [--clave [<clave>|-] | --pedir-clave] [--pin [<pin>|-] | --pedir-pin]"
+            );
+            return ExitCode::from(2);
+        };
+        if verificar == ensayar {
+            eprintln!(
+                "indica una operación (--verificar o --ensayar):\n  \
+                 obrain respaldo <carpeta> --verificar [--clave [<clave>|-] | --pedir-clave]\n  \
+                 obrain respaldo <carpeta> --ensayar [--en <carpeta>] [--clave [<clave>|-] | --pedir-clave] [--pin [<pin>|-] | --pedir-pin]"
+            );
+            return ExitCode::from(2);
+        }
+        let carpeta = PathBuf::from(carpeta);
+        if verificar && (en_carpeta.is_some() || pin_ensayo.is_some() || pedir_pin) {
+            eprintln!(
+                "uso: obrain respaldo <carpeta> --verificar [--clave [<clave>|-] | --pedir-clave]"
+            );
+            return ExitCode::from(2);
+        }
+
+        let clave_rec = if pedir_clave {
+            match leer_secreto_consola("Clave de recuperación: ") {
+                Ok(c) => {
+                    let c = c.trim().to_string();
+                    if c.is_empty() { None } else { Some(c) }
+                }
+                Err(e) => {
+                    eprintln!("no se pudo leer la clave de recuperación: {e}");
+                    return ExitCode::from(2);
+                }
+            }
+        } else if let Some(c) = clave_rec {
+            Some(c)
+        } else if let Ok(val) = std::env::var("OBRAIN_CLAVE") {
+            let t = val.trim().to_string();
+            if t.is_empty() { None } else { Some(t) }
+        } else {
+            None
+        };
+
+        let pin_ensayo = if pedir_pin {
+            match leer_secreto_consola("PIN de la base: ") {
+                Ok(p) => {
+                    let p = p.trim().to_string();
+                    if p.is_empty() { None } else { Some(p) }
+                }
+                Err(e) => {
+                    eprintln!("no se pudo leer el PIN: {e}");
+                    return ExitCode::from(2);
+                }
+            }
+        } else if let Some(p) = pin_ensayo {
+            Some(p)
+        } else if let Ok(val) = std::env::var("OBRAIN_PIN") {
+            let t = val.trim().to_string();
+            if t.is_empty() { None } else { Some(t) }
+        } else {
+            None
+        };
+
+        if verificar {
+            return match respaldo::verificar_con_clave(&carpeta, clave_rec.as_deref()) {
+                Ok(m) => {
+                    println!("▸ respaldo íntegro y consistente: {}", carpeta.display());
+                    println!(
+                        "  esquema v{} · {} entidades · {} aserciones ({} vigentes)",
+                        m.instantanea.esquema_version,
+                        m.instantanea.entidades,
+                        m.instantanea.aserciones,
+                        m.instantanea.aserciones_vigentes
+                    );
+                    println!(
+                        "  fragmentos · vectores  {} · {}",
+                        m.instantanea.fragmentos, m.instantanea.vectores
+                    );
+                    if clave_rec.is_some() {
+                        println!("  clave de recuperación  verificada contra la llave y la base");
+                    }
+                    println!(
+                        "  huella de instantánea  {}",
+                        m.instantanea.huella_contenido
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("respaldo inválido en {}: {e}", carpeta.display());
+                    ExitCode::FAILURE
+                }
+            };
+        }
+        return match respaldo::ensayar(
+            &carpeta,
+            en_carpeta.as_deref(),
+            clave_rec.as_deref(),
+            pin_ensayo.as_deref(),
+        ) {
+            Ok(inf) => {
+                println!(
+                    "▸ ensayo de recuperación satisfactorio desde {}",
+                    carpeta.display()
+                );
+                if let Some(ruta) = &inf.carpeta_ensayo {
+                    println!("  copia de ensayo en     {}", ruta.display());
+                } else {
+                    println!("  ubicación de ensayo    temporal aislada (limpiada al terminar)");
+                }
+                println!(
+                    "  apertura               {}",
+                    if inf.recuperada_con_clave {
+                        "con clave de recuperación (llave reenvuelta en la copia de ensayo)"
+                    } else {
+                        "con llave del sistema verificada"
+                    }
+                );
+                if inf.con_pin {
+                    println!(
+                        "  protección con PIN     {}",
+                        if inf.pin_desbloqueado {
+                            "activo y verificado en el ensayo"
+                        } else {
+                            "activo (contenido sensible retenido; usa --pin para ensayar el desbloqueo)"
+                        }
+                    );
+                }
+                println!(
+                    "  entidades · aserciones {} · {} ({} vigentes)",
+                    inf.manifiesto.instantanea.entidades,
+                    inf.manifiesto.instantanea.aserciones,
+                    inf.manifiesto.instantanea.aserciones_vigentes
+                );
+                println!(
+                    "  documentos en bóveda   {} ({} en papelera, {} colecciones)",
+                    inf.documentos_en_boveda, inf.en_papelera, inf.colecciones
+                );
+                println!(
+                    "  sensibles · bóveda     {} · {}",
+                    inf.sensibles, inf.boveda
+                );
+                println!(
+                    "  bibliotecas            {} registradas ({} ausentes en este disco)",
+                    inf.bibliotecas_registradas.len(),
+                    inf.bibliotecas_ausentes_en_disco.len()
+                );
+                for ausente in &inf.bibliotecas_ausentes_en_disco {
+                    println!(
+                        "    · falta en disco: {ausente} (el índice y los fragmentos siguen legibles)"
+                    );
+                }
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!(
+                    "falló el ensayo de recuperación de {}: {e}",
+                    carpeta.display()
+                );
+                ExitCode::FAILURE
+            }
+        };
+    }
+
     if let Some(dir) = db.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
     // Recuperar va antes de abrir: es justo lo que hace falta cuando no se puede.
     if *orden == "recuperar" {
-        let [codigo] = carpetas else {
-            eprintln!("uso: obrain recuperar <clave-de-recuperación>");
-            return ExitCode::from(2);
+        let codigo = if let Some(c) = clave_rec {
+            c
+        } else if pedir_clave {
+            match leer_secreto_consola("Clave de recuperación: ") {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("no se pudo leer la clave de recuperación: {e}");
+                    return ExitCode::from(2);
+                }
+            }
+        } else {
+            match carpetas {
+                [] | ["-"] => {
+                    if let Ok(val) = std::env::var("OBRAIN_CLAVE") {
+                        let t = val.trim().to_string();
+                        if !t.is_empty() {
+                            t
+                        } else {
+                            match leer_secreto_consola("Clave de recuperación: ") {
+                                Ok(c) => c,
+                                Err(e) => {
+                                    eprintln!("no se pudo leer la clave de recuperación: {e}");
+                                    return ExitCode::from(2);
+                                }
+                            }
+                        }
+                    } else {
+                        match leer_secreto_consola("Clave de recuperación: ") {
+                            Ok(c) => c,
+                            Err(e) => {
+                                eprintln!("no se pudo leer la clave de recuperación: {e}");
+                                return ExitCode::from(2);
+                            }
+                        }
+                    }
+                }
+                [c] => (*c).to_string(),
+                _ => {
+                    eprintln!("uso: obrain recuperar [<clave> | -]");
+                    return ExitCode::from(2);
+                }
+            }
         };
+        let codigo = codigo.trim();
+        if codigo.is_empty() {
+            eprintln!("la clave de recuperación no puede estar vacía");
+            return ExitCode::from(2);
+        }
         return match seguridad::recuperar(&db, codigo) {
             Ok(()) => {
                 println!(
@@ -741,5 +1067,98 @@ fn dias(n: i64) -> String {
         "1 día".to_string()
     } else {
         format!("{n} días")
+    }
+}
+
+#[cfg(windows)]
+mod win_console {
+    use std::os::raw::c_void;
+
+    const STD_INPUT_HANDLE: u32 = 0xFFFFFFF6; // ((!0u32) - 10 + 1) -> -10 as u32
+    const ENABLE_ECHO_INPUT: u32 = 0x0004;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetStdHandle(nStdHandle: u32) -> *mut c_void;
+        fn GetConsoleMode(hConsoleHandle: *mut c_void, lpMode: *mut u32) -> i32;
+        fn SetConsoleMode(hConsoleHandle: *mut c_void, dwMode: u32) -> i32;
+    }
+
+    pub struct EchoGuard {
+        handle: *mut c_void,
+        original_mode: u32,
+        active: bool,
+    }
+
+    impl EchoGuard {
+        pub fn disable() -> Self {
+            unsafe {
+                let handle = GetStdHandle(STD_INPUT_HANDLE);
+                let mut original_mode = 0u32;
+                if !handle.is_null()
+                    && handle as isize != -1
+                    && GetConsoleMode(handle, &mut original_mode) != 0
+                {
+                    let new_mode = original_mode & !ENABLE_ECHO_INPUT;
+                    if SetConsoleMode(handle, new_mode) != 0 {
+                        return Self {
+                            handle,
+                            original_mode,
+                            active: true,
+                        };
+                    }
+                }
+                Self {
+                    handle,
+                    original_mode: 0,
+                    active: false,
+                }
+            }
+        }
+
+        pub fn is_console(&self) -> bool {
+            self.active
+        }
+    }
+
+    impl Drop for EchoGuard {
+        fn drop(&mut self) {
+            if self.active {
+                unsafe {
+                    SetConsoleMode(self.handle, self.original_mode);
+                }
+            }
+        }
+    }
+}
+
+/// Lee una cadena secreta (clave o PIN).
+///
+/// Si la entrada estándar proviene de una consola interactiva, solicita el valor
+/// sin mostrarlo en pantalla (sin eco). Si la entrada proviene de una tubería,
+/// archivo o redirección, lee la línea directamente sin imprimir el mensaje.
+fn leer_secreto_consola(mensaje: &str) -> std::io::Result<String> {
+    use std::io::Write;
+    #[cfg(windows)]
+    {
+        let guard = win_console::EchoGuard::disable();
+        if guard.is_console() {
+            eprint!("{mensaje}");
+            std::io::stderr().flush()?;
+        }
+        let mut linea = String::new();
+        std::io::stdin().read_line(&mut linea)?;
+        if guard.is_console() {
+            eprintln!();
+        }
+        Ok(linea.trim_end_matches(&['\r', '\n'][..]).to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        eprint!("{mensaje}");
+        std::io::stderr().flush()?;
+        let mut linea = String::new();
+        std::io::stdin().read_line(&mut linea)?;
+        Ok(linea.trim_end_matches(&['\r', '\n'][..]).to_string())
     }
 }

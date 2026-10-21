@@ -22,10 +22,15 @@ pub(crate) fn suspect(reason: impl Into<String>) -> Error {
 /// Restos de una creación, restauración o conversión interrumpida impiden
 /// interpretar una ruta ausente como una bóveda nueva.
 pub(crate) fn has_artifacts(path: &Path, include_key: bool) -> bool {
+    ["-wal", "-shm", "-journal"]
+        .iter()
+        .any(|s| suffix(path, s).exists())
+        || has_migration_artifacts(path)
+        || (include_key && obrain_keys::key_path(path).exists())
+}
+
+pub(crate) fn has_migration_artifacts(path: &Path) -> bool {
     [
-        "-wal",
-        "-shm",
-        "-journal",
         ".cifrando",
         ".cifrando-wal",
         ".cifrando-shm",
@@ -34,7 +39,6 @@ pub(crate) fn has_artifacts(path: &Path, include_key: bool) -> bool {
     ]
     .iter()
     .any(|s| suffix(path, s).exists())
-        || (include_key && obrain_keys::key_path(path).exists())
 }
 
 pub(crate) fn key(conn: &Connection, key: Option<&DataKey>) -> Result<()> {
@@ -128,4 +132,35 @@ pub(crate) fn validate(conn: &Connection) -> Result<()> {
         return Err(suspect("hay referencias inválidas entre tablas"));
     }
     Ok(())
+}
+
+pub(crate) fn validate_integrity(conn: &Connection, encrypted: bool) -> Result<()> {
+    validate(conn)?;
+    if encrypted && conn.prepare("PRAGMA cipher_integrity_check")?.exists([])? {
+        return Err(suspect("cipher_integrity_check detectó páginas dañadas"));
+    }
+    let check: String = conn.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
+    if check != "ok" {
+        return Err(suspect(format!("integrity_check: {check}")));
+    }
+    Ok(())
+}
+
+pub(crate) fn verify_snapshot(path: &Path, data_key: &DataKey) -> Result<()> {
+    if !path.is_file() || path.metadata()?.len() == 0 {
+        return Err(suspect("falta el archivo de respaldo o está vacío"));
+    }
+    if has_artifacts(path, false) {
+        return Err(suspect(
+            "la instantánea del respaldo contiene archivos auxiliares o temporales inesperados",
+        ));
+    }
+    let private = tempfile::Builder::new()
+        .prefix("obrain-verify-snapshot-")
+        .tempdir()?;
+    let copy = private.path().join("brain.obrain");
+    std::fs::copy(path, &copy)?;
+    let conn = Connection::open_with_flags(&copy, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    key(&conn, Some(data_key))?;
+    validate_integrity(&conn, true)
 }

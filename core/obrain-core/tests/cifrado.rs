@@ -117,3 +117,69 @@ fn cifrar_una_base_en_claro_no_pierde_nada() {
     let borrar = s.conn().execute("DELETE FROM assertions", []);
     assert!(borrar.is_err(), "los triggers de I4 se perdieron al cifrar");
 }
+
+#[test]
+fn exportar_instantanea_de_base_ya_cifrada_con_wal_activo_no_pierde_nada() {
+    let d = dir("instantanea-wal");
+    let db = d.join("brain.obrain");
+    let snap = d.join("instantanea.obrain");
+    let c = obrain_keys::create_with(&db, KdfParams::FAST_FOR_TESTS).unwrap();
+
+    let writer = Store::create_with(&db, Some(&c.key)).unwrap();
+    let reader = Store::open_with(&db, Some(&c.key)).unwrap();
+    escribir(&writer);
+    writer
+        .conn()
+        .execute_batch(
+            "CREATE VIRTUAL TABLE fts USING fts5(texto);
+             INSERT INTO fts(texto) VALUES ('contrato sintetico en el wal');",
+        )
+        .unwrap();
+
+    // Mantener una lectura abierta en `reader` mientras `writer` añade otra
+    // transacción al WAL: así las páginas nuevas viven en `brain.obrain-wal`
+    // y un `wal_checkpoint(TRUNCATE)` no podría truncar el WAL.
+    reader.conn().execute_batch("BEGIN DEFERRED").unwrap();
+    let _: i64 = reader
+        .conn()
+        .query_row("SELECT count(*) FROM entities", [], |r| r.get(0))
+        .unwrap();
+
+    let e2 = writer.create_entity(10).unwrap();
+    writer
+        .assert(NewAssertion::new(
+            e2,
+            "about",
+            "TRANSACCION EN WAL SIN CHECKPOINT",
+            Method::User,
+            10,
+        ))
+        .unwrap();
+
+    Store::export_snapshot_encrypted(&db, &snap, &c.key).unwrap();
+    reader.conn().execute_batch("COMMIT").unwrap();
+
+    assert!(snap.is_file());
+    assert!(!PathBuf::from(format!("{}-wal", snap.display())).exists());
+    assert!(!PathBuf::from(format!("{}-shm", snap.display())).exists());
+    assert!(!en_claro(&snap));
+
+    Store::verify_snapshot(&snap, &c.key).unwrap();
+
+    let otra = obrain_keys::create_with(&d.join("otra.obrain"), KdfParams::FAST_FOR_TESTS).unwrap();
+    assert!(matches!(
+        Store::verify_snapshot(&snap, &otra.key),
+        Err(Error::WrongKey)
+    ));
+
+    let s = Store::open_with(&snap, Some(&c.key)).unwrap();
+    let textos = s
+        .query(None, Some("about"), TimePoint::at(20))
+        .unwrap()
+        .into_iter()
+        .filter_map(|a| a.object.as_text().map(str::to_string))
+        .collect::<Vec<_>>();
+    assert_eq!(textos.len(), 2);
+    assert!(textos.contains(&SECRETO.to_string()));
+    assert!(textos.contains(&"TRANSACCION EN WAL SIN CHECKPOINT".to_string()));
+}
