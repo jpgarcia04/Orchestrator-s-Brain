@@ -296,7 +296,7 @@ where
     al_avanzar(EtapaRespaldo::TrasEscribirManifiesto)?;
 
     // 4. Verificar el conjunto completo en el directorio temporal antes de publicarlo.
-    let verificado = verificar(staging.path())?;
+    let verificado = verificar_interno(staging.path(), None)?;
     if verificado != manifiesto {
         return Err(Error::InstantaneaNoCoincide(
             "la verificación previa a publicar devolvió un manifiesto distinto".into(),
@@ -330,6 +330,23 @@ pub fn verificar_con_clave(
         )));
     }
 
+    if let Some(nombre) = carpeta_respaldo.file_name().and_then(|n| n.to_str()) {
+        if nombre.starts_with(".obrain-respaldo-tmp-") || nombre.starts_with(".obrain-ensayo-tmp-")
+        {
+            return Err(Error::DestinoInvalido(format!(
+                "la carpeta {} corresponde a un directorio temporal de trabajo no publicado",
+                carpeta_respaldo.display()
+            )));
+        }
+    }
+
+    verificar_interno(carpeta_respaldo, codigo_recuperacion)
+}
+
+fn verificar_interno(
+    carpeta_respaldo: &Path,
+    codigo_recuperacion: Option<&str>,
+) -> Result<Manifiesto> {
     // 1. Rechazar archivos auxiliares o desconocidos en la carpeta del respaldo.
     for entry in std::fs::read_dir(carpeta_respaldo)? {
         let entry = entry?;
@@ -648,6 +665,14 @@ fn validar_origen(db: &Path) -> Result<()> {
 }
 
 fn validar_destino_nuevo(db: &Path, destino: &Path) -> Result<()> {
+    if let Some(nombre) = destino.file_name().and_then(|n| n.to_str()) {
+        if nombre.starts_with(".obrain-respaldo-tmp-") || nombre.starts_with(".obrain-ensayo-tmp-")
+        {
+            return Err(Error::DestinoInvalido(
+                "el nombre de la carpeta de respaldo no puede utilizar el prefijo reservado de directorios temporales".into(),
+            ));
+        }
+    }
     let db_abs = absoluta(db);
     let dest_abs = absoluta(destino);
     if dest_abs == db_abs
@@ -662,6 +687,14 @@ fn validar_destino_nuevo(db: &Path, destino: &Path) -> Result<()> {
 }
 
 fn validar_destino_ensayo(carpeta_respaldo: &Path, destino_ensayo: &Path) -> Result<()> {
+    if let Some(nombre) = destino_ensayo.file_name().and_then(|n| n.to_str()) {
+        if nombre.starts_with(".obrain-respaldo-tmp-") || nombre.starts_with(".obrain-ensayo-tmp-")
+        {
+            return Err(Error::DestinoInvalido(
+                "el nombre de la carpeta de ensayo no puede utilizar el prefijo reservado de directorios temporales".into(),
+            ));
+        }
+    }
     let respaldo_abs = absoluta(carpeta_respaldo);
     let ensayo_abs = absoluta(destino_ensayo);
     if ensayo_abs == respaldo_abs || ensayo_abs.starts_with(&respaldo_abs) {

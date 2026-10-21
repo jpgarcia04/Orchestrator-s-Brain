@@ -46,9 +46,11 @@ Un respaldo publicado contiene exactamente tres archivos:
 - `core/obrain-api/src/lib.rs`: expone `pub mod respaldo`, sus tipos principales (`Manifiesto`, `ResumenInstantanea`, `InformeEnsayo`) y `Error::Respaldo` (integrado con `Error::is_key_unavailable()`).
 - `core/obrain-api/src/bin/obrain.rs`: incorpora en la CLI:
   - `obrain respaldar <carpeta>`
-  - `obrain respaldo <carpeta> --verificar [--clave <clave>]`
-  - `obrain respaldo <carpeta> --ensayar [--en <carpeta>] [--clave <clave>] [--pin <pin>]`
-- `core/obrain-api/tests/respaldos.rs`: suite de 8 pruebas de integración de extremo a extremo sobre bases ficticias y archivos temporales.
+  - `obrain respaldo <carpeta> --verificar [--clave [<clave>|-] | --pedir-clave]`
+  - `obrain respaldo <carpeta> --ensayar [--en <carpeta>] [--clave [<clave>|-] | --pedir-clave] [--pin [<pin>|-] | --pedir-pin]`
+  - `obrain recuperar [<clave> | -]` (compatible con el argumento histórico, o con petición interactiva sin eco / stdin / `OBRAIN_CLAVE`)
+  - Entrada segura de secretos por consola interactiva (suprimiendo el eco con `SetConsoleMode` en Windows), tubería stdin (`-`) y variables de entorno (`OBRAIN_CLAVE`, `OBRAIN_PIN`), evitando exponer claves o PINs en los argumentos del proceso o en el historial de comandos (`PSReadLine`).
+- `core/obrain-api/tests/respaldos.rs`: suite de 10 pruebas de integración de extremo a extremo sobre bases ficticias y archivos temporales (incluyendo temporales abandonados y secretos seguros por CLI/entorno).
 
 ## 4. Pruebas ejecutadas y resultados
 
@@ -62,20 +64,22 @@ cargo fmt --check
 git diff --check
 ```
 
-- **Resultado global**: **277 pruebas ejecutadas y aprobadas, 0 fallos, 0 ignoradas** (`13` en `obrain-keys`, `41` + `1` doctest en `obrain-core`, `222` en `obrain-api`).
+- **Resultado global**: **279 pruebas ejecutadas y aprobadas, 0 fallos, 0 ignoradas** (`13` en `obrain-keys`, `41` + `1` doctest en `obrain-core`, `224` en `obrain-api`).
 - **Escenarios verificados en `core/obrain-api/tests/respaldos.rs` y `core/obrain-core/tests/cifrado.rs`**:
   1. `respaldo_de_base_cifrada_realista_conserva_todo_al_abrir`: base cifrada con biblioteca, subcarpetas, marcas `sensitive` y `vault`, paquete con documento incluido (`part_of`), fecha de caducidad corregida por el usuario, colección del usuario, documento en papelera, fragmentos FTS5, vectores y PIN.
   2. `instantanea_durante_actividad_concurrente_es_consistente` y `exportar_instantanea_de_base_ya_cifrada_con_wal_activo_no_pierde_nada`: lector reteniendo instantánea en WAL + escritor concurrente insertando pares atómicos mientras se genera el respaldo, verificando que no se pierde el WAL ni se parte ninguna transacción.
   3. `detecta_archivos_ausentes_incompletos_modificados_o_desparejados`: archivos ausentes, vacíos (0 bytes), truncados, bytes alterados en `brain.obrain`, JSON roto o versión futura en `manifiesto.json`, archivos extraños (`-wal`, `.cifrando`, `nota.txt`), llave `.llave` cruzada de otra base (incluso recalculando hashes en el manifiesto) e instantánea desfasada respecto al manifiesto, además de bloqueo de sobrescritura (`DestinoOcupado`).
   4. `clave_de_recuperacion_o_pin_incorrectos_fallan_sin_alterar_archivos`: clave mal formada, clave de recuperación incorrecta y PIN incorrecto, comprobando que los hashes BLAKE3 del respaldo no cambian y no se publica carpeta de ensayo.
   5. `interrupcion_durante_generacion_no_publica_respaldo_ni_deja_temporales`: inyección de fallos en `TrasCopiarLlave`, `TrasExportarBase`, `TrasEscribirManifiesto` y `AntesDePublicar`, comprobando que no se publica el destino ni quedan carpetas `.obrain-respaldo-tmp-*`.
-  6. `ensayo_aislado_en_otro_equipo_sin_dpapi_no_modifica_respaldo_ni_base_activa`: simulación de otro equipo donde la caja del sistema no puede abrirse (`SistemaNoDisponible`), verificando y ensayando la recuperación con `--clave` y `--pin` tanto en directorio temporal como con `--en <carpeta>`, sin modificar el respaldo ni la base activa.
-  7. `comportamiento_cuando_faltan_los_documentos_originales_externos`: ensayo y reindexación cuando falta la carpeta raíz de la biblioteca y cuando falta un archivo individual (con posterior restauración en disco).
-  8. `cli_obrain_respaldar_verificar_y_ensayar_extremo_a_extremo`: invocación del binario real `obrain` para crear, verificar y ensayar un respaldo sin tocar ni crear una base activa inexistente.
+  6. `directorio_temporal_abandonado_se_rechaza_y_no_bloquea_nuevo_respaldo`: simula un temporal huérfano con archivos válidos (como tras un corte eléctrico o terminación abrupta sin RAII), verificando que `respaldo::verificar` y `respaldo::crear` lo rechazan explícitamente (`DestinoInvalido`) y que la presencia del temporal no impide publicar futuros respaldos legítimos en el mismo contenedor padre.
+  7. `ensayo_aislado_en_otro_equipo_sin_dpapi_no_modifica_respaldo_ni_base_activa`: simulación de otro equipo donde la caja del sistema no puede abrirse (`SistemaNoDisponible`), verificando y ensayando la recuperación con `--clave` y `--pin` tanto en directorio temporal como con `--en <carpeta>`, sin modificar el respaldo ni la base activa.
+  8. `comportamiento_cuando_faltan_los_documentos_originales_externos`: ensayo y reindexación cuando falta la carpeta raíz de la biblioteca y cuando falta un archivo individual (con posterior restauración en disco).
+  9. `cli_obrain_respaldar_verificar_y_ensayar_extremo_a_extremo`: invocación del binario real `obrain` para crear, verificar y ensayar un respaldo sin tocar ni crear una base activa inexistente.
+  10. `cli_obrain_secretos_por_stdin_y_variables_de_entorno`: verificación y ensayo por CLI recibiendo la clave de recuperación y el PIN vía tubería en stdin (`--clave -`, `--pin -`), mediante variables de entorno (`OBRAIN_CLAVE`, `OBRAIN_PIN`), y recuperación segura con `obrain recuperar -` / `OBRAIN_CLAVE` sin exponer secretos en los argumentos del proceso.
 
 ## 5. Evidencia de recuperación sintética satisfactoria
 
-En los ensayos de recuperación aislada (`respaldo::ensayar` y `obrain respaldo <carpeta> --ensayar --en <carpeta> --clave <clave> --pin <pin>`):
+En los ensayos de recuperación aislada (`respaldo::ensayar` y `obrain respaldo <carpeta> --ensayar [--en <carpeta>]`):
 
 - Cuando la caja del sistema del archivo `.llave` proviene de otro equipo y no puede abrirse localmente, `verificar_con_clave` valida los hashes, el formato canónico de la caja de recuperación y descifra la llave en memoria para comprobar `cipher_integrity_check`, `integrity_check` y la `huella_contenido` sin escribir un solo byte en el respaldo.
 - A continuación, `ensayar` copia `brain.obrain` y `brain.obrain.llave` a un directorio aislado, ejecuta `seguridad::recuperar` sobre esa copia (reenvolviendo la caja `sistema` con DPAPI local), abre `Brain::open`, verifica el bloqueo por PIN antes de autenticar y el acceso completo tras `unlock(pin)` (4 documentos en bóveda, 1 en papelera, 1 colección con 2 documentos, 1 paquete con su parte, 2 carpetas marcadas, fragmentos FTS5 y vectores), manteniendo intactos los hashes de la base activa y del respaldo original.
@@ -84,7 +88,12 @@ En los ensayos de recuperación aislada (`respaldo::ensayar` y `obrain respaldo 
 
 - **Sin copias en claro en disco**: `export_snapshot_encrypted` cifra directamente página a página en el archivo de destino con la misma `DataKey` de 256 bits y fija `PRAGMA temp_store = MEMORY`. Ningún texto documental, ruta ni secreto aparece en claro en el disco.
 - **Cero secretos o metadatos personales en `manifiesto.json`**: el manifiesto sólo almacena recuentos numéricos, tamaños, versión de esquema y hashes BLAKE3 (`blake3` de archivos, `huella_recuperacion` de parámetros de la caja Argon2id y `huella_contenido` del estado interno). No contiene rutas de bibliotecas, nombres de documentos, fragmentos de texto, PIN ni la clave de recuperación.
-- **Limpieza RAII de directorios temporales**: tanto el directorio de *staging* (`.obrain-respaldo-tmp-*`) como los directorios de inspección de solo lectura y de ensayo temporal utilizan `DirTemporal` con borrado automático en `Drop` si ocurre cualquier error o interrupción antes de publicar.
+- **Limpieza RAII y garantías ante terminación abrupta**:
+  - Los directorios de *staging* (`.obrain-respaldo-tmp-*`) y de ensayo temporal limpian sus archivos en `Drop`.
+  - Ante una terminación forzada (corte de corriente, `taskkill` o `SIGKILL` donde `Drop` no ejecuta), el directorio temporal queda inerte: ningún comando ni API permite verificarlo o ensayarlo como respaldo publicado (prefijos `.obrain-respaldo-tmp-` y `.obrain-ensayo-tmp-` quedan reservados y vetados).
+  - Cada directorio temporal incluye 12 bytes aleatorios criptográficos (24 caracteres hexadecimales vía `getrandom`), garantizando que temporales abandonados no colisionen con respaldos posteriores.
+  - La carpeta de destino final solicitada no se crea ni se publica hasta que el respaldo ha completado todas sus fases y ha sido verificado con éxito.
+- **Entrada segura de credenciales en CLI**: la clave de recuperación y el PIN pueden solicitarse de forma interactiva sin eco por consola (`--pedir-clave`, `--pedir-pin`), por tubería estándar (`--clave -`, `--pin -`, `obrain recuperar -`) o mediante variables de entorno (`OBRAIN_CLAVE`, `OBRAIN_PIN`), evitando la exposición en el historial de PowerShell (`PSReadLine`) o en la lista de procesos del sistema operativo.
 - **Clave de recuperación fuera del respaldo en claro**: dentro de `brain.obrain`, la clave de recuperación vive cifrada por SQLCipher; en `brain.obrain.llave`, la llave de 256 bits vive envuelta por DPAPI (`sistema`) y por Argon2id + XChaCha20-Poly1305 (`recuperacion`). Para abrir el respaldo en otro equipo donde DPAPI no esté disponible sigue siendo imprescindible que la persona conserve su clave de recuperación de 25 caracteres (y su PIN si desea desbloquear contenido sensible sin restablecerlo).
 
 ## 7. Tratamiento de documentos originales externos

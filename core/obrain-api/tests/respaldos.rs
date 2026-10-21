@@ -995,3 +995,239 @@ fn cli_obrain_respaldar_verificar_y_ensayar_extremo_a_extremo() {
     assert!(ensayo_cli.join(BASE_ARCHIVO).is_file());
     assert!(!db_inexistente.parent().unwrap().exists());
 }
+
+#[test]
+fn directorio_temporal_abandonado_se_rechaza_y_no_bloquea_nuevo_respaldo() {
+    let dir = CarpetaPrueba::nueva("staging-abandonado");
+    let fx = construir_base_realista(dir.path());
+
+    // 1. Crear un respaldo legítimo previo para tener archivos válidos.
+    let respaldo_valido = dir.path().join("respaldo-valido");
+    respaldo::crear(&fx.db, &respaldo_valido).unwrap();
+
+    // 2. Simular un directorio temporal abandonado (corte de luz/kill sin Drop)
+    //    con archivos válidos en su interior.
+    let staging_abandonado = dir
+        .path()
+        .join(".obrain-respaldo-tmp-deadbeef1234567890abcdef");
+    std::fs::create_dir_all(&staging_abandonado).unwrap();
+    std::fs::copy(
+        respaldo_valido.join(BASE_ARCHIVO),
+        staging_abandonado.join(BASE_ARCHIVO),
+    )
+    .unwrap();
+    std::fs::copy(
+        respaldo_valido.join(LLAVE_ARCHIVO),
+        staging_abandonado.join(LLAVE_ARCHIVO),
+    )
+    .unwrap();
+    std::fs::copy(
+        respaldo_valido.join(MANIFIESTO_ARCHIVO),
+        staging_abandonado.join(MANIFIESTO_ARCHIVO),
+    )
+    .unwrap();
+
+    // El sistema debe negarse a verificar un directorio temporal abandonado.
+    let err_ver = respaldo::verificar(&staging_abandonado).unwrap_err();
+    match err_ver {
+        RespaldoError::DestinoInvalido(msg) => {
+            assert!(msg.contains("directorio temporal"));
+        }
+        otro => panic!("se esperaba DestinoInvalido, se obtuvo: {otro:?}"),
+    }
+
+    // Tampoco se debe permitir crear ni ensayar directamente contra una ruta reservada.
+    let destino_prohibido = dir.path().join(".obrain-respaldo-tmp-intento");
+    let err_crear = respaldo::crear(&fx.db, &destino_prohibido).unwrap_err();
+    assert!(matches!(err_crear, RespaldoError::DestinoInvalido(_)));
+
+    let ensayo_prohibido = dir.path().join(".obrain-ensayo-tmp-intento");
+    let err_ens =
+        respaldo::ensayar(&respaldo_valido, Some(&ensayo_prohibido), None, None).unwrap_err();
+    assert!(matches!(err_ens, RespaldoError::DestinoInvalido(_)));
+
+    // 3. La presencia del temporal abandonado en el mismo directorio padre no debe
+    //    impedir crear un nuevo respaldo legítimo en otra ruta.
+    let nuevo_respaldo = dir.path().join("segundo-respaldo");
+    let mani = respaldo::crear(&fx.db, &nuevo_respaldo).unwrap();
+    assert_eq!(mani.version, 1);
+    assert!(nuevo_respaldo.join(BASE_ARCHIVO).is_file());
+}
+
+#[test]
+fn cli_obrain_secretos_por_stdin_y_variables_de_entorno() {
+    use std::io::Write as _;
+    use std::process::Stdio;
+
+    let dir = CarpetaPrueba::nueva("cli-secretos");
+    let fx = construir_base_realista(dir.path());
+    let bin = env!("CARGO_BIN_EXE_obrain");
+
+    let respaldo_dir = dir.path().join("respaldo-cli");
+    let out_crear = Command::new(bin)
+        .args([
+            "--db",
+            fx.db.to_str().unwrap(),
+            "respaldar",
+            respaldo_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(out_crear.status.success());
+
+    // 1. --verificar con --clave - pasando la clave por entrada estándar (stdin).
+    let mut proc_ver = Command::new(bin)
+        .args([
+            "respaldo",
+            respaldo_dir.to_str().unwrap(),
+            "--verificar",
+            "--clave",
+            "-",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        let mut stdin = proc_ver.stdin.take().unwrap();
+        writeln!(stdin, "{}", fx.clave_recuperacion).unwrap();
+    }
+    let out_ver = proc_ver.wait_with_output().unwrap();
+    assert!(
+        out_ver.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out_ver.stderr)
+    );
+    let txt_ver = String::from_utf8_lossy(&out_ver.stdout);
+    assert!(txt_ver.contains("clave de recuperación  verificada"));
+
+    // 2. --ensayar con --clave - y --pin - pasando ambos por entrada estándar.
+    let ensayo_stdin = dir.path().join("ensayo-stdin");
+    let mut proc_ens = Command::new(bin)
+        .args([
+            "respaldo",
+            respaldo_dir.to_str().unwrap(),
+            "--ensayar",
+            "--en",
+            ensayo_stdin.to_str().unwrap(),
+            "--clave",
+            "-",
+            "--pin",
+            "-",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        let mut stdin = proc_ens.stdin.take().unwrap();
+        writeln!(stdin, "{}", fx.clave_recuperacion).unwrap();
+        writeln!(stdin, "{}", fx.pin).unwrap();
+    }
+    let out_ens = proc_ens.wait_with_output().unwrap();
+    assert!(
+        out_ens.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out_ens.stderr)
+    );
+    let txt_ens = String::from_utf8_lossy(&out_ens.stdout);
+    assert!(txt_ens.contains("ensayo de recuperación satisfactorio"));
+    assert!(txt_ens.contains("activo y verificado en el ensayo"));
+
+    // 3. --verificar utilizando la variable de entorno OBRAIN_CLAVE sin exponerla en argumentos.
+    let out_env_ver = Command::new(bin)
+        .args(["respaldo", respaldo_dir.to_str().unwrap(), "--verificar"])
+        .env("OBRAIN_CLAVE", &fx.clave_recuperacion)
+        .output()
+        .unwrap();
+    assert!(
+        out_env_ver.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out_env_ver.stderr)
+    );
+    let txt_env_ver = String::from_utf8_lossy(&out_env_ver.stdout);
+    assert!(txt_env_ver.contains("clave de recuperación  verificada"));
+
+    // 4. --ensayar utilizando las variables de entorno OBRAIN_CLAVE y OBRAIN_PIN.
+    let ensayo_env = dir.path().join("ensayo-env");
+    let out_env_ens = Command::new(bin)
+        .args([
+            "respaldo",
+            respaldo_dir.to_str().unwrap(),
+            "--ensayar",
+            "--en",
+            ensayo_env.to_str().unwrap(),
+        ])
+        .env("OBRAIN_CLAVE", &fx.clave_recuperacion)
+        .env("OBRAIN_PIN", fx.pin)
+        .output()
+        .unwrap();
+    assert!(
+        out_env_ens.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out_env_ens.stderr)
+    );
+    let txt_env_ens = String::from_utf8_lossy(&out_env_ens.stdout);
+    assert!(txt_env_ens.contains("ensayo de recuperación satisfactorio"));
+    assert!(txt_env_ens.contains("activo y verificado en el ensayo"));
+
+    // 5. obrain recuperar - pasando la clave por stdin.
+    let db_rec = dir.path().join("base-recuperar").join("brain.obrain");
+    std::fs::create_dir_all(db_rec.parent().unwrap()).unwrap();
+    std::fs::copy(&fx.db, &db_rec).unwrap();
+    let llave_rec = obrain_keys::key_path(&db_rec);
+    std::fs::copy(obrain_keys::key_path(&fx.db), &llave_rec).unwrap();
+
+    // Invalidar DPAPI en la llave para requerir recuperación.
+    let propio = if cfg!(windows) {
+        "dpapi"
+    } else {
+        "sin-proteger"
+    };
+    let ajeno = if cfg!(windows) {
+        "sin-proteger"
+    } else {
+        "dpapi"
+    };
+    let texto_llave = std::fs::read_to_string(&llave_rec)
+        .unwrap()
+        .replace(propio, ajeno);
+    std::fs::write(&llave_rec, &texto_llave).unwrap();
+
+    let mut proc_rec = Command::new(bin)
+        .args(["--db", db_rec.to_str().unwrap(), "recuperar", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        let mut stdin = proc_rec.stdin.take().unwrap();
+        writeln!(stdin, "{}", fx.clave_recuperacion).unwrap();
+    }
+    let out_rec = proc_rec.wait_with_output().unwrap();
+    assert!(
+        out_rec.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out_rec.stderr)
+    );
+    let txt_rec = String::from_utf8_lossy(&out_rec.stdout);
+    assert!(txt_rec.contains("la base vuelve a abrirse"));
+
+    // 6. obrain recuperar utilizando la variable OBRAIN_CLAVE.
+    std::fs::write(&llave_rec, texto_llave).unwrap();
+    let out_rec_env = Command::new(bin)
+        .args(["--db", db_rec.to_str().unwrap(), "recuperar"])
+        .env("OBRAIN_CLAVE", &fx.clave_recuperacion)
+        .output()
+        .unwrap();
+    assert!(
+        out_rec_env.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out_rec_env.stderr)
+    );
+    let txt_rec_env = String::from_utf8_lossy(&out_rec_env.stdout);
+    assert!(txt_rec_env.contains("la base vuelve a abrirse"));
+}
