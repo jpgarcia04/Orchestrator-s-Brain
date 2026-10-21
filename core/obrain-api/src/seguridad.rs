@@ -36,6 +36,9 @@ pub struct Estado {
     pub espera_ms: i64,
     /// Caducidad monotónica del desbloqueo. Las lecturas no la renuevan.
     pub restante_ms: Option<u64>,
+    /// La reindexación automática está suspendida (p. ej. tras una restauración)
+    /// para proteger el conocimiento hasta que la persona revise sus bibliotecas.
+    pub reindexado_pausado: bool,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -110,6 +113,41 @@ fn poner(conn: &Connection, clave: &str, valor: &str) -> Result<()> {
 fn quitar(conn: &Connection, clave: &str) -> Result<()> {
     conn.execute("DELETE FROM seguridad WHERE clave = ?1", [clave])?;
     Ok(())
+}
+
+/// Lee un ajuste de la tabla de seguridad cifrada.
+pub fn leer_ajuste(conn: &Connection, clave: &str) -> Result<Option<String>> {
+    leer(conn, clave)
+}
+
+/// Escribe o actualiza un ajuste en la tabla de seguridad cifrada.
+pub fn poner_ajuste(conn: &Connection, clave: &str, valor: &str) -> Result<()> {
+    poner(conn, clave, valor)
+}
+
+/// Elimina un ajuste de la tabla de seguridad cifrada.
+pub fn quitar_ajuste(conn: &Connection, clave: &str) -> Result<()> {
+    quitar(conn, clave)
+}
+
+/// Indica si la reindexación automática está pausada (p. ej. tras una restauración).
+pub fn reindexado_pausado(conn: &Connection) -> Result<bool> {
+    Ok(leer(conn, "reindexado_pausado")?.is_some())
+}
+
+/// Devuelve el motivo por el cual la reindexación está pausada, si lo hay.
+pub fn motivo_reindexado_pausado(conn: &Connection) -> Result<Option<String>> {
+    leer(conn, "reindexado_pausado")
+}
+
+/// Suspende temporalmente la reindexación automática.
+pub fn pausar_reindexado(conn: &Connection, motivo: &str) -> Result<()> {
+    poner(conn, "reindexado_pausado", motivo)
+}
+
+/// Reanuda la reindexación automática eliminando la suspensión temporal.
+pub fn reanudar_reindexado(conn: &Connection) -> Result<()> {
+    quitar(conn, "reindexado_pausado")
 }
 
 fn con_sufijo(db: &Path, sufijo: &str) -> PathBuf {
@@ -301,6 +339,7 @@ pub fn estado(conn: &Connection, ahora_ms: i64) -> Result<Estado> {
         desbloqueada: false,
         espera_ms: espera,
         restante_ms: None,
+        reindexado_pausado: reindexado_pausado(conn)?,
     })
 }
 

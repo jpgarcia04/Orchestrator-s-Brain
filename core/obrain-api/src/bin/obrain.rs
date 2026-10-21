@@ -55,6 +55,9 @@ USO:
                                                       [--pin [<pin>|-] | --pedir-pin]
                                              ensaya la recuperación y apertura en una carpeta
                                              aislada sin tocar la base activa
+  obrain restaurar <carpeta> [--confirmar] [--clave [<clave>|-] | --pedir-clave] [--sin-pausa]
+                                             restaura un respaldo sobre el perfil activo con
+                                             salvaguarda previa y reversibilidad ante fallos
 
 La base está siempre cifrada (SQLCipher). La primera vez que se abre —o si
 venía de una versión en claro— se cifra y se enseña su clave de recuperación.
@@ -62,6 +65,8 @@ venía de una versión en claro— se cifra y se enseña su clave de recuperaci�
 OPCIONES:
   --db <archivo>   usar otra base (por defecto, la misma que la aplicación)
   --sin-modelo     no vectorizar aunque el modelo esté descargado
+  --confirmar      autorizar la sustitución del perfil activo o reanudar el reindexado
+  --sin-pausa      no suspender la reindexación automática tras restaurar
   --pedir-clave    solicitar la clave de recuperación de forma segura
   --pedir-pin      solicitar el PIN de forma segura
 
@@ -91,6 +96,8 @@ fn main() -> ExitCode {
     let mut pin_ensayo: Option<String> = None;
     let mut pedir_clave = false;
     let mut pedir_pin = false;
+    let mut confirmar = false;
+    let mut sin_pausa = false;
     let mut coleccion = Coleccion::Ver;
     let mut sueltos: Vec<&str> = Vec::new();
     let mut it = args.iter();
@@ -145,6 +152,8 @@ fn main() -> ExitCode {
                 }
             },
             "--pedir-pin" => pedir_pin = true,
+            "--confirmar" => confirmar = true,
+            "--sin-pausa" => sin_pausa = true,
             "--crear" => coleccion = Coleccion::Crear,
             "--meter" => coleccion = Coleccion::Meter,
             "--sacar" => coleccion = Coleccion::Sacar,
@@ -384,6 +393,160 @@ fn main() -> ExitCode {
         };
     }
 
+    if *orden == "restaurar" {
+        let [carpeta] = carpetas else {
+            eprintln!(
+                "uso: obrain restaurar <carpeta-respaldo> [--confirmar] [--clave [<clave>|-] | --pedir-clave] [--sin-pausa]"
+            );
+            return ExitCode::from(2);
+        };
+        let carpeta = PathBuf::from(carpeta);
+
+        let clave_rec = if pedir_clave {
+            match leer_secreto_consola("Clave de recuperación: ") {
+                Ok(c) => {
+                    let c = c.trim().to_string();
+                    if c.is_empty() { None } else { Some(c) }
+                }
+                Err(e) => {
+                    eprintln!("no se pudo leer la clave de recuperación: {e}");
+                    return ExitCode::from(2);
+                }
+            }
+        } else if let Some(c) = clave_rec {
+            Some(c)
+        } else if let Ok(val) = std::env::var("OBRAIN_CLAVE") {
+            let t = val.trim().to_string();
+            if t.is_empty() { None } else { Some(t) }
+        } else {
+            None
+        };
+
+        let plan = match respaldo::planificar(&carpeta, &db, clave_rec.as_deref()) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!(
+                    "no se puede planificar la restauración desde {}: {e}",
+                    carpeta.display()
+                );
+                return ExitCode::FAILURE;
+            }
+        };
+
+        println!("▸ plan de restauración para {}", db.display());
+        println!(
+            "  respaldo origen        {} (esquema v{}, {})",
+            carpeta.display(),
+            plan.manifiesto_respaldo.instantanea.esquema_version,
+            if plan.manifiesto_respaldo.instantanea.tiene_pin {
+                "con PIN"
+            } else {
+                "sin PIN"
+            }
+        );
+        println!(
+            "  datos a restaurar      {} entidades · {} aserciones ({} vigentes)",
+            plan.manifiesto_respaldo.instantanea.entidades,
+            plan.manifiesto_respaldo.instantanea.aserciones,
+            plan.manifiesto_respaldo.instantanea.aserciones_vigentes
+        );
+        println!(
+            "  fragmentos · vectores  {} · {}",
+            plan.manifiesto_respaldo.instantanea.fragmentos,
+            plan.manifiesto_respaldo.instantanea.vectores
+        );
+        if plan.perfil_actual.existe {
+            println!(
+                "  perfil activo actual   {} ({} entidades, {} aserciones)",
+                if plan.perfil_actual.abrible {
+                    "abierto y verificado"
+                } else {
+                    "inaccessible o dañado"
+                },
+                plan.perfil_actual.entidades,
+                plan.perfil_actual.aserciones
+            );
+        } else {
+            println!("  perfil activo actual   (no existe base previa en esta ruta)");
+        }
+        println!(
+            "  bibliotecas            {} registradas ({} presentes en disco)",
+            plan.bibliotecas_respaldo.len(),
+            plan.bibliotecas_respaldo
+                .iter()
+                .filter(|b| b.existe_en_disco)
+                .count()
+        );
+        for b in &plan.bibliotecas_respaldo {
+            println!(
+                "    · {} [{}]",
+                b.ruta,
+                if b.existe_en_disco {
+                    "PRESENTE EN DISCO"
+                } else {
+                    "NO ENCONTRADA EN ESTE EQUIPO"
+                }
+            );
+        }
+        for adv in &plan.advertencias {
+            println!("  aviso: {adv}");
+        }
+
+        if !confirmar {
+            println!(
+                "\n⚠️  Para autorizar la sustitución del perfil activo, ejecuta:\n  obrain restaurar \"{}\" --confirmar{}\n",
+                carpeta.display(),
+                if clave_rec.is_some() {
+                    " --clave <clave>"
+                } else {
+                    ""
+                }
+            );
+            return ExitCode::SUCCESS;
+        }
+
+        let opciones = respaldo::OpcionesRestauracion {
+            codigo_recuperacion: clave_rec,
+            autorizar: true,
+            pausar_reindexado: !sin_pausa,
+            carpeta_salvaguarda: None,
+        };
+
+        return match respaldo::restaurar(&carpeta, &db, opciones) {
+            Ok(inf) => {
+                println!("▸ perfil restaurado con éxito en {}", db.display());
+                if let Some(salv) = &inf.salvaguarda_creada {
+                    println!("  salvaguarda previa     {}", salv.display());
+                }
+                println!(
+                    "  apertura               {}",
+                    if inf.recuperada_con_clave {
+                        "reconfigurada con clave de recuperación para este equipo"
+                    } else {
+                        "con llave compatible del sistema"
+                    }
+                );
+                println!(
+                    "  entidades · aserciones {} · {}",
+                    inf.manifiesto.instantanea.entidades, inf.manifiesto.instantanea.aserciones
+                );
+                if inf.reindexado_en_pausa {
+                    println!(
+                        "  reindexación           suspendida temporalmente para proteger el conocimiento"
+                    );
+                    println!(
+                        "                         revisa tus bibliotecas y reanuda con: obrain bibliotecas --confirmar"
+                    );
+                }
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("falló la restauración en {}: {e}", db.display());
+                ExitCode::FAILURE
+            }
+        };
+    }
+
     if let Some(dir) = db.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
@@ -474,22 +637,46 @@ fn main() -> ExitCode {
     avisar_recuperacion(&store, *orden == "clave");
 
     match *orden {
-        "bibliotecas" => match indexar::libraries(&store) {
-            Ok(v) if v.is_empty() => {
-                println!("todavía no hay bibliotecas. Añade una con:\n  obrain indexar <carpeta>");
-                ExitCode::SUCCESS
-            }
-            Ok(v) => {
-                for ruta in v {
-                    println!("  {ruta}");
+        "bibliotecas" => {
+            if confirmar {
+                match seguridad::reanudar_reindexado(store.conn()) {
+                    Ok(()) => {
+                        println!(
+                            "▸ reindexación reanudada: las bibliotecas registradas volverán a sincronizarse normalmente."
+                        );
+                        return ExitCode::SUCCESS;
+                    }
+                    Err(e) => {
+                        eprintln!("no se pudo reanudar la reindexación: {e}");
+                        return ExitCode::FAILURE;
+                    }
                 }
-                ExitCode::SUCCESS
             }
-            Err(e) => {
-                eprintln!("{e}");
-                ExitCode::FAILURE
+            if let Ok(true) = seguridad::reindexado_pausado(store.conn()) {
+                println!("⚠️  Reindexación automática en pausa tras la restauración.");
+                println!(
+                    "    Revisa tus bibliotecas y reanuda la sincronización con: obrain bibliotecas --confirmar\n"
+                );
             }
-        },
+            match indexar::libraries(&store) {
+                Ok(v) if v.is_empty() => {
+                    println!(
+                        "todavía no hay bibliotecas. Añade una con:\n  obrain indexar <carpeta>"
+                    );
+                    ExitCode::SUCCESS
+                }
+                Ok(v) => {
+                    for ruta in v {
+                        println!("  {ruta}");
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         "clave" => {
             let Some(b) = try_brain(store) else {
                 return ExitCode::FAILURE;

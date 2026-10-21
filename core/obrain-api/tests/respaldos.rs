@@ -4,8 +4,9 @@
 //! `obrain`) usando exclusivamente bases ficticias y archivos temporales.
 
 use obrain_api::respaldo::{
-    self, BASE_ARCHIVO, Error as RespaldoError, EtapaRespaldo, LLAVE_ARCHIVO, MANIFIESTO_ARCHIVO,
-    Manifiesto,
+    self, BASE_ARCHIVO, Error as RespaldoError, EtapaRespaldo, EtapaRestauracion, LLAVE_ARCHIVO,
+    MANIFIESTO_ARCHIVO, Manifiesto, OpcionesRestauracion, RECIBO_TRANSICION_ARCHIVO,
+    ReciboTransicion, comprobar_y_reparar_transicion, planificar, restaurar, restaurar_con_etapa,
 };
 use obrain_api::seguridad::{self, abrir_con};
 use obrain_api::{Brain, Embedder, Error, indexar};
@@ -228,6 +229,31 @@ fn construir_base_realista(raiz: &Path) -> BaseRealista {
         clave_recuperacion,
         pin,
     }
+}
+
+fn construir_base_simple(db: &Path, num_aserciones: usize) -> String {
+    if let Some(parent) = db.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let mut store = abrir_con(db, K).unwrap();
+    Brain::initialize_store(&mut store).unwrap();
+    let at = 1_700_000_000_000_i64;
+    for i in 0..num_aserciones {
+        let ent = store.create_entity(at + i as i64).unwrap();
+        store
+            .assert(NewAssertion::new(
+                ent,
+                "about",
+                format!("tema-{i}"),
+                Method::Deterministic,
+                at + i as i64,
+            ))
+            .unwrap();
+    }
+    let brain = Brain::try_from_store(store).unwrap();
+    let recovery = brain.recovery_code().unwrap().unwrap();
+    brain.confirm_recovery_saved().unwrap();
+    recovery
 }
 
 fn contiene_bytes(ruta: &Path, aguja: &[u8]) -> bool {
@@ -1230,4 +1256,663 @@ fn cli_obrain_secretos_por_stdin_y_variables_de_entorno() {
     );
     let txt_rec_env = String::from_utf8_lossy(&out_rec_env.stdout);
     assert!(txt_rec_env.contains("la base vuelve a abrirse"));
+}
+
+#[test]
+fn restauracion_correcta_de_base_cifrada_con_salvaguarda_verificable() {
+    let dir = CarpetaPrueba::nueva("restaurar-completa");
+    let fx = construir_base_realista(&dir.path().join("fuente"));
+    let respaldo_dir = dir.path().join("respaldo");
+    let man = respaldo::crear(&fx.db, &respaldo_dir).unwrap();
+
+    // Perfil activo inicial con 7 aserciones
+    let db_activa = dir.path().join("perfil_activo").join("brain.obrain");
+    let _clave_activa = construir_base_simple(&db_activa, 7);
+
+    let opciones = OpcionesRestauracion {
+        codigo_recuperacion: None,
+        autorizar: true,
+        pausar_reindexado: true,
+        carpeta_salvaguarda: None,
+    };
+    let informe = restaurar(&respaldo_dir, &db_activa, opciones).unwrap();
+    assert_eq!(
+        informe.manifiesto.instantanea.entidades,
+        man.instantanea.entidades
+    );
+    assert_eq!(
+        informe.manifiesto.instantanea.aserciones,
+        man.instantanea.aserciones
+    );
+    assert!(informe.reindexado_en_pausa);
+
+    // 1. Salvaguarda existe y conserva el estado previo
+    let salv_dir = informe.salvaguarda_creada.expect("debe crear salvaguarda");
+    assert!(salv_dir.join(BASE_ARCHIVO).exists());
+    assert!(salv_dir.join(LLAVE_ARCHIVO).exists());
+    assert!(salv_dir.join("info.json").exists());
+
+    {
+        let store_salv = abrir_con(&salv_dir.join(BASE_ARCHIVO), K).unwrap();
+        let brain_salv = Brain::try_from_store(store_salv).unwrap();
+        let log_len = brain_salv.store().log_len().unwrap();
+        assert!(log_len >= 7);
+    }
+
+    // 2. Base activa restaurada
+    {
+        let store_rest = abrir_con(&db_activa, K).unwrap();
+        assert!(seguridad::reindexado_pausado(store_rest.conn()).unwrap());
+
+        let brain_rest = Brain::try_from_store(store_rest).unwrap();
+
+        // Conserva el PIN: 9999 falla
+        assert!(brain_rest.security().unwrap().pin);
+        assert!(brain_rest.unlock("9999").is_err());
+
+        // Colecciones conservadas
+        let colecciones = brain_rest.collections().unwrap();
+        assert_eq!(colecciones.len(), 1);
+        assert_eq!(colecciones[0].name, "Auditoria Sintetica");
+        assert_eq!(colecciones[0].documents, 2);
+
+        // Carpetas marcadas conservadas
+        let marcadas = brain_rest.marked_folders().unwrap();
+        assert_eq!(marcadas.len(), 2);
+
+        // Bóveda protegida antes de desbloquear
+        let ruta_boveda = std::path::absolute(&fx.doc_boveda)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        let id_boveda = brain_rest.document_at(&ruta_boveda).unwrap().unwrap();
+        assert!(brain_rest.preview(&id_boveda, None).unwrap().locked);
+
+        // Desbloquear PIN y comprobar acceso a secreto
+        assert!(brain_rest.unlock(fx.pin).is_ok());
+        let prev = brain_rest.preview(&id_boveda, None).unwrap();
+        assert!(!prev.locked);
+        assert!(prev.text.as_deref().unwrap().contains(SECRETO_BOVEDA));
+
+        // Paquetes y búsqueda FTS5
+        let paquetes = brain_rest.packages().unwrap();
+        assert_eq!(paquetes.len(), 1);
+        let busq = brain_rest.search("arrendamiento", 10).unwrap();
+        assert!(!busq.hits.is_empty());
+    }
+}
+
+#[test]
+fn restauracion_requiere_autorizacion_y_respeta_plan() {
+    let dir = CarpetaPrueba::nueva("restaurar-autorizar");
+    let fx = construir_base_realista(&dir.path().join("fuente"));
+    let respaldo_dir = dir.path().join("respaldo");
+    respaldo::crear(&fx.db, &respaldo_dir).unwrap();
+
+    let db_activa = dir.path().join("activa").join("brain.obrain");
+    construir_base_simple(&db_activa, 4);
+    let hash_activa_antes = blake3::hash(&std::fs::read(&db_activa).unwrap())
+        .to_hex()
+        .to_string();
+
+    // 1. Diagnóstico del plan
+    let plan = planificar(&respaldo_dir, &db_activa, None).unwrap();
+    assert!(plan.perfil_actual.existe);
+    assert_eq!(plan.perfil_actual.entidades, 4);
+    assert!(plan.llave_compatible_sistema);
+    assert!(
+        plan.advertencias
+            .iter()
+            .any(|a| a.contains("Se sustituirá el perfil existente"))
+    );
+
+    // 2. Intento de restaurar sin autorizar
+    let opciones_sin_autorizar = OpcionesRestauracion {
+        codigo_recuperacion: None,
+        autorizar: false,
+        pausar_reindexado: true,
+        carpeta_salvaguarda: None,
+    };
+    let err = restaurar(&respaldo_dir, &db_activa, opciones_sin_autorizar).unwrap_err();
+    assert!(matches!(err, RespaldoError::NoAutorizado));
+
+    // Perfil activo intacto
+    let hash_activa_despues = blake3::hash(&std::fs::read(&db_activa).unwrap())
+        .to_hex()
+        .to_string();
+    assert_eq!(hash_activa_antes, hash_activa_despues);
+    assert!(!db_activa.parent().unwrap().join("salvaguardas").exists());
+}
+
+#[test]
+fn restauracion_rechaza_conexiones_abiertas() {
+    let dir = CarpetaPrueba::nueva("restaurar-bloqueada");
+    let fx = construir_base_realista(&dir.path().join("fuente"));
+    let respaldo_dir = dir.path().join("respaldo");
+    respaldo::crear(&fx.db, &respaldo_dir).unwrap();
+
+    let db_activa = dir.path().join("activa").join("brain.obrain");
+    construir_base_simple(&db_activa, 3);
+    let hash_activa_antes = blake3::hash(&std::fs::read(&db_activa).unwrap())
+        .to_hex()
+        .to_string();
+
+    // Abrir conexión sobre la base activa y retenerla
+    let brain_bloqueador = Brain::open(&db_activa).unwrap();
+
+    let opciones = OpcionesRestauracion {
+        codigo_recuperacion: None,
+        autorizar: true,
+        pausar_reindexado: true,
+        carpeta_salvaguarda: None,
+    };
+    let err = restaurar(&respaldo_dir, &db_activa, opciones.clone()).unwrap_err();
+    assert!(
+        matches!(err, RespaldoError::BaseEnUso(ref p) if p == &db_activa),
+        "esperado BaseEnUso, obtenido: {err:?}"
+    );
+
+    // La base activa permanece intacta
+    assert_eq!(
+        hash_activa_antes,
+        blake3::hash(&std::fs::read(&db_activa).unwrap())
+            .to_hex()
+            .to_string()
+    );
+
+    // Al cerrar la conexión activa, la restauración puede proceder
+    drop(brain_bloqueador);
+
+    let res = restaurar(&respaldo_dir, &db_activa, opciones);
+    assert!(res.is_ok(), "tras cerrar conexion debe restaurar: {res:?}");
+}
+
+#[test]
+fn restauracion_falla_con_respaldo_invalido_sin_tocar_perfil_activo() {
+    let dir = CarpetaPrueba::nueva("restaurar-invalido");
+    let fx = construir_base_realista(&dir.path().join("fuente"));
+    let respaldo_dir = dir.path().join("respaldo");
+    respaldo::crear(&fx.db, &respaldo_dir).unwrap();
+
+    // Corromper la base del respaldo
+    let db_en_respaldo = respaldo_dir.join(BASE_ARCHIVO);
+    let mut bytes = std::fs::read(&db_en_respaldo).unwrap();
+    bytes[100] ^= 0xFF;
+    std::fs::write(&db_en_respaldo, bytes).unwrap();
+
+    let db_activa = dir.path().join("activa").join("brain.obrain");
+    construir_base_simple(&db_activa, 5);
+    let hash_activa_antes = blake3::hash(&std::fs::read(&db_activa).unwrap())
+        .to_hex()
+        .to_string();
+
+    let opciones = OpcionesRestauracion {
+        codigo_recuperacion: None,
+        autorizar: true,
+        pausar_reindexado: true,
+        carpeta_salvaguarda: None,
+    };
+    let err = restaurar(&respaldo_dir, &db_activa, opciones).unwrap_err();
+    assert!(matches!(err, RespaldoError::HashNoCoincide { .. }));
+
+    // El perfil activo no se ha alterado ni se han dejado salvaguardas o archivos residuales
+    let hash_activa_despues = blake3::hash(&std::fs::read(&db_activa).unwrap())
+        .to_hex()
+        .to_string();
+    assert_eq!(hash_activa_antes, hash_activa_despues);
+    assert!(!db_activa.with_extension("obrain.anterior").exists());
+}
+
+#[test]
+fn restauracion_con_clave_en_entorno_dpapi_distinto() {
+    let dir = CarpetaPrueba::nueva("restaurar-dpapi-ajeno");
+    let fx = construir_base_realista(&dir.path().join("fuente"));
+    let respaldo_dir = dir.path().join("respaldo");
+    respaldo::crear(&fx.db, &respaldo_dir).unwrap();
+
+    // Simular que el respaldo proviene de otro equipo / usuario cuyo DPAPI no abre en esta sesión
+    let llave_path = respaldo_dir.join(LLAVE_ARCHIVO);
+    let otro_sistema = if cfg!(windows) {
+        "sin-proteger"
+    } else {
+        "dpapi"
+    };
+    let llave_mod = std::fs::read_to_string(&llave_path).unwrap().replace(
+        if cfg!(windows) {
+            "\"tipo\": \"dpapi\""
+        } else {
+            "\"tipo\": \"sin-proteger\""
+        },
+        &format!("\"tipo\": \"{otro_sistema}\""),
+    );
+    std::fs::write(&llave_path, &llave_mod).unwrap();
+
+    let man_path = respaldo_dir.join(MANIFIESTO_ARCHIVO);
+    let mut man: Manifiesto =
+        serde_json::from_str(&std::fs::read_to_string(&man_path).unwrap()).unwrap();
+    man.llave.bytes = llave_mod.len() as u64;
+    man.llave.blake3 = blake3::hash(llave_mod.as_bytes()).to_hex().to_string();
+    std::fs::write(&man_path, serde_json::to_string_pretty(&man).unwrap()).unwrap();
+
+    let db_activa = dir.path().join("activa").join("brain.obrain");
+    construir_base_simple(&db_activa, 2);
+
+    // Planificar sin clave indica que la llave no está disponible en este sistema
+    let err_sin_clave = planificar(&respaldo_dir, &db_activa, None).unwrap_err();
+    assert!(obrain_api::Error::from(err_sin_clave).is_key_unavailable());
+
+    // Planificar con clave de recuperación diagnostica y reporta que requiere la clave
+    let plan = planificar(&respaldo_dir, &db_activa, Some(&fx.clave_recuperacion)).unwrap();
+    assert!(plan.requiere_clave_recuperacion);
+
+    // Intentar restaurar sin clave falla
+    let opciones_sin_clave = OpcionesRestauracion {
+        codigo_recuperacion: None,
+        autorizar: true,
+        pausar_reindexado: true,
+        carpeta_salvaguarda: None,
+    };
+    assert!(restaurar(&respaldo_dir, &db_activa, opciones_sin_clave).is_err());
+
+    // Restaurar con clave de recuperación re-empaqueta la llave para el DPAPI local
+    let opciones_con_clave = OpcionesRestauracion {
+        codigo_recuperacion: Some(fx.clave_recuperacion.clone()),
+        autorizar: true,
+        pausar_reindexado: true,
+        carpeta_salvaguarda: None,
+    };
+    let informe = restaurar(&respaldo_dir, &db_activa, opciones_con_clave).unwrap();
+    assert!(informe.recuperada_con_clave);
+
+    // Ahora la base activa abre nativamente en este equipo con Brain::open (DPAPI propio)
+    let brain_activa = Brain::open(&db_activa).unwrap();
+    assert!(matches!(
+        brain_activa.recovery_code(),
+        Err(Error::Bloqueado)
+    ));
+    brain_activa.unlock(fx.pin).unwrap();
+    assert_eq!(
+        brain_activa.recovery_code().unwrap().as_deref(),
+        Some(fx.clave_recuperacion.as_str())
+    );
+}
+
+#[test]
+fn restauracion_rollback_ante_fallos_en_distintas_etapas() {
+    let dir = CarpetaPrueba::nueva("restaurar-rollback");
+    let fx = construir_base_realista(&dir.path().join("fuente"));
+    let respaldo_dir = dir.path().join("respaldo");
+    respaldo::crear(&fx.db, &respaldo_dir).unwrap();
+
+    // Etapa 1: Fallo tras crear la salvaguarda (antes de tocar activos)
+    {
+        let db_activa = dir.path().join("activa1").join("brain.obrain");
+        construir_base_simple(&db_activa, 5);
+        let hash_activa = blake3::hash(&std::fs::read(&db_activa).unwrap())
+            .to_hex()
+            .to_string();
+
+        let opciones = OpcionesRestauracion {
+            codigo_recuperacion: None,
+            autorizar: true,
+            pausar_reindexado: true,
+            carpeta_salvaguarda: None,
+        };
+        let err = restaurar_con_etapa(&respaldo_dir, &db_activa, opciones, |etapa| {
+            if matches!(etapa, EtapaRestauracion::TrasCrearSalvaguarda) {
+                Err(RespaldoError::DestinoInvalido(
+                    "error simulado tras crear salvaguarda".into(),
+                ))
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap_err();
+
+        assert!(matches!(err, RespaldoError::DestinoInvalido(_)));
+        assert_eq!(
+            hash_activa,
+            blake3::hash(&std::fs::read(&db_activa).unwrap())
+                .to_hex()
+                .to_string()
+        );
+    }
+
+    // Etapa 2: Fallo tras desplazar activa a .anterior (rollback restablece .anterior)
+    {
+        let db_activa = dir.path().join("activa2").join("brain.obrain");
+        construir_base_simple(&db_activa, 8);
+        let hash_activa = blake3::hash(&std::fs::read(&db_activa).unwrap())
+            .to_hex()
+            .to_string();
+
+        let opciones = OpcionesRestauracion {
+            codigo_recuperacion: None,
+            autorizar: true,
+            pausar_reindexado: true,
+            carpeta_salvaguarda: None,
+        };
+        let err = restaurar_con_etapa(&respaldo_dir, &db_activa, opciones, |etapa| {
+            if matches!(etapa, EtapaRestauracion::TrasDesplazarActiva) {
+                Err(RespaldoError::DestinoInvalido(
+                    "error simulado tras mover a .anterior".into(),
+                ))
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap_err();
+
+        assert!(
+            matches!(err, RespaldoError::RestauracionFallidaYRecuperada(_)),
+            "esperado RestauracionFallidaYRecuperada, obtenido: {err:?}"
+        );
+        // Base activa restaurada a su ubicación original
+        assert_eq!(
+            hash_activa,
+            blake3::hash(&std::fs::read(&db_activa).unwrap())
+                .to_hex()
+                .to_string()
+        );
+        assert!(!db_activa.with_extension("obrain.anterior").exists());
+
+        // Abre normalmente con todas sus aserciones originales
+        let store = abrir_con(&db_activa, K).unwrap();
+        let brain = Brain::try_from_store(store).unwrap();
+        assert!(brain.store().log_len().unwrap() >= 8);
+    }
+
+    // Etapa 3: Fallo antes de validar final (archivos ya sustituidos -> rollback recupera de salvaguarda/.anterior)
+    {
+        let db_activa = dir.path().join("activa3").join("brain.obrain");
+        construir_base_simple(&db_activa, 6);
+        let hash_activa = blake3::hash(&std::fs::read(&db_activa).unwrap())
+            .to_hex()
+            .to_string();
+
+        let opciones = OpcionesRestauracion {
+            codigo_recuperacion: None,
+            autorizar: true,
+            pausar_reindexado: true,
+            carpeta_salvaguarda: None,
+        };
+        let err = restaurar_con_etapa(&respaldo_dir, &db_activa, opciones, |etapa| {
+            if matches!(etapa, EtapaRestauracion::AntesDeValidarFinal) {
+                Err(RespaldoError::DestinoInvalido(
+                    "error simulado antes de validacion".into(),
+                ))
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap_err();
+
+        assert!(
+            matches!(err, RespaldoError::RestauracionFallidaYRecuperada(_)),
+            "esperado RestauracionFallidaYRecuperada, obtenido: {err:?}"
+        );
+        assert_eq!(
+            hash_activa,
+            blake3::hash(&std::fs::read(&db_activa).unwrap())
+                .to_hex()
+                .to_string()
+        );
+        assert!(!db_activa.with_extension("obrain.anterior").exists());
+
+        let store = abrir_con(&db_activa, K).unwrap();
+        let brain = Brain::try_from_store(store).unwrap();
+        assert!(brain.store().log_len().unwrap() >= 6);
+    }
+}
+
+#[test]
+fn restauracion_repara_transicion_interrumpida() {
+    let dir = CarpetaPrueba::nueva("restaurar-interrumpida");
+    let db_activa = dir.path().join("activa").join("brain.obrain");
+    let parent = db_activa.parent().unwrap();
+    construir_base_simple(&db_activa, 5);
+    let hash_activa_original = blake3::hash(&std::fs::read(&db_activa).unwrap())
+        .to_hex()
+        .to_string();
+    let llave_activa = obrain_keys::key_path(&db_activa);
+    let hash_llave_original = blake3::hash(&std::fs::read(&llave_activa).unwrap())
+        .to_hex()
+        .to_string();
+
+    // 1. Simular interrupción durante sustitución:
+    // La base original se desplazó a .anterior, se escribió el recibo con estado 'reemplazando'.
+    let db_anterior = db_activa.with_extension("obrain.anterior");
+    let llave_anterior = llave_activa.with_extension("llave.anterior");
+    std::fs::rename(&db_activa, &db_anterior).unwrap();
+    std::fs::rename(&llave_activa, &llave_anterior).unwrap();
+
+    let staging_fake = dir.path().join("staging-fake");
+    std::fs::create_dir_all(&staging_fake).unwrap();
+
+    let recibo = ReciboTransicion {
+        version: 1,
+        creado_en_ms: 1000,
+        salvaguarda_dir: None,
+        staging_dir: staging_fake.clone(),
+        target_db: db_activa.clone(),
+        target_llave: llave_activa.clone(),
+        staged_db_hash: "hash_staged_ficticio".into(),
+        staged_llave_hash: "hash_llave_staged_ficticio".into(),
+        target_db_hash_anterior: Some(hash_activa_original.clone()),
+        target_llave_hash_anterior: Some(hash_llave_original.clone()),
+        estado: "reemplazando".into(),
+    };
+    let recibo_path = parent.join(RECIBO_TRANSICION_ARCHIVO);
+    std::fs::write(&recibo_path, serde_json::to_string_pretty(&recibo).unwrap()).unwrap();
+
+    // Comprobar y reparar detecta la interrupción y recupera el perfil original
+    let reparado = comprobar_y_reparar_transicion(&db_activa).unwrap();
+    assert!(reparado.is_some());
+    let msg = reparado.unwrap();
+    assert!(
+        msg.contains("se recuperó el estado original"),
+        "mensaje: {msg}"
+    );
+
+    // El recibo y .anterior desaparecen, y la base activa vuelve a abrir
+    assert!(!recibo_path.exists());
+    assert!(!db_anterior.exists());
+    assert!(db_activa.exists());
+    assert_eq!(
+        hash_activa_original,
+        blake3::hash(&std::fs::read(&db_activa).unwrap())
+            .to_hex()
+            .to_string()
+    );
+
+    let brain = Brain::open(&db_activa).unwrap();
+    assert!(brain.store().log_len().unwrap() >= 5);
+}
+
+#[test]
+fn restauracion_de_copia_antigua_frente_a_mas_reciente() {
+    let dir = CarpetaPrueba::nueva("restaurar-antigua");
+    let fx_antigua = dir.path().join("respaldo_antiguo").join("brain.obrain");
+    std::fs::create_dir_all(fx_antigua.parent().unwrap()).unwrap();
+    construir_base_simple(&fx_antigua, 3);
+    let carpeta_respaldo = dir.path().join("respaldo_empaquetado");
+    respaldo::crear(&fx_antigua, &carpeta_respaldo).unwrap();
+
+    // Perfil activo más reciente con 15 aserciones
+    let db_activa = dir.path().join("activa").join("brain.obrain");
+    construir_base_simple(&db_activa, 15);
+
+    // El planificador advierte que la base activa actual contiene más entidades/aserciones
+    let plan = planificar(&carpeta_respaldo, &db_activa, None).unwrap();
+    assert!(
+        plan.advertencias
+            .iter()
+            .any(|a| a.contains("El perfil actual contiene más entidades o aserciones")),
+        "advertencias: {:?}",
+        plan.advertencias
+    );
+
+    // Con autorización explícita, sustituye pero guarda salvaguarda con las 15 entidades
+    let opciones = OpcionesRestauracion {
+        codigo_recuperacion: None,
+        autorizar: true,
+        pausar_reindexado: true,
+        carpeta_salvaguarda: None,
+    };
+    let informe = restaurar(&carpeta_respaldo, &db_activa, opciones).unwrap();
+    assert_eq!(informe.manifiesto.instantanea.entidades, 3);
+
+    let salv = informe.salvaguarda_creada.unwrap();
+    let store_salv = abrir_con(&salv.join(BASE_ARCHIVO), K).unwrap();
+    let brain_salv = Brain::try_from_store(store_salv).unwrap();
+    assert!(brain_salv.store().log_len().unwrap() >= 15);
+}
+
+#[test]
+fn restauracion_pausa_reindexado_y_bibliotecas_ausentes() {
+    let dir = CarpetaPrueba::nueva("restaurar-pausa");
+    let fx_db = dir.path().join("fuente").join("brain.obrain");
+    std::fs::create_dir_all(fx_db.parent().unwrap()).unwrap();
+
+    let bib_inexistente = dir.path().join("carpeta_inexistente_remota");
+    {
+        let mut store = abrir_con(&fx_db, K).unwrap();
+        Brain::initialize_store(&mut store).unwrap();
+        let at = obrain_scan::now_ms();
+        store
+            .transaction(|s| obrain_scan::register_library(s, &bib_inexistente, at))
+            .unwrap();
+    }
+
+    let carpeta_respaldo = dir.path().join("respaldo");
+    respaldo::crear(&fx_db, &carpeta_respaldo).unwrap();
+
+    let db_activa = dir.path().join("activa").join("brain.obrain");
+    construir_base_simple(&db_activa, 2);
+
+    let opciones = OpcionesRestauracion {
+        codigo_recuperacion: None,
+        autorizar: true,
+        pausar_reindexado: true,
+        carpeta_salvaguarda: None,
+    };
+    let informe = restaurar(&carpeta_respaldo, &db_activa, opciones).unwrap();
+    assert!(informe.reindexado_en_pausa);
+    assert_eq!(informe.bibliotecas_ausentes.len(), 1);
+
+    // 1. Al abrir la base, la reindexación está en pausa y devuelve aviso descriptivo
+    let mut store = abrir_con(&db_activa, K).unwrap();
+    assert!(seguridad::reindexado_pausado(store.conn()).unwrap());
+    let motivo = seguridad::motivo_reindexado_pausado(store.conn()).unwrap();
+    assert_eq!(motivo.as_deref(), Some("restauración de respaldo reciente"));
+
+    let rep = indexar::reindex(&mut store, None).unwrap();
+    assert!(
+        rep.errors
+            .iter()
+            .any(|e| e.contains("reindexación suspendida")),
+        "errores esperados conteniendo pausa: {:?}",
+        rep.errors
+    );
+
+    // 2. Al reanudar explícitamente, se sincroniza normalmente sin corromper el índice
+    seguridad::reanudar_reindexado(store.conn()).unwrap();
+    assert!(!seguridad::reindexado_pausado(store.conn()).unwrap());
+
+    // La reindexación ahora se ejecuta y omite con seguridad la raíz ausente sin purgar documentos
+    let rep2 = indexar::reindex(&mut store, None).unwrap();
+    assert_eq!(rep2.trashed, 0);
+}
+
+#[test]
+fn cli_obrain_restaurar_plan_y_ejecucion_con_confirmacion() {
+    let dir = CarpetaPrueba::nueva("cli-restaurar");
+    let fx = construir_base_realista(&dir.path().join("fuente"));
+    let bin = env!("CARGO_BIN_EXE_obrain");
+
+    let respaldo_dir = dir.path().join("respaldo");
+    let out_crear = Command::new(bin)
+        .args([
+            "--db",
+            fx.db.to_str().unwrap(),
+            "respaldar",
+            respaldo_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(out_crear.status.success());
+
+    let db_activa = dir.path().join("activa").join("brain.obrain");
+    construir_base_simple(&db_activa, 4);
+    let hash_activa_antes = blake3::hash(&std::fs::read(&db_activa).unwrap())
+        .to_hex()
+        .to_string();
+
+    // 1. obrain restaurar sin --confirmar muestra diagnóstico y plan pero no toca la base
+    let out_plan = Command::new(bin)
+        .args([
+            "--db",
+            db_activa.to_str().unwrap(),
+            "restaurar",
+            respaldo_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(out_plan.status.success());
+    let txt_plan = String::from_utf8_lossy(&out_plan.stdout);
+    assert!(txt_plan.to_lowercase().contains("plan de restauración"));
+    assert!(txt_plan.contains("Para autorizar la sustitución del perfil activo, ejecuta"));
+    assert!(txt_plan.contains("--confirmar"));
+
+    // Base activa no modificada
+    assert_eq!(
+        hash_activa_antes,
+        blake3::hash(&std::fs::read(&db_activa).unwrap())
+            .to_hex()
+            .to_string()
+    );
+
+    // 2. obrain restaurar con --confirmar ejecuta la sustitución completa
+    let out_rest = Command::new(bin)
+        .args([
+            "--db",
+            db_activa.to_str().unwrap(),
+            "restaurar",
+            respaldo_dir.to_str().unwrap(),
+            "--confirmar",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        out_rest.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out_rest.stderr)
+    );
+    let txt_rest = String::from_utf8_lossy(&out_rest.stdout);
+    assert!(txt_rest.contains("perfil restaurado con éxito"));
+    assert!(txt_rest.contains("salvaguarda previa"));
+    assert!(txt_rest.contains("reindexación           suspendida temporalmente"));
+
+    // 3. obrain bibliotecas muestra el aviso de reindexación en pausa
+    let out_bibs = Command::new(bin)
+        .args(["--db", db_activa.to_str().unwrap(), "bibliotecas"])
+        .output()
+        .unwrap();
+    assert!(out_bibs.status.success());
+    let txt_bibs = String::from_utf8_lossy(&out_bibs.stdout);
+    assert!(txt_bibs.contains("Reindexación automática en pausa"));
+
+    // 4. obrain bibliotecas --confirmar reanuda la reindexación
+    let out_reanudar = Command::new(bin)
+        .args([
+            "--db",
+            db_activa.to_str().unwrap(),
+            "bibliotecas",
+            "--confirmar",
+        ])
+        .output()
+        .unwrap();
+    assert!(out_reanudar.status.success());
+    let txt_reanudar = String::from_utf8_lossy(&out_reanudar.stdout);
+    assert!(txt_reanudar.contains("reindexación reanudada"));
 }

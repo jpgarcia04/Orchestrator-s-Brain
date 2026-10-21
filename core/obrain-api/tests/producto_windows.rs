@@ -141,7 +141,7 @@ fn recordar_documentos_con_frases_y_comprobar_su_prueba() {
     );
     let pdf = lib.id(brain.store(), "01 estudios/constancia-matricula.pdf");
     brain
-        .add_to_collection(&collection, &[pdf.clone()], "user@test")
+        .add_to_collection(&collection, std::slice::from_ref(&pdf), "user@test")
         .unwrap();
     let within = brain
         .search_in(

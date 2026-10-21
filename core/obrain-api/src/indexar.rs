@@ -118,6 +118,17 @@ pub fn index_with(
         pending: store.content_pending_set()?.len(),
         ..Default::default()
     };
+    if crate::seguridad::reindexado_pausado(store.conn()).unwrap_or(false) {
+        let motivo = crate::seguridad::motivo_reindexado_pausado(store.conn())
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "restauración reciente".to_string());
+        r.errors.push(format!(
+            "reindexación suspendida ({motivo}): revisa tus bibliotecas y confírmalas con 'obrain bibliotecas --confirmar' antes de actualizar"
+        ));
+        r.elapsed_ms = started.elapsed().as_millis() as u64;
+        return Ok(r);
+    }
     // Las carpetas recorridas de todas las bibliotecas, con su identidad: se
     // apuntan después de enlazar, cuando el enlazador ya ha creado las nuevas.
     let mut carpetas: Vec<obrain_scan::FolderCandidate> = Vec::new();

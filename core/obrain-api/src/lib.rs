@@ -66,7 +66,10 @@ pub use lens::{Edge, Lens, Node};
 pub use marks::{ByPart, MarkedFolder, Protection};
 pub use papelera::EnPapelera;
 pub use preview::Preview;
-pub use respaldo::{InformeEnsayo, Manifiesto, ResumenInstantanea};
+pub use respaldo::{
+    BibliotecaInfo, EtapaRestauracion, InformeEnsayo, InformeRestauracion, Manifiesto,
+    OpcionesRestauracion, PlanRestauracion, ResumenInstantanea, ResumenPerfil,
+};
 pub use sky::{Bridge, Cluster, Crumb, Expiring, Listing, Region, Row, Sky};
 
 pub type Result<T> = std::result::Result<T, Error>;
