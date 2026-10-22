@@ -579,6 +579,16 @@ fn pin_restablecer(
 
 // ───────────────────────────────────────────── respaldos y restauración
 
+/// Libera automáticamente un cerrojo atómico (`false`) al salir del ámbito
+/// únicamente cuando fue adquirido por esta operación.
+struct GuardiaAtomica<'a>(&'a AtomicBool);
+
+impl Drop for GuardiaAtomica<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 /// Crea un respaldo consistente, cifrado y verificado de la base activa.
 ///
 /// El diálogo de carpeta lo abre Rust en el sistema operativo; el webview
@@ -590,6 +600,9 @@ async fn respaldo_crear(
     cerebro: State<'_, Cerebro>,
     respaldo_state: State<'_, EstadoRespaldo>,
 ) -> Result<Option<ResultadoCrearRespaldo>, String> {
+    if respaldo_state.restaurando.load(Ordering::SeqCst) {
+        return Err("Ya hay una operación de restauración en marcha.".to_string());
+    }
     if cerebro.0.lock().map(|g| g.is_none()).unwrap_or(true) {
         return Err(CERRADA.to_string());
     }
@@ -608,6 +621,10 @@ async fn respaldo_crear(
         return Ok(None);
     };
     let carpeta_padre = carpeta.into_path().map_err(texto)?;
+
+    if respaldo_state.restaurando.load(Ordering::SeqCst) {
+        return Err("Ya hay una operación de restauración en marcha.".to_string());
+    }
 
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -652,6 +669,10 @@ async fn respaldo_seleccionar(
     app: AppHandle,
     respaldo_state: State<'_, EstadoRespaldo>,
 ) -> Result<Option<RespaldoInfoResumen>, String> {
+    if respaldo_state.restaurando.load(Ordering::SeqCst) {
+        return Err("Ya hay una operación de restauración en marcha.".to_string());
+    }
+
     let a = app.clone();
     let elegida = tauri::async_runtime::spawn_blocking(move || {
         a.dialog()
@@ -670,14 +691,14 @@ async fn respaldo_seleccionar(
     let r = ruta.clone();
     let c = clave.clone();
     let (manifiesto, requiere_clave) = tauri::async_runtime::spawn_blocking(move || {
-        let m = respaldo::verificar(&r)?;
-        let req = match respaldo::verificar_con_clave(&r, c.as_deref()) {
-            Ok(_) => false,
-            Err(respaldo::Error::Keys(_)) => true,
-            Err(e) if c.is_some() => return Err(e),
-            Err(_) => true,
-        };
-        Ok::<_, respaldo::Error>((m, req))
+        match respaldo::verificar(&r) {
+            Ok(m) => Ok::<_, respaldo::Error>((m, false)),
+            Err(respaldo::Error::Keys(_)) if c.is_some() => {
+                let m = respaldo::verificar_con_clave(&r, c.as_deref())?;
+                Ok((m, true))
+            }
+            Err(e) => Err(e),
+        }
     })
     .await
     .map_err(texto)?
@@ -707,6 +728,9 @@ async fn respaldo_comprobar(
     clave: Option<String>,
     respaldo_state: State<'_, EstadoRespaldo>,
 ) -> Result<Manifiesto, String> {
+    if respaldo_state.restaurando.load(Ordering::SeqCst) {
+        return Err("Ya hay una operación de restauración en marcha.".to_string());
+    }
     let ruta = {
         let guarda = respaldo_state.seleccionada.lock().map_err(texto)?;
         guarda.as_ref().cloned().ok_or_else(|| "No hay ninguna carpeta de respaldo seleccionada".to_string())?
@@ -725,6 +749,9 @@ async fn respaldo_ensayar(
     clave: Option<String>,
     respaldo_state: State<'_, EstadoRespaldo>,
 ) -> Result<InformeEnsayo, String> {
+    if respaldo_state.restaurando.load(Ordering::SeqCst) {
+        return Err("Ya hay una operación de restauración en marcha.".to_string());
+    }
     let ruta = {
         let guarda = respaldo_state.seleccionada.lock().map_err(texto)?;
         guarda.as_ref().cloned().ok_or_else(|| "No hay ninguna carpeta de respaldo seleccionada".to_string())?
@@ -746,6 +773,9 @@ async fn restauracion_planificar(
     clave: Option<String>,
     respaldo_state: State<'_, EstadoRespaldo>,
 ) -> Result<PlanRestauracion, String> {
+    if respaldo_state.restaurando.load(Ordering::SeqCst) {
+        return Err("Ya hay una operación de restauración en marcha.".to_string());
+    }
     let ruta = {
         let guarda = respaldo_state.seleccionada.lock().map_err(texto)?;
         guarda.as_ref().cloned().ok_or_else(|| "No hay ninguna carpeta de respaldo seleccionada".to_string())?
@@ -782,55 +812,65 @@ async fn restauracion_ejecutar(
     if respaldo_state.restaurando.swap(true, Ordering::SeqCst) {
         return Err("Ya hay una operación de restauración en marcha.".to_string());
     }
+    let _guardia_restaurando = GuardiaAtomica(&respaldo_state.restaurando);
 
-    let res = ejecutar_restauracion_coordinada(
-        clave,
-        &app,
-        &cerebro,
-        &indexando,
-        &vigilante,
-        &pendiente,
-        &respaldo_state,
-    )
-    .await;
-
-    respaldo_state.restaurando.store(false, Ordering::SeqCst);
-    indexando.0.store(false, Ordering::SeqCst);
-
-    res
-}
-
-async fn ejecutar_restauracion_coordinada(
-    clave: Option<String>,
-    app: &AppHandle,
-    cerebro: &State<'_, Cerebro>,
-    indexando: &State<'_, Indexando>,
-    vigilante: &State<'_, Vigilante>,
-    pendiente: &State<'_, Pendiente>,
-    respaldo_state: &State<'_, EstadoRespaldo>,
-) -> Result<InformeRestauracion, String> {
     let carpeta = {
         let guarda = respaldo_state.seleccionada.lock().map_err(texto)?;
         guarda.as_ref().cloned().ok_or_else(|| "No hay ninguna carpeta de respaldo seleccionada".to_string())?
     };
 
-    let db = default_db_path();
+    let res = coordinar_restauracion(
+        carpeta,
+        default_db_path(),
+        clave,
+        &cerebro,
+        &indexando,
+        &vigilante,
+        &pendiente,
+        std::time::Duration::from_secs(30),
+    )
+    .await;
 
-    // 1. Si el indexador está trabajando en segundo plano, esperar hasta 30 s a que termine
+    // Si Brain sigue abierto tras la operación (éxito o recuperación intacta tras
+    // un fallo previo a la sustitución) y el vigía fue detenido, reactivarlo.
+    let brain_abierto = cerebro.0.lock().map(|g| g.is_some()).unwrap_or(false);
+    let vigia_detenido = vigilante.0.lock().map(|g| g.is_none()).unwrap_or(false);
+    if brain_abierto && vigia_detenido {
+        reiniciar_vigia(&app, &vigilante);
+    }
+
+    if let Ok(ref informe) = res {
+        let _ = app.emit("restaurado", informe);
+    }
+
+    res
+}
+
+async fn coordinar_restauracion(
+    carpeta: PathBuf,
+    db: PathBuf,
+    clave: Option<String>,
+    cerebro: &Cerebro,
+    indexando: &Indexando,
+    vigilante: &Vigilante,
+    pendiente: &Pendiente,
+    plazo_indexador: std::time::Duration,
+) -> Result<InformeRestauracion, String> {
+    // 1. Adquirir atómicamente el cerrojo `Indexando`. Si un trabajador está activo,
+    //    esperar hasta `plazo_indexador`. Si expira el plazo, abortar sin liberar
+    //    el cerrojo que pertenece al indexador ni tocar Brain o el vigía.
     let inicio = std::time::Instant::now();
-    while indexando.0.load(Ordering::SeqCst) {
-        if inicio.elapsed() > std::time::Duration::from_secs(30) {
+    while indexando.0.swap(true, Ordering::SeqCst) {
+        if inicio.elapsed() >= plazo_indexador {
             return Err("El indexador de bibliotecas está ocupado. Espera a que termine e inténtalo de nuevo.".to_string());
         }
         tauri::async_runtime::spawn_blocking(|| {
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            std::thread::sleep(std::time::Duration::from_millis(25));
         })
         .await
         .map_err(texto)?;
     }
-
-    // Bloquear nuevas indexaciones durante la restauración
-    indexando.0.store(true, Ordering::SeqCst);
+    let _guardia_indexando = GuardiaAtomica(&indexando.0);
     pendiente.0.store(false, Ordering::SeqCst);
 
     // 2. Detener el vigilante de bibliotecas soltándolo
@@ -838,26 +878,23 @@ async fn ejecutar_restauracion_coordinada(
         let _ = vigia_guard.take();
     }
 
-    // 3. Extraer y cerrar Brain para liberar los descriptores de archivo SQLite en Windows
-    let brain_previo = {
+    // 3. Extraer el modelo semántico, cerrar Brain sincrónicamente para liberar
+    //    su descriptor SQLite y recordar si había un perfil abierto previamente.
+    let existia_db_antes = db.exists();
+    let (tenia_brain_abierto, mut modelo_previo) = {
         let mut guarda = cerebro.0.lock().map_err(texto)?;
-        guarda.take()
+        let mut brain_previo = guarda.take();
+        let modelo = brain_previo.as_mut().and_then(Brain::take_embedder);
+        let abierto = brain_previo.is_some();
+        drop(brain_previo);
+        (abierto, modelo)
     };
-    drop(brain_previo);
 
-    tauri::async_runtime::spawn_blocking(|| {
-        std::thread::sleep(std::time::Duration::from_millis(80));
-    })
-    .await
-    .map_err(texto)?;
-
-    // 4. Restauración con salvaguarda y reversibilidad en staging
+    // 4. Restauración con verificación de exclusividad, salvaguarda y recibo en disco
     let db_clon = db.clone();
     let carpeta_clon = carpeta.clone();
-    let clave_clon = clave.clone();
-
     let opciones = OpcionesRestauracion {
-        codigo_recuperacion: clave_clon,
+        codigo_recuperacion: clave,
         autorizar: true,
         pausar_reindexado: true,
         carpeta_salvaguarda: None,
@@ -869,17 +906,21 @@ async fn ejecutar_restauracion_coordinada(
     .await
     .map_err(texto)?;
 
+    let mut reabrir_cerebro = |ruta_db: &PathBuf| -> Result<(), obrain_api::Error> {
+        let mut b = Brain::open(ruta_db)?;
+        if let Some(m) = modelo_previo.take() {
+            b.set_embedder(m);
+        }
+        if let Ok(mut g) = cerebro.0.lock() {
+            *g = Some(b);
+        }
+        Ok(())
+    };
+
     match res {
         Ok(informe) => {
-            match Brain::open(&db) {
-                Ok(b) => {
-                    if let Ok(mut g) = cerebro.0.lock() {
-                        *g = Some(b);
-                    }
-                    reiniciar_vigia(app, vigilante);
-                    let _ = app.emit("restaurado", &informe);
-                    Ok(informe)
-                }
+            match reabrir_cerebro(&db) {
+                Ok(()) => Ok(informe),
                 Err(e) => {
                     eprintln!("error abriendo base restaurada: {e}");
                     Err(format!("El perfil se restauró, pero ocurrió un error al abrirlo: {e}"))
@@ -887,28 +928,22 @@ async fn ejecutar_restauracion_coordinada(
             }
         }
         Err(respaldo::Error::RestauracionFallidaYRecuperada(motivo)) => {
-            if let Ok(b) = Brain::open(&db) {
-                if let Ok(mut g) = cerebro.0.lock() {
-                    *g = Some(b);
-                }
-                reiniciar_vigia(app, vigilante);
+            if tenia_brain_abierto && existia_db_antes && db.exists() {
+                let _ = reabrir_cerebro(&db);
             }
             Err(format!("No se pudo completar la restauración ({motivo}); se ha recuperado tu perfil anterior intacto."))
         }
         Err(respaldo::Error::TransicionAmbigua(p)) => {
             eprintln!("transición ambigua detectada en {}", p.display());
-            Err(format!("Transición interrumpida con estado ambiguo en {}. Se preservan las evidencias intactas.", p.display()))
+            Err(format!("Transición interrumpida con estado ambiguo en {}. Se detuvo la apertura automática y se preservan las evidencias intactas.", p.display()))
         }
         Err(respaldo::Error::RestauracionCritica(e1, e2, p)) => {
             eprintln!("restauración crítica: {e1}, {e2}, {}", p.display());
-            Err(format!("Fallo crítico ({e1}). Los archivos originales se conservan en {}.", p.display()))
+            Err(format!("Fallo crítico ({e1}). Se detuvo la apertura automática y los archivos originales se conservan en {}.", p.display()))
         }
         Err(e) => {
-            if let Ok(b) = Brain::open(&db) {
-                if let Ok(mut g) = cerebro.0.lock() {
-                    *g = Some(b);
-                }
-                reiniciar_vigia(app, vigilante);
+            if tenia_brain_abierto && existia_db_antes && db.exists() {
+                let _ = reabrir_cerebro(&db);
             }
             Err(texto(e))
         }
@@ -976,11 +1011,21 @@ fn actualizar(
     app: AppHandle,
     cerebro: State<'_, Cerebro>,
     indexando: State<'_, Indexando>,
+    respaldo_state: State<'_, EstadoRespaldo>,
 ) -> bool {
+    if respaldo_state.restaurando.load(Ordering::SeqCst) {
+        return false;
+    }
     if cerebro.0.lock().map(|g| g.is_none()).unwrap_or(true) {
         return false;
     }
     if indexando.0.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    if respaldo_state.restaurando.load(Ordering::SeqCst)
+        || cerebro.0.lock().map(|g| g.is_none()).unwrap_or(true)
+    {
+        indexando.0.store(false, Ordering::SeqCst);
         return false;
     }
     // El modelo se presta: vectorizar con el cerebro cogido dejaría la barra
@@ -1004,6 +1049,9 @@ fn actualizar(
 /// reindexado en marcha; el resultado llega con el evento `indexado`.
 #[tauri::command]
 async fn anadir_biblioteca(app: AppHandle) -> Result<bool, String> {
+    if app.state::<EstadoRespaldo>().restaurando.load(Ordering::SeqCst) {
+        return Ok(false);
+    }
     if app.state::<Indexando>().0.load(Ordering::SeqCst) {
         return Ok(false);
     }
@@ -1030,7 +1078,21 @@ async fn anadir_biblioteca(app: AppHandle) -> Result<bool, String> {
         return Ok(false);
     };
     let ruta = carpeta.into_path().map_err(texto)?;
+    if app.state::<EstadoRespaldo>().restaurando.load(Ordering::SeqCst) {
+        return Ok(false);
+    }
     if app.state::<Indexando>().0.swap(true, Ordering::SeqCst) {
+        return Ok(false);
+    }
+    if app.state::<EstadoRespaldo>().restaurando.load(Ordering::SeqCst)
+        || app
+            .state::<Cerebro>()
+            .0
+            .lock()
+            .map(|g| g.is_none())
+            .unwrap_or(true)
+    {
+        app.state::<Indexando>().0.store(false, Ordering::SeqCst);
         return Ok(false);
     }
     let modelo = app
@@ -1103,8 +1165,10 @@ fn indexar_en_fondo(
         }
     };
     let _ = app.emit("indexado", aviso);
-    // Lo que cambió mientras tanto, en una pasada más.
-    if app.state::<Pendiente>().0.swap(false, Ordering::SeqCst) {
+    // Lo que cambió mientras tanto, en una pasada más (salvo que haya comenzado una restauración).
+    if app.state::<Pendiente>().0.swap(false, Ordering::SeqCst)
+        && !app.state::<EstadoRespaldo>().restaurando.load(Ordering::SeqCst)
+    {
         por_cambio(app);
     }
 }
@@ -1138,6 +1202,9 @@ fn arrancar_en_fondo(handle: AppHandle) {
 /// terminar ésa: un archivo guardado después de que el escáner pasara por su
 /// carpeta no puede quedarse fuera.
 fn por_cambio(app: &AppHandle) {
+    if app.state::<EstadoRespaldo>().restaurando.load(Ordering::SeqCst) {
+        return;
+    }
     if app
         .state::<Cerebro>()
         .0
@@ -1149,6 +1216,17 @@ fn por_cambio(app: &AppHandle) {
     }
     if app.state::<Indexando>().0.swap(true, Ordering::SeqCst) {
         app.state::<Pendiente>().0.store(true, Ordering::SeqCst);
+        return;
+    }
+    if app.state::<EstadoRespaldo>().restaurando.load(Ordering::SeqCst)
+        || app
+            .state::<Cerebro>()
+            .0
+            .lock()
+            .map(|g| g.is_none())
+            .unwrap_or(true)
+    {
+        app.state::<Indexando>().0.store(false, Ordering::SeqCst);
         return;
     }
     let _ = app.emit("indexando", ());
@@ -1266,4 +1344,199 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("no se pudo arrancar la ventana");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    struct DirPrueba(PathBuf);
+
+    impl DirPrueba {
+        fn nuevo(prefijo: &str) -> Self {
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            let dir = std::env::temp_dir().join(format!(
+                "obrain-tauri-test-{}-{}-{}",
+                prefijo,
+                std::process::id(),
+                nanos
+            ));
+            std::fs::create_dir_all(&dir).expect("crear directorio temporal de prueba");
+            Self(dir)
+        }
+    }
+
+    impl Drop for DirPrueba {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn restauracion_cancela_si_indexador_sigue_activo_y_preserva_cerrojo_y_brain() {
+        let tmp = DirPrueba::nuevo("indexador-activo");
+        let db = tmp.0.join("brain.obrain");
+        let brain = Brain::open(&db).expect("abrir base sintética");
+
+        let cerebro = Cerebro(Mutex::new(Some(brain)));
+        let indexando = Indexando(AtomicBool::new(true));
+        let vigilante = Vigilante(Mutex::new(None));
+        let pendiente = Pendiente(AtomicBool::new(true));
+
+        let err = tauri::async_runtime::block_on(coordinar_restauracion(
+            tmp.0.join("respaldo-no-usado"),
+            db.clone(),
+            None,
+            &cerebro,
+            &indexando,
+            &vigilante,
+            &pendiente,
+            Duration::from_millis(60),
+        ))
+        .expect_err("debe cancelar cuando el indexador no termina dentro del plazo");
+
+        assert!(err.contains("indexador"), "mensaje inesperado: {err}");
+        // El cerrojo sigue perteneciendo al indexador en curso (no se limpia en falso)
+        assert!(indexando.0.load(Ordering::SeqCst));
+        assert!(pendiente.0.load(Ordering::SeqCst));
+        // Brain nunca se cerró ni perdió su referencia
+        assert!(cerebro.0.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn fallo_previo_a_sustitucion_recupera_brain_y_libera_cerrojo() {
+        let tmp = DirPrueba::nuevo("fallo-previo");
+        let db = tmp.0.join("brain.obrain");
+        let mut brain = Brain::open(&db).expect("abrir base sintética");
+        brain
+            .create_collection("Importante", "test")
+            .expect("crear colección");
+
+        let cerebro = Cerebro(Mutex::new(Some(brain)));
+        let indexando = Indexando(AtomicBool::new(false));
+        let vigilante = Vigilante(Mutex::new(None));
+        let pendiente = Pendiente(AtomicBool::new(false));
+
+        let err = tauri::async_runtime::block_on(coordinar_restauracion(
+            tmp.0.join("respaldo-inexistente"),
+            db.clone(),
+            None,
+            &cerebro,
+            &indexando,
+            &vigilante,
+            &pendiente,
+            Duration::from_secs(1),
+        ))
+        .expect_err("debe fallar ante respaldo inexistente");
+
+        assert!(!err.is_empty());
+        assert!(!indexando.0.load(Ordering::SeqCst));
+
+        let guarda = cerebro.0.lock().unwrap();
+        let brain_reabierto = guarda.as_ref().expect("Brain debe reabrirse tras fallo previo");
+        assert_eq!(brain_reabierto.collections().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn transicion_ambigua_detiene_apertura_preserva_evidencias_y_no_crea_base_vacia() {
+        let tmp = DirPrueba::nuevo("transicion-ambigua");
+        let db = tmp.0.join("brain.obrain");
+        let brain = Brain::open(&db).expect("abrir base sintética");
+        let carpeta_respaldo = tmp.0.join("respaldo-valido");
+        respaldo::crear(&db, &carpeta_respaldo).expect("crear respaldo válido");
+
+        // Inyectar recibo de transición con hashes inconclusos para provocar TransicionAmbigua
+        let recibo_path = tmp.0.join(respaldo::RECIBO_TRANSICION_ARCHIVO);
+        let recibo_json = format!(
+            r#"{{
+                "version": 1,
+                "creado_en_ms": 1,
+                "salvaguarda_dir": null,
+                "staging_dir": "{}",
+                "target_db": "{}",
+                "target_llave": "{}",
+                "staged_db_hash": "hash_staged_inexistente",
+                "staged_llave_hash": "hash_staged_llave_inexistente",
+                "target_db_hash_anterior": "hash_anterior_inexistente",
+                "target_llave_hash_anterior": "hash_anterior_llave_inexistente",
+                "estado": "sustituyendo"
+            }}"#,
+            tmp.0.join("staging").display().to_string().replace('\\', "\\\\"),
+            db.display().to_string().replace('\\', "\\\\"),
+            tmp.0.join("brain.obrain.llave").display().to_string().replace('\\', "\\\\"),
+        );
+        std::fs::write(&recibo_path, recibo_json.as_bytes()).expect("escribir recibo ambiguo");
+
+        let cerebro = Cerebro(Mutex::new(Some(brain)));
+        let indexando = Indexando(AtomicBool::new(false));
+        let vigilante = Vigilante(Mutex::new(None));
+        let pendiente = Pendiente(AtomicBool::new(false));
+
+        let err = tauri::async_runtime::block_on(coordinar_restauracion(
+            carpeta_respaldo,
+            db.clone(),
+            None,
+            &cerebro,
+            &indexando,
+            &vigilante,
+            &pendiente,
+            Duration::from_secs(1),
+        ))
+        .expect_err("debe detenerse ante transición ambigua");
+
+        assert!(err.contains("ambiguo"), "mensaje inesperado: {err}");
+        assert!(!indexando.0.load(Ordering::SeqCst));
+        // Brain permanece cerrado para no operar sobre un estado ambiguo
+        assert!(cerebro.0.lock().unwrap().is_none());
+        // El recibo de evidencia se conserva intacto en disco
+        assert!(recibo_path.exists());
+    }
+
+    #[test]
+    fn restauracion_coordinada_completa_sin_esperas_arbitrarias_y_pausa_reindexado() {
+        let tmp = DirPrueba::nuevo("restauracion-ok");
+        let db = tmp.0.join("brain.obrain");
+        let mut brain = Brain::open(&db).expect("abrir base sintética");
+        brain
+            .create_collection("EnRespaldo", "test")
+            .expect("crear colección respaldada");
+
+        let carpeta_respaldo = tmp.0.join("respaldo-1");
+        respaldo::crear(&db, &carpeta_respaldo).expect("crear respaldo");
+
+        brain
+            .create_collection("PosteriorDescartada", "test")
+            .expect("crear colección posterior");
+        assert_eq!(brain.collections().unwrap().len(), 2);
+
+        let cerebro = Cerebro(Mutex::new(Some(brain)));
+        let indexando = Indexando(AtomicBool::new(false));
+        let vigilante = Vigilante(Mutex::new(None));
+        let pendiente = Pendiente(AtomicBool::new(false));
+
+        let informe = tauri::async_runtime::block_on(coordinar_restauracion(
+            carpeta_respaldo,
+            db.clone(),
+            None,
+            &cerebro,
+            &indexando,
+            &vigilante,
+            &pendiente,
+            Duration::from_secs(1),
+        ))
+        .expect("restauración coordinada satisfactoria");
+
+        assert!(informe.reindexado_en_pausa);
+        assert!(informe.salvaguarda_creada.as_ref().is_some_and(|p| p.exists()));
+        assert!(!indexando.0.load(Ordering::SeqCst));
+
+        let mut guarda = cerebro.0.lock().unwrap();
+        let brain_restaurado = guarda.as_mut().expect("Brain debe quedar abierto tras restaurar");
+        assert_eq!(brain_restaurado.collections().unwrap().len(), 1);
+        assert!(brain_restaurado.security().unwrap().reindexado_pausado);
+    }
 }

@@ -142,7 +142,8 @@
     ocupado = true;
     try {
       verificado = await respaldoComprobar(clave.trim() || null);
-      exito = "Integridad verificada: todos los archivos, firmas HMAC y páginas coinciden exactamente con el manifiesto.";
+      exito =
+        "Integridad verificada: la llave descifra una copia en solo lectura de la base y su contenido coincide íntegramente con el manifiesto, sin modificar tu perfil activo.";
     } catch (e) {
       error = frase(e);
     } finally {
@@ -157,7 +158,8 @@
     ocupado = true;
     try {
       ensayo = await respaldoEnsayar(clave.trim() || null);
-      exito = "Ensayo completado en entorno temporal aislado. El respaldo abre y puede recuperar su contenido.";
+      exito =
+        "Ensayo completado en una carpeta temporal aislada. La bóveda se abrió por completo y pudo recuperar su contenido sin tocar tu perfil activo.";
     } catch (e) {
       error = frase(e);
     } finally {
@@ -312,8 +314,10 @@
       <div>
         <h3>Comprobar o ensayar un respaldo existente</h3>
         <p>
-          Selecciona una carpeta de respaldo para comprobar su integridad o simular su recuperación en un entorno
-          aislado sin tocar tu perfil activo.
+          Selecciona una carpeta de respaldo para <strong>comprobar su integridad</strong> (verifica los archivos
+          y descifra una copia en solo lectura para confirmar que el contenido coincide con el manifiesto) o
+          <strong>ensayar su recuperación</strong> (abre la bóveda completa en una carpeta temporal descartable)
+          sin sustituir en ningún momento tu base activa.
         </p>
       </div>
     </div>
@@ -382,7 +386,7 @@
             <div>
               <strong>Integridad verificada con éxito</strong>
               <p>
-                Los hashes BLAKE3 de la base y la llave coinciden con el manifiesto. Páginas SQLCipher autenticadas y consistentes.
+                Los archivos del respaldo, su llave y el contenido cifrado de la instantánea se han comprobado en solo lectura y coinciden con el manifiesto, sin modificar tu perfil activo.
               </p>
             </div>
           </div>
@@ -394,7 +398,7 @@
             <div>
               <strong>Ensayo de recuperación satisfactorio</strong>
               <p>
-                La base se abrió correctamente en un directorio temporal aislado. Se recuperaron:
+                La bóveda se abrió correctamente en un directorio temporal aislado sin sustituir tu base activa. Se recuperaron:
                 {ensayo.documentos_en_boveda} documentos en bóveda, {ensayo.colecciones} colecciones,
                 {ensayo.vencimientos} vencimientos.
               </p>
@@ -471,8 +475,9 @@
       <div class="garantia-salvaguarda">
         <ShieldCheck size={16} class="icono-bien" />
         <p>
-          Se creará una <strong>salvaguarda sincronizada previa</strong> de tu perfil actual antes de sustituirlo.
-          Si ocurre cualquier problema durante la sustitución, el sistema revertirá automáticamente tu base original.
+          Se guardará una <strong>salvaguarda previa</strong> de tu perfil actual antes de sustituirlo.
+          Si falla la validación o la sustitución se intenta restaurar la salvaguarda; ante una interrupción crítica o estado ambiguo,
+          la aplicación detendrá la apertura automática y conservará todas las evidencias en disco.
         </p>
       </div>
 
