@@ -1730,6 +1730,126 @@ fn restauracion_repara_transicion_interrumpida() {
 }
 
 #[test]
+fn apertura_repara_transicion_interrumpida_directamente() {
+    let dir = CarpetaPrueba::nueva("apertura-repara-transicion");
+    let db_activa = dir.path().join("activa").join("brain.obrain");
+    let parent = db_activa.parent().unwrap();
+    construir_base_simple(&db_activa, 4);
+    let hash_activa_original = blake3::hash(&std::fs::read(&db_activa).unwrap())
+        .to_hex()
+        .to_string();
+    let llave_activa = obrain_keys::key_path(&db_activa);
+    let hash_llave_original = blake3::hash(&std::fs::read(&llave_activa).unwrap())
+        .to_hex()
+        .to_string();
+
+    // Simular corte eléctrico en pleno reemplazo:
+    let db_anterior = db_activa.with_extension("obrain.anterior");
+    let llave_anterior = llave_activa.with_extension("llave.anterior");
+    std::fs::rename(&db_activa, &db_anterior).unwrap();
+    std::fs::rename(&llave_activa, &llave_anterior).unwrap();
+
+    let staging_fake = dir.path().join("staging-apertura-fake");
+    std::fs::create_dir_all(&staging_fake).unwrap();
+
+    let recibo = ReciboTransicion {
+        version: 1,
+        creado_en_ms: 2000,
+        salvaguarda_dir: None,
+        staging_dir: staging_fake.clone(),
+        target_db: db_activa.clone(),
+        target_llave: llave_activa.clone(),
+        staged_db_hash: "hash_staged_ficticio".into(),
+        staged_llave_hash: "hash_llave_staged_ficticio".into(),
+        target_db_hash_anterior: Some(hash_activa_original.clone()),
+        target_llave_hash_anterior: Some(hash_llave_original.clone()),
+        estado: "reemplazando".into(),
+    };
+    let recibo_path = parent.join(RECIBO_TRANSICION_ARCHIVO);
+    std::fs::write(&recibo_path, serde_json::to_string_pretty(&recibo).unwrap()).unwrap();
+
+    // Brain::open directamente sin llamar antes a ninguna función manual de reparación
+    let brain = Brain::open(&db_activa).unwrap();
+    assert!(brain.store().log_len().unwrap() >= 4);
+
+    // Evidencias de recuperación satisfactoria
+    assert!(!recibo_path.exists());
+    assert!(!db_anterior.exists());
+    assert!(db_activa.exists());
+}
+
+#[test]
+fn restauracion_transicion_ambigua_se_detiene_y_preserva_evidencias() {
+    let dir = CarpetaPrueba::nueva("transicion-ambigua");
+    let db_activa = dir.path().join("activa").join("brain.obrain");
+    let parent = db_activa.parent().unwrap();
+    std::fs::create_dir_all(parent).unwrap();
+
+    std::fs::write(&db_activa, b"contenido-desconocido-no-respaldo").unwrap();
+    let hash_desconocido = blake3::hash(b"contenido-desconocido-no-respaldo")
+        .to_hex()
+        .to_string();
+
+    let staging_fake = dir.path().join("staging-fake");
+    std::fs::create_dir_all(&staging_fake).unwrap();
+
+    let recibo = ReciboTransicion {
+        version: 1,
+        creado_en_ms: 1000,
+        salvaguarda_dir: None,
+        staging_dir: staging_fake.clone(),
+        target_db: db_activa.clone(),
+        target_llave: obrain_keys::key_path(&db_activa),
+        staged_db_hash: "hash_staged_ficticio".into(),
+        staged_llave_hash: "hash_llave_staged_ficticio".into(),
+        target_db_hash_anterior: Some("hash_anterior_otro".into()),
+        target_llave_hash_anterior: None,
+        estado: "reemplazando".into(),
+    };
+    let recibo_path = parent.join(RECIBO_TRANSICION_ARCHIVO);
+    std::fs::write(&recibo_path, serde_json::to_string_pretty(&recibo).unwrap()).unwrap();
+
+    // Ante ambigüedad, comprobar_y_reparar_transicion debe fallar
+    let res = comprobar_y_reparar_transicion(&db_activa);
+    assert!(res.is_err(), "debe fallar ante estado ambiguo");
+    match res.unwrap_err() {
+        respaldo::Error::TransicionAmbigua(p) => {
+            assert_eq!(p, recibo_path);
+        }
+        other => panic!("error inesperado: {other:?}"),
+    }
+
+    // Comprobar que NO se modificó ni borró ningún archivo y se preservaron las evidencias
+    assert!(recibo_path.exists(), "el recibo debe conservarse intacto");
+    assert!(
+        db_activa.exists(),
+        "el archivo en db_activa no debe borrarse"
+    );
+    assert_eq!(
+        hash_desconocido,
+        blake3::hash(&std::fs::read(&db_activa).unwrap())
+            .to_hex()
+            .to_string()
+    );
+    assert!(staging_fake.exists(), "el staging debe conservarse");
+
+    // Brain::open tampoco debe destruir las evidencias y debe fallar
+    let open_res = Brain::open(&db_activa);
+    assert!(
+        open_res.is_err(),
+        "Brain::open debe detenerse ante estado ambiguo"
+    );
+    assert!(
+        recibo_path.exists(),
+        "evidencia de recibo debe seguir preservada"
+    );
+    assert!(
+        db_activa.exists(),
+        "evidencia de base debe seguir preservada"
+    );
+}
+
+#[test]
 fn restauracion_de_copia_antigua_frente_a_mas_reciente() {
     let dir = CarpetaPrueba::nueva("restaurar-antigua");
     let fx_antigua = dir.path().join("respaldo_antiguo").join("brain.obrain");

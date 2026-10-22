@@ -74,6 +74,9 @@ pub enum Error {
 
     #[error("esta base no está cifrada: no tiene clave de recuperación")]
     SinCifrar,
+
+    #[error("transición de restauración pendiente o interrumpida: {0}")]
+    Transicion(String),
 }
 
 pub const PIN_MIN: usize = 4;
@@ -176,6 +179,9 @@ pub fn abrir(db: &Path) -> Result<Store> {
 
 /// [`abrir`] con otro coste de Argon2id. Sólo para los tests.
 pub fn abrir_con(db: &Path, kdf: KdfParams) -> Result<Store> {
+    if let Err(e) = crate::respaldo::comprobar_y_reparar_transicion(db) {
+        return Err(Error::Transicion(e.to_string()));
+    }
     if obrain_keys::exists(db) {
         let cifrando = con_sufijo(db, ".cifrando");
         if cifrando.exists() {

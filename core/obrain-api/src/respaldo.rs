@@ -145,6 +145,11 @@ pub enum Error {
         "se detectó una restauración previa interrumpida en {0}; se recuperó desde la salvaguarda"
     )]
     TransicionInterrumpidaRecuperada(PathBuf),
+
+    #[error(
+        "se detectó una transición interrumpida con estado ambiguo en {0}; se detuvo la recuperación automática para preservar las evidencias"
+    )]
+    TransicionAmbigua(PathBuf),
 }
 
 /// Metadatos verificables de un archivo del respaldo.
@@ -971,7 +976,7 @@ where
         target_llave: target_llave.clone(),
         staged_db_hash: staged_db_hash.clone(),
         staged_llave_hash: staged_llave_hash.clone(),
-        target_db_hash_anterior,
+        target_db_hash_anterior: target_db_hash_anterior.clone(),
         target_llave_hash_anterior,
         estado: "preparado".into(),
     };
@@ -980,6 +985,19 @@ where
     // 6. Sustitución controlada con reversibilidad
     let db_anterior = db_destino_abs.with_extension("obrain.anterior");
     let llave_anterior = target_llave.with_extension("llave.anterior");
+
+    // Repetir comprobaciones críticas inmediatamente antes de la sustitución
+    comprobar_conexiones_activas(&db_destino_abs)?;
+    if db_destino_abs.exists() {
+        if let Some(ref h_ant) = target_db_hash_anterior {
+            let actual_hash = describir_archivo(&db_destino_abs, "db")?.blake3;
+            if &actual_hash != h_ant {
+                return Err(Error::DestinoInvalido(
+                    "la base activa cambió durante la preparación de la restauración; operación cancelada para proteger los datos".into(),
+                ));
+            }
+        }
+    }
 
     let sustitucion_resultado = (|| -> Result<()> {
         if db_destino_abs.exists() {
@@ -1031,13 +1049,18 @@ where
 
     if let Err(e) = sustitucion_resultado {
         // Rollback automático: restablecer el perfil original
-        let rollback_res = revertir_sustitucion(
-            &db_destino_abs,
-            &target_llave,
-            &db_anterior,
-            &llave_anterior,
-            salvaguarda_creada.as_deref(),
-        );
+        let rollback_res = if db_anterior.exists() {
+            revertir_sustitucion_anterior(
+                &db_destino_abs,
+                &target_llave,
+                &db_anterior,
+                &llave_anterior,
+            )
+        } else if let Some(ref salv) = salvaguarda_creada {
+            revertir_sustitucion_salvaguarda(&db_destino_abs, &target_llave, salv)
+        } else {
+            Ok(())
+        };
         let _ = std::fs::remove_file(&recibo_path);
         let _ = std::fs::remove_file(&db_anterior);
         let _ = std::fs::remove_file(&llave_anterior);
@@ -1088,7 +1111,8 @@ where
 }
 
 /// Comprueba si existe un recibo de transición pendiente por una restauración interrumpida,
-/// y la repara automáticamente recuperando desde la salvaguarda o finalizando la limpieza.
+/// y la repara automáticamente recuperando de forma fiable o finalizando la limpieza.
+/// Ante cualquier ambigüedad, se detiene inmediatamente sin modificar archivos y preserva las evidencias.
 pub fn comprobar_y_reparar_transicion(db_destino: &Path) -> Result<Option<String>> {
     let db_destino_abs = absoluta(db_destino);
     let parent = match db_destino_abs.parent() {
@@ -1125,56 +1149,140 @@ pub fn comprobar_y_reparar_transicion(db_destino: &Path) -> Result<Option<String
     let db_anterior = target_db.with_extension("obrain.anterior");
     let llave_anterior = target_llave.with_extension("llave.anterior");
 
-    let mensaje = if target_db_match && target_llave_match {
+    // Caso 1: La sustitución completó satisfactoriamente (ambos archivos coinciden con el staging).
+    if target_db_match && target_llave_match {
         let _ = std::fs::remove_file(&recibo_path);
         let _ = std::fs::remove_file(&db_anterior);
         let _ = std::fs::remove_file(&llave_anterior);
         let _ = std::fs::remove_dir_all(&recibo.staging_dir);
-        "se completó y limpió una transición de restauración previa".to_string()
+        return Ok(Some(
+            "se completó y limpió una transición de restauración previa".to_string(),
+        ));
+    }
+
+    // Caso 2: Interrupción antes de desplazar la base activa (el perfil previo está intacto en destino).
+    let target_db_es_original = match &recibo.target_db_hash_anterior {
+        Some(h_ant) => {
+            target_db.exists()
+                && describir_archivo(target_db, "db")
+                    .map(|m| &m.blake3 == h_ant)
+                    .unwrap_or(false)
+        }
+        None => !target_db.exists(),
+    };
+    if target_db_es_original && !db_anterior.exists() {
+        let _ = std::fs::remove_file(&recibo_path);
+        let _ = std::fs::remove_dir_all(&recibo.staging_dir);
+        return Ok(Some(
+            "se descartó una transición interrumpida antes de sustitución; el perfil original permaneció intacto".to_string(),
+        ));
+    }
+
+    // Caso 3: Recuperable fiablemente desde db_anterior (.obrain.anterior).
+    let db_anterior_valida = if db_anterior.exists() {
+        match &recibo.target_db_hash_anterior {
+            Some(h_ant) => describir_archivo(&db_anterior, "db")
+                .map(|m| &m.blake3 == h_ant)
+                .unwrap_or(false),
+            None => true,
+        }
     } else {
-        revertir_sustitucion(
-            target_db,
-            target_llave,
-            &db_anterior,
-            &llave_anterior,
-            recibo.salvaguarda_dir.as_deref(),
-        )?;
-        let _ = std::fs::remove_file(&recibo_path);
-        let _ = std::fs::remove_file(&db_anterior);
-        let _ = std::fs::remove_file(&llave_anterior);
-        let _ = std::fs::remove_dir_all(&recibo.staging_dir);
-        "se recuperó el estado original desde la salvaguarda tras detectar una restauración interrumpida".to_string()
+        false
     };
 
-    Ok(Some(mensaje))
+    if db_anterior_valida {
+        revertir_sustitucion_anterior(target_db, target_llave, &db_anterior, &llave_anterior)?;
+        let _ = std::fs::remove_file(&recibo_path);
+        let _ = std::fs::remove_file(&db_anterior);
+        let _ = std::fs::remove_file(&llave_anterior);
+        let _ = std::fs::remove_dir_all(&recibo.staging_dir);
+        return Ok(Some(
+            "se recuperó el estado original desde los archivos previos tras detectar una restauración interrumpida".to_string(),
+        ));
+    }
+
+    // Caso 4: Recuperable fiablemente desde la carpeta de salvaguarda.
+    let salvaguarda_valida = if let Some(ref salv) = recibo.salvaguarda_dir {
+        let src_db = salv.join(BASE_ARCHIVO);
+        if src_db.exists() {
+            match &recibo.target_db_hash_anterior {
+                Some(h_ant) => describir_archivo(&src_db, "db")
+                    .map(|m| &m.blake3 == h_ant)
+                    .unwrap_or(false),
+                None => true,
+            }
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    if salvaguarda_valida {
+        let salv = recibo.salvaguarda_dir.as_ref().unwrap();
+        revertir_sustitucion_salvaguarda(target_db, target_llave, salv)?;
+        let _ = std::fs::remove_file(&recibo_path);
+        let _ = std::fs::remove_file(&db_anterior);
+        let _ = std::fs::remove_file(&llave_anterior);
+        let _ = std::fs::remove_dir_all(&recibo.staging_dir);
+        return Ok(Some(
+            "se recuperó el estado original desde la salvaguarda tras detectar una restauración interrumpida".to_string(),
+        ));
+    }
+
+    // Caso 5: Ambigüedad no recuperable de forma fiable:
+    // NO modificar ni borrar ningún archivo. Preservar todas las evidencias y detenerse.
+    Err(Error::TransicionAmbigua(recibo_path))
 }
 
-fn revertir_sustitucion(
+fn revertir_sustitucion_anterior(
     target_db: &Path,
     target_llave: &Path,
     db_anterior: &Path,
     llave_anterior: &Path,
-    salvaguarda_dir: Option<&Path>,
 ) -> Result<()> {
-    let _ = std::fs::remove_file(target_db);
-    let _ = std::fs::remove_file(target_llave);
-
-    if db_anterior.exists() {
-        let _ = std::fs::rename(db_anterior, target_db);
-    } else if let Some(salv) = salvaguarda_dir {
-        let src_db = salv.join(BASE_ARCHIVO);
-        if src_db.exists() {
-            let _ = copiar_sincronizado(&src_db, target_db);
-        }
+    if target_db.exists() {
+        let _ = std::fs::remove_file(target_db);
+    }
+    for suf in ["-wal", "-shm", "-journal"] {
+        let _ = std::fs::remove_file(con_sufijo(target_db, suf));
+    }
+    if target_llave.exists() {
+        let _ = std::fs::remove_file(target_llave);
     }
 
+    std::fs::rename(db_anterior, target_db)?;
+
     if llave_anterior.exists() {
-        let _ = std::fs::rename(llave_anterior, target_llave);
-    } else if let Some(salv) = salvaguarda_dir {
-        let src_ll = salv.join(LLAVE_ARCHIVO);
-        if src_ll.exists() {
-            let _ = copiar_sincronizado(&src_ll, target_llave);
-        }
+        std::fs::rename(llave_anterior, target_llave)?;
+    }
+
+    Ok(())
+}
+
+fn revertir_sustitucion_salvaguarda(
+    target_db: &Path,
+    target_llave: &Path,
+    salvaguarda_dir: &Path,
+) -> Result<()> {
+    if target_db.exists() {
+        let _ = std::fs::remove_file(target_db);
+    }
+    for suf in ["-wal", "-shm", "-journal"] {
+        let _ = std::fs::remove_file(con_sufijo(target_db, suf));
+    }
+    if target_llave.exists() {
+        let _ = std::fs::remove_file(target_llave);
+    }
+
+    let src_db = salvaguarda_dir.join(BASE_ARCHIVO);
+    if src_db.exists() {
+        copiar_sincronizado(&src_db, target_db)?;
+    }
+
+    let src_ll = salvaguarda_dir.join(LLAVE_ARCHIVO);
+    if src_ll.exists() {
+        copiar_sincronizado(&src_ll, target_llave)?;
     }
 
     Ok(())

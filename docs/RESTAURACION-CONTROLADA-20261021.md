@@ -105,11 +105,12 @@ Si se produce un error de E/S, fallo de validación o excepción en cualquier pu
 ### Recuperación ante corte eléctrico o terminación abrupta (Crash Recovery)
 Si el equipo sufre un corte de energía o el proceso es terminado forzosamente (`SIGKILL` / `taskkill`) a mitad del reemplazo:
 - El recibo `brain.obrain.transicion.json` permanece en el disco.
-- En el siguiente arranque o invocación de la API/CLI, `comprobar_y_reparar_transicion`:
-  - Inspecciona los archivos presentes en el destino frente a los hashes registrados en el recibo.
-  - Si la sustitución no se había completado (archivos dañados, ausentes o diferentes), revierte deterministamente la sustitución restaurando los archivos desde `salvaguarda_dir` o `.anterior`.
-  - Si la sustitución ya había concluido pero faltaba la limpieza final, elimina los temporales y el recibo.
-  - Deja el perfil activo plenamente funcional y consistente.
+- Conectado directamente al recorrido de apertura (`seguridad::abrir` y `Brain::open`): en el siguiente arranque de la aplicación o ejecución de la CLI, la verificación se ejecuta automáticamente antes de tocar el almacén.
+- **Detección fiable y preservación ante ambigüedad**:
+  - Si la sustitución completó satisfactoriamente (hashes en destino coinciden con el staging), limpia los temporales y el recibo.
+  - Si la base activa no llegó a desplazarse (intacta con hash previo), limpia el staging y el recibo sin tocar la base activa.
+  - Si los archivos fueron desplazados a `.anterior` o están en la salvaguarda y sus hashes coinciden con los registrados, revierte de forma determinista restableciendo el estado previo.
+  - **Ante ambigüedad** (archivos destino con datos no reconocidos, hashes discrepantes o ausencia de fuente fiable de reversión), el sistema **se detiene de inmediato** arrojando `Error::TransicionAmbigua` y **preserva todas las evidencias en disco** (recibo, temporales, bases previas) sin realizar modificaciones destructivas.
 
 ---
 
@@ -120,6 +121,9 @@ El mayor riesgo de corrupción o fallo en caliente radica en la presencia de con
 - **Comprobación en dos niveles**:
   1. *Nivel SQLite*: Comprueba mediante `PRAGMA wal_checkpoint(TRUNCATE)` con timeout que no existan lectores activos reteniendo frames en el WAL (`busy != 0`).
   2. *Nivel Sistema Operativo*: En Windows, invoca `std::os::windows::fs::OpenOptionsExt::share_mode(0)` sobre `brain.obrain` y `brain.obrain-wal`. Esto solicita acceso sin compartición. Dado que SQLite abre sus archivos con `FILE_SHARE_READ | FILE_SHARE_WRITE`, si cualquier otro hilo o proceso tiene la base abierta, la llamada falla de inmediato con `PermissionDenied` (`ERROR_SHARING_VIOLATION`).
+- **Comprobación repetida inmediatamente antes de la sustitución**:
+  - Las comprobaciones de exclusividad se repiten justo antes de mover archivos a `.anterior` (paso 6), descartando conexiones que se hayan abierto durante la fase de staging o derivación criptográfica.
+  - Se re-verifica que la huella BLAKE3 de la base activa no haya cambiado desde el diagnóstico inicial; si varió, la operación aborta limpiamente para proteger los cambios concurrentes.
 - **Comportamiento seguro**:
   - Al detectar descriptores en uso, la operación aborta inmediatamente con `Error::BaseEnUso(ruta)`.
   - No se renombra ningún archivo activo ni se deja ninguna carpeta de staging abandonada.
@@ -179,6 +183,8 @@ Todas las pruebas se ejecutaron sobre bases sintéticas desechables en carpetas 
 | `restauracion_con_clave_en_entorno_dpapi_distinto` | Simulación de máquina ajena con DPAPI incompatible; planificador exige clave; restauración re-empaqueta con código de recuperación; base activa abre nativamente con DPAPI local. | APROBADO |
 | `restauracion_rollback_ante_fallos_en_distintas_etapas` | Inyección de errores programados tras crear salvaguarda, tras desplazar activos a `.anterior` y antes de validar; en todos los casos el rollback restaura la base activa original sin pérdida. | APROBADO |
 | `restauracion_repara_transicion_interrumpida` | Simulación de corte eléctrico en pleno desplazamiento con recibo de transición; `comprobar_y_reparar_transicion` recupera deterministamente el perfil original. | APROBADO |
+| `apertura_repara_transicion_interrumpida_directamente` | Simulación de interrupción; llamada directa a `Brain::open` repara y abre la base automáticamente sin intervención manual. | APROBADO |
+| `restauracion_transicion_ambigua_se_detiene_y_preserva_evidencias` | Recibo con estado no reconocible fiablemente; la apertura y curación se detienen con `TransicionAmbigua` sin tocar ni borrar evidencias. | APROBADO |
 | `restauracion_de_copia_antigua_frente_a_mas_reciente` | Base activa con más entidades que el respaldo; el planificador advierte explícitamente; con confirmación se restaura y la salvaguarda conserva el estado más reciente. | APROBADO |
 | `restauracion_pausa_reindexado_y_bibliotecas_ausentes` | Restauración suspende reindexación; intentos de reindexar abortan con aviso descriptivo; reanudación explícita con `reanudar_reindexado` no purga documentos ausentes. | APROBADO |
 | `cli_obrain_restaurar_plan_y_ejecucion_con_confirmacion` | Pruebas de extremo a extremo mediante el binario CLI `obrain`: diagnóstico sin `--confirmar`, ejecución con `--confirmar`, consulta de bibliotecas y reanudación con `obrain bibliotecas --confirmar`. | APROBADO |
