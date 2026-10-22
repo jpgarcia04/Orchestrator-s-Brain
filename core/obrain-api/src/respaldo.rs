@@ -1061,17 +1061,22 @@ where
         } else {
             Ok(())
         };
-        let _ = std::fs::remove_file(&recibo_path);
-        let _ = std::fs::remove_file(&db_anterior);
-        let _ = std::fs::remove_file(&llave_anterior);
-
         return match rollback_res {
-            Ok(()) => Err(Error::RestauracionFallidaYRecuperada(e.to_string())),
-            Err(e_roll) => Err(Error::RestauracionCritica(
-                e.to_string(),
-                e_roll.to_string(),
-                salvaguarda_creada.unwrap_or_else(|| parent.to_path_buf()),
-            )),
+            Ok(()) => {
+                let _ = std::fs::remove_file(&recibo_path);
+                let _ = std::fs::remove_file(&db_anterior);
+                let _ = std::fs::remove_file(&llave_anterior);
+                Err(Error::RestauracionFallidaYRecuperada(e.to_string()))
+            }
+            Err(e_roll) => {
+                // Fallo durante el propio rollback: PRESERVAR estrictamente el recibo de transición,
+                // archivos .anterior y salvaguarda para permitir intervención manual sin pérdida destructiva.
+                Err(Error::RestauracionCritica(
+                    e.to_string(),
+                    e_roll.to_string(),
+                    salvaguarda_creada.unwrap_or_else(|| parent.to_path_buf()),
+                ))
+            }
         };
     }
 
@@ -1170,7 +1175,20 @@ pub fn comprobar_y_reparar_transicion(db_destino: &Path) -> Result<Option<String
         }
         None => !target_db.exists(),
     };
-    if target_db_es_original && !db_anterior.exists() {
+    let target_llave_es_original = match &recibo.target_llave_hash_anterior {
+        Some(h_ant_ll) => {
+            target_llave.exists()
+                && describir_archivo(target_llave, "llave")
+                    .map(|m| &m.blake3 == h_ant_ll)
+                    .unwrap_or(false)
+        }
+        None => !target_llave.exists(),
+    };
+    if target_db_es_original
+        && target_llave_es_original
+        && !db_anterior.exists()
+        && !llave_anterior.exists()
+    {
         let _ = std::fs::remove_file(&recibo_path);
         let _ = std::fs::remove_dir_all(&recibo.staging_dir);
         return Ok(Some(
@@ -1178,7 +1196,7 @@ pub fn comprobar_y_reparar_transicion(db_destino: &Path) -> Result<Option<String
         ));
     }
 
-    // Caso 3: Recuperable fiablemente desde db_anterior (.obrain.anterior).
+    // Caso 3: Recuperable fiablemente desde db_anterior (.obrain.anterior) Y llave_anterior (.llave.anterior).
     let db_anterior_valida = if db_anterior.exists() {
         match &recibo.target_db_hash_anterior {
             Some(h_ant) => describir_archivo(&db_anterior, "db")
@@ -1190,7 +1208,17 @@ pub fn comprobar_y_reparar_transicion(db_destino: &Path) -> Result<Option<String
         false
     };
 
-    if db_anterior_valida {
+    let llave_anterior_valida = match &recibo.target_llave_hash_anterior {
+        Some(h_ant_ll) => {
+            llave_anterior.exists()
+                && describir_archivo(&llave_anterior, "llave")
+                    .map(|m| &m.blake3 == h_ant_ll)
+                    .unwrap_or(false)
+        }
+        None => !llave_anterior.exists(),
+    };
+
+    if db_anterior_valida && llave_anterior_valida {
         revertir_sustitucion_anterior(target_db, target_llave, &db_anterior, &llave_anterior)?;
         let _ = std::fs::remove_file(&recibo_path);
         let _ = std::fs::remove_file(&db_anterior);
@@ -1201,10 +1229,12 @@ pub fn comprobar_y_reparar_transicion(db_destino: &Path) -> Result<Option<String
         ));
     }
 
-    // Caso 4: Recuperable fiablemente desde la carpeta de salvaguarda.
+    // Caso 4: Recuperable fiablemente desde la carpeta de salvaguarda (tanto base como llave coincidentes).
     let salvaguarda_valida = if let Some(ref salv) = recibo.salvaguarda_dir {
         let src_db = salv.join(BASE_ARCHIVO);
-        if src_db.exists() {
+        let src_ll = salv.join(LLAVE_ARCHIVO);
+
+        let db_salv_valida = if src_db.exists() {
             match &recibo.target_db_hash_anterior {
                 Some(h_ant) => describir_archivo(&src_db, "db")
                     .map(|m| &m.blake3 == h_ant)
@@ -1213,7 +1243,19 @@ pub fn comprobar_y_reparar_transicion(db_destino: &Path) -> Result<Option<String
             }
         } else {
             false
-        }
+        };
+
+        let llave_salv_valida = match &recibo.target_llave_hash_anterior {
+            Some(h_ant_ll) => {
+                src_ll.exists()
+                    && describir_archivo(&src_ll, "llave")
+                        .map(|m| &m.blake3 == h_ant_ll)
+                        .unwrap_or(false)
+            }
+            None => true,
+        };
+
+        db_salv_valida && llave_salv_valida
     } else {
         false
     };
@@ -1251,11 +1293,10 @@ fn revertir_sustitucion_anterior(
         let _ = std::fs::remove_file(target_llave);
     }
 
-    std::fs::rename(db_anterior, target_db)?;
-
     if llave_anterior.exists() {
         std::fs::rename(llave_anterior, target_llave)?;
     }
+    std::fs::rename(db_anterior, target_db)?;
 
     Ok(())
 }
@@ -1275,14 +1316,14 @@ fn revertir_sustitucion_salvaguarda(
         let _ = std::fs::remove_file(target_llave);
     }
 
-    let src_db = salvaguarda_dir.join(BASE_ARCHIVO);
-    if src_db.exists() {
-        copiar_sincronizado(&src_db, target_db)?;
-    }
-
     let src_ll = salvaguarda_dir.join(LLAVE_ARCHIVO);
     if src_ll.exists() {
         copiar_sincronizado(&src_ll, target_llave)?;
+    }
+
+    let src_db = salvaguarda_dir.join(BASE_ARCHIVO);
+    if src_db.exists() {
+        copiar_sincronizado(&src_db, target_db)?;
     }
 
     Ok(())

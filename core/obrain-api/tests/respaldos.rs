@@ -1850,6 +1850,179 @@ fn restauracion_transicion_ambigua_se_detiene_y_preserva_evidencias() {
 }
 
 #[test]
+fn restauracion_fallo_en_propio_rollback_preserva_evidencias_y_recibo() {
+    let dir = CarpetaPrueba::nueva("rollback-fallido-preserva");
+    let fx_origen = dir.path().join("origen").join("brain.obrain");
+    std::fs::create_dir_all(fx_origen.parent().unwrap()).unwrap();
+    construir_base_simple(&fx_origen, 5);
+    let respaldo_dir = dir.path().join("respaldo");
+    respaldo::crear(&fx_origen, &respaldo_dir).unwrap();
+
+    let db_activa = dir.path().join("activa").join("brain.obrain");
+    std::fs::create_dir_all(db_activa.parent().unwrap()).unwrap();
+    construir_base_simple(&db_activa, 7);
+    let db_anterior = db_activa.with_extension("obrain.anterior");
+    let recibo_path = db_activa.parent().unwrap().join(RECIBO_TRANSICION_ARCHIVO);
+
+    let opciones = OpcionesRestauracion {
+        codigo_recuperacion: None,
+        autorizar: true,
+        pausar_reindexado: true,
+        carpeta_salvaguarda: None,
+    };
+
+    // Provocar fallo de E/S en pleno rollback:
+    // Al alcanzar TrasDesplazarActiva, la base activa ya se renombró a .anterior.
+    // Creamos un directorio no vacío en db_activa para que el rename de rollback falle con error de E/S.
+    let err = restaurar_con_etapa(&respaldo_dir, &db_activa, opciones, |etapa| {
+        if matches!(etapa, EtapaRestauracion::TrasDesplazarActiva) {
+            std::fs::create_dir_all(&db_activa).unwrap();
+            std::fs::write(db_activa.join("bloqueo.bin"), b"bloqueo").unwrap();
+            Err(RespaldoError::DestinoInvalido("error inyectado".into()))
+        } else {
+            Ok(())
+        }
+    })
+    .unwrap_err();
+
+    // El error debe ser RestauracionCritica indicando la situación
+    assert!(
+        matches!(err, RespaldoError::RestauracionCritica(..)),
+        "esperado RestauracionCritica, obtenido: {err:?}"
+    );
+
+    // Evidencias imprescindibles deben estar PRESERVADAS sin borrado destructivo
+    assert!(
+        recibo_path.exists(),
+        "el recibo de transición debe conservarse para intervención manual"
+    );
+    assert!(
+        db_anterior.exists(),
+        "la base .anterior no debe borrarse si el rollback falló"
+    );
+
+    // Limpiamos el bloqueo inyectado para comprobar que la transición se puede curar
+    let _ = std::fs::remove_dir_all(&db_activa);
+    let reparado = comprobar_y_reparar_transicion(&db_activa).unwrap();
+    assert!(reparado.is_some());
+    assert!(db_activa.exists());
+    assert!(!recibo_path.exists());
+    assert!(!db_anterior.exists());
+}
+
+#[test]
+fn transicion_con_base_anterior_valida_pero_llave_ausente_o_invalida() {
+    let dir = CarpetaPrueba::nueva("llave-anterior-ausente-o-invalida");
+    let db_activa = dir.path().join("activa").join("brain.obrain");
+    let parent = db_activa.parent().unwrap();
+    construir_base_simple(&db_activa, 4);
+
+    let hash_db_original = blake3::hash(&std::fs::read(&db_activa).unwrap())
+        .to_hex()
+        .to_string();
+    let llave_activa = obrain_keys::key_path(&db_activa);
+    let hash_llave_original = blake3::hash(&std::fs::read(&llave_activa).unwrap())
+        .to_hex()
+        .to_string();
+
+    let db_anterior = db_activa.with_extension("obrain.anterior");
+    let llave_anterior = llave_activa.with_extension("llave.anterior");
+    std::fs::rename(&db_activa, &db_anterior).unwrap();
+    let _ = std::fs::remove_file(&llave_activa);
+
+    let staging_fake = dir.path().join("staging-fake");
+    std::fs::create_dir_all(&staging_fake).unwrap();
+
+    let recibo_path = parent.join(RECIBO_TRANSICION_ARCHIVO);
+
+    // 1. Caso A: Base anterior existe y es válida, pero llave_anterior NO existe y no hay salvaguarda
+    let recibo_sin_llave = ReciboTransicion {
+        version: 1,
+        creado_en_ms: 1000,
+        salvaguarda_dir: None,
+        staging_dir: staging_fake.clone(),
+        target_db: db_activa.clone(),
+        target_llave: llave_activa.clone(),
+        staged_db_hash: "staged_hash".into(),
+        staged_llave_hash: "staged_llave".into(),
+        target_db_hash_anterior: Some(hash_db_original),
+        target_llave_hash_anterior: Some(hash_llave_original),
+        estado: "reemplazando".into(),
+    };
+    std::fs::write(
+        &recibo_path,
+        serde_json::to_string_pretty(&recibo_sin_llave).unwrap(),
+    )
+    .unwrap();
+
+    // Debe detenerse por ambigüedad porque no puede restaurar una base cifrada sin su llave
+    let res_a = comprobar_y_reparar_transicion(&db_activa);
+    assert!(res_a.is_err(), "debe fallar ante llave anterior ausente");
+    assert!(matches!(
+        res_a.unwrap_err(),
+        RespaldoError::TransicionAmbigua(_)
+    ));
+    assert!(recibo_path.exists(), "recibo preservado");
+    assert!(db_anterior.exists(), "db_anterior preservada");
+    assert!(
+        !db_activa.exists(),
+        "no debe crearse base sin llave en destino"
+    );
+
+    // 2. Caso B: llave_anterior existe pero su hash está corrupto / no corresponde
+    std::fs::write(&llave_anterior, b"llave-corrupta-invalida").unwrap();
+    let res_b = comprobar_y_reparar_transicion(&db_activa);
+    assert!(res_b.is_err(), "debe fallar ante llave anterior corrupta");
+    assert!(matches!(
+        res_b.unwrap_err(),
+        RespaldoError::TransicionAmbigua(_)
+    ));
+    assert!(recibo_path.exists());
+    assert!(db_anterior.exists());
+    assert!(llave_anterior.exists());
+
+    // 3. Caso C: llave_anterior está corrupta, pero la salvaguarda contiene base Y llave válidas
+    let salv_dir = dir.path().join("salvaguarda_valida");
+    std::fs::create_dir_all(&salv_dir).unwrap();
+    std::fs::copy(&db_anterior, salv_dir.join(BASE_ARCHIVO)).unwrap();
+    let mut recibo_con_salv = recibo_sin_llave.clone();
+    recibo_con_salv.salvaguarda_dir = Some(salv_dir.clone());
+    let salv_db = salv_dir.join(BASE_ARCHIVO);
+    let salv_ll = salv_dir.join(LLAVE_ARCHIVO);
+    let h_salv_db = blake3::hash(&std::fs::read(&salv_db).unwrap())
+        .to_hex()
+        .to_string();
+    let h_salv_ll = blake3::hash(b"llave-salvaguarda-valida")
+        .to_hex()
+        .to_string();
+    std::fs::write(&salv_ll, b"llave-salvaguarda-valida").unwrap();
+    recibo_con_salv.target_db_hash_anterior = Some(h_salv_db);
+    recibo_con_salv.target_llave_hash_anterior = Some(h_salv_ll.clone());
+    std::fs::write(
+        &recibo_path,
+        serde_json::to_string_pretty(&recibo_con_salv).unwrap(),
+    )
+    .unwrap();
+
+    // Ahora la curación ignora la .anterior dañada y recupera exitosamente desde la salvaguarda
+    let res_c = comprobar_y_reparar_transicion(&db_activa).unwrap();
+    assert!(res_c.is_some());
+    let msg = res_c.unwrap();
+    assert!(msg.contains("desde la salvaguarda"), "mensaje: {msg}");
+    assert!(db_activa.exists());
+    assert!(llave_activa.exists());
+    assert_eq!(
+        h_salv_ll,
+        blake3::hash(&std::fs::read(&llave_activa).unwrap())
+            .to_hex()
+            .to_string()
+    );
+    assert!(!recibo_path.exists());
+    assert!(!db_anterior.exists());
+    assert!(!llave_anterior.exists());
+}
+
+#[test]
 fn restauracion_de_copia_antigua_frente_a_mas_reciente() {
     let dir = CarpetaPrueba::nueva("restaurar-antigua");
     let fx_antigua = dir.path().join("respaldo_antiguo").join("brain.obrain");

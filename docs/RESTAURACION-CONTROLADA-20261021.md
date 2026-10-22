@@ -96,21 +96,21 @@ El sistema implementa dos capas complementarias de tolerancia a fallos:
 
 ### Rollback automático en memoria (errores durante la ejecución)
 Si se produce un error de E/S, fallo de validación o excepción en cualquier punto del proceso:
-- La función `revertir_sustitucion` elimina de inmediato cualquier archivo incompleto en las rutas de destino.
+- La función de reversión elimina de inmediato cualquier archivo incompleto en las rutas de destino.
 - Restaura los archivos originales desde `.anterior` o, si estos no estuvieran disponibles, desde la carpeta de salvaguarda recién creada.
-- Limpia los archivos `.anterior` y el recibo de transición.
-- Devuelve un error explícito `Error::RestauracionFallidaYRecuperada`, garantizando que la base activa previa vuelve a abrirse con el 100% de su conocimiento intacto.
-- Si incluso la restauración desde la salvaguarda encontrara un error crítico del sistema de archivos, devuelve `Error::RestauracionCritica` indicando la ubicación exacta de la salvaguarda para recuperación manual.
+- **Limpieza no destructiva**: La eliminación de los archivos `.anterior` y del recibo de transición **solo se ejecuta si la reversión concluye satisfactoriamente**. Si el propio rollback sufriera un fallo de E/S, el sistema **preserva estrictamente el recibo de transición y las copias previas** para permitir intervención manual forense, devolviendo `Error::RestauracionCritica`.
+- Si la reversión se completa con éxito, devuelve `Error::RestauracionFallidaYRecuperada`, garantizando que la base activa previa vuelve a abrirse con el 100% de su conocimiento intacto.
 
 ### Recuperación ante corte eléctrico o terminación abrupta (Crash Recovery)
 Si el equipo sufre un corte de energía o el proceso es terminado forzosamente (`SIGKILL` / `taskkill`) a mitad del reemplazo:
 - El recibo `brain.obrain.transicion.json` permanece en el disco.
 - Conectado directamente al recorrido de apertura (`seguridad::abrir` y `Brain::open`): en el siguiente arranque de la aplicación o ejecución de la CLI, la verificación se ejecuta automáticamente antes de tocar el almacén.
-- **Detección fiable y preservación ante ambigüedad**:
+- **Correspondencia criptográfica estricta**: Para considerar recuperable un estado previo (ya sea desde `.anterior` o desde la salvaguarda), se exige la presencia y correspondencia BLAKE3 exacta **tanto de la base de datos como de su archivo `.llave`**. Si la llave anterior está ausente o corrupta pero la salvaguarda es íntegra, el sistema recurre deterministamente a la salvaguarda; si ninguna fuente ofrece el par completo consistente, se detiene inmediatamente.
+- **Preservación ante ambigüedad**:
   - Si la sustitución completó satisfactoriamente (hashes en destino coinciden con el staging), limpia los temporales y el recibo.
-  - Si la base activa no llegó a desplazarse (intacta con hash previo), limpia el staging y el recibo sin tocar la base activa.
+  - Si la base activa no llegó a desplazarse (intacta con hash previo y llave íntegra), limpia el staging y el recibo sin tocar la base activa.
   - Si los archivos fueron desplazados a `.anterior` o están en la salvaguarda y sus hashes coinciden con los registrados, revierte de forma determinista restableciendo el estado previo.
-  - **Ante ambigüedad** (archivos destino con datos no reconocidos, hashes discrepantes o ausencia de fuente fiable de reversión), el sistema **se detiene de inmediato** arrojando `Error::TransicionAmbigua` y **preserva todas las evidencias en disco** (recibo, temporales, bases previas) sin realizar modificaciones destructivas.
+  - **Ante ambigüedad** (archivos destino con datos no reconocidos, llaves corruptas o ausentes, hashes discrepantes o ausencia de fuente fiable de reversión), el sistema **se detiene de inmediato** arrojando `Error::TransicionAmbigua` y **preserva todas las evidencias en disco** (recibo, temporales, bases previas) sin realizar modificaciones destructivas.
 
 ---
 
@@ -185,6 +185,8 @@ Todas las pruebas se ejecutaron sobre bases sintéticas desechables en carpetas 
 | `restauracion_repara_transicion_interrumpida` | Simulación de corte eléctrico en pleno desplazamiento con recibo de transición; `comprobar_y_reparar_transicion` recupera deterministamente el perfil original. | APROBADO |
 | `apertura_repara_transicion_interrumpida_directamente` | Simulación de interrupción; llamada directa a `Brain::open` repara y abre la base automáticamente sin intervención manual. | APROBADO |
 | `restauracion_transicion_ambigua_se_detiene_y_preserva_evidencias` | Recibo con estado no reconocible fiablemente; la apertura y curación se detienen con `TransicionAmbigua` sin tocar ni borrar evidencias. | APROBADO |
+| `restauracion_fallo_en_propio_rollback_preserva_evidencias_y_recibo` | Inyección de fallo de E/S durante el propio rollback; el sistema aborta con `RestauracionCritica` y preserva estrictamente el recibo y archivos `.anterior`. | APROBADO |
+| `transicion_con_base_anterior_valida_pero_llave_ausente_o_invalida` | Llave anterior ausente o con hash alterado; rechaza restauración ciega (.anterior) y recupera deterministamente desde la salvaguarda íntegra. | APROBADO |
 | `restauracion_de_copia_antigua_frente_a_mas_reciente` | Base activa con más entidades que el respaldo; el planificador advierte explícitamente; con confirmación se restaura y la salvaguarda conserva el estado más reciente. | APROBADO |
 | `restauracion_pausa_reindexado_y_bibliotecas_ausentes` | Restauración suspende reindexación; intentos de reindexar abortan con aviso descriptivo; reanudación explícita con `reanudar_reindexado` no purga documentos ausentes. | APROBADO |
 | `cli_obrain_restaurar_plan_y_ejecucion_con_confirmacion` | Pruebas de extremo a extremo mediante el binario CLI `obrain`: diagnóstico sin `--confirmar`, ejecución con `--confirmar`, consulta de bibliotecas y reanudación con `obrain bibliotecas --confirmar`. | APROBADO |
