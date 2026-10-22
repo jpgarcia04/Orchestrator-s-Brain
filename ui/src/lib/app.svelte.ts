@@ -11,6 +11,8 @@ import {
   alEmpezarIndexado,
   alIndexar,
   anadirBiblioteca,
+  alRestaurar,
+  reanudarReindexado,
   borrarColeccion as pedirBorrarColeccion,
   coleccion as pedirColeccion,
   colecciones as pedirColecciones,
@@ -204,6 +206,11 @@ class App {
   async arrancar(): Promise<void> {
     await alIndexar((i) => void this.terminoIndexado(i));
     await alEmpezarIndexado(() => this.empezoIndexado());
+    await alRestaurar(async () => {
+      this.avisar("Perfil restaurado. La sincronización automática está en pausa.");
+      this.empezoIndexado();
+      await this.refrescar();
+    });
     await this.refrescar();
   }
 
@@ -333,6 +340,17 @@ class App {
       if (await anadirBiblioteca() && epoch === this.datosEpoch) this.empezoIndexado();
     } catch (e) {
       this.avisar(`No se pudo añadir la carpeta — ${e}`);
+    }
+  }
+
+  async reanudarSincronizacion(): Promise<void> {
+    try {
+      await reanudarReindexado();
+      await this.recargarSeguridad();
+      this.avisar("Sincronización de bibliotecas reanudada.");
+      this.version++;
+    } catch (e) {
+      this.avisar(`No se pudo reanudar la sincronización — ${e}`);
     }
   }
 

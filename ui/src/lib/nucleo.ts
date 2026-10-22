@@ -481,6 +481,8 @@ export interface Seguridad {
   /** Tras varios fallos: cuánto falta para volver a probar. */
   espera_ms: number;
   restante_ms: number | null;
+  /** Reindexado suspendido tras una restauración. */
+  reindexado_pausado?: boolean;
 }
 
 /** Lo que hizo un reindexado. Ver `obrain_api::IndexReport`. */
@@ -744,5 +746,147 @@ export async function alEmpezarIndexado(f: () => void): Promise<void> {
     await listen("indexando", () => f());
   } catch {
     // sin eventos, igual que arriba
+  }
+}
+
+// ───────────────────────────────────────────── respaldos y restauración
+
+export interface ArchivoRespaldo {
+  nombre: string;
+  bytes: number;
+  blake3: string;
+}
+
+export interface LlaveRespaldo {
+  nombre: string;
+  bytes: number;
+  blake3: string;
+  huella_recuperacion: string;
+}
+
+export interface ResumenInstantanea {
+  esquema_version: number;
+  entidades: number;
+  aserciones: number;
+  aserciones_vigentes: number;
+  predicados: number;
+  fragmentos: number;
+  vectores: number;
+  publicaciones_listas: number;
+  publicaciones_pendientes: number;
+  tiene_pin: boolean;
+  tiene_recuperacion_interna: boolean;
+  huella_contenido: string;
+}
+
+export interface Manifiesto {
+  version: number;
+  formato: string;
+  creado_en_ms: number;
+  base: ArchivoRespaldo;
+  llave: LlaveRespaldo;
+  instantanea: ResumenInstantanea;
+}
+
+export interface RespaldoInfoResumen {
+  carpeta: string;
+  nombre_carpeta: string;
+  manifiesto: Manifiesto;
+  requiere_clave: boolean;
+}
+
+export interface ResultadoCrearRespaldo {
+  carpeta: string;
+  nombre_carpeta: string;
+  manifiesto: Manifiesto;
+}
+
+export interface InformeEnsayo {
+  manifiesto: Manifiesto;
+  carpeta_ensayo: string | null;
+  recuperada_con_clave: boolean;
+  con_pin: boolean;
+  pin_desbloqueado: boolean;
+  documentos_en_boveda: number;
+  en_papelera: number;
+  colecciones: number;
+  vencimientos: number;
+  sensibles: number;
+  boveda: number;
+  bibliotecas_registradas: string[];
+  bibliotecas_presentes: number;
+  bibliotecas_ausentes_en_disco: string[];
+}
+
+export interface BibliotecaInfo {
+  ruta: string;
+  existe_en_disco: boolean;
+}
+
+export interface ResumenPerfil {
+  existe: boolean;
+  cifrada: boolean;
+  abrible: boolean;
+  esquema_version: number;
+  entidades: number;
+  aserciones: number;
+  aserciones_vigentes: number;
+  fragmentos: number;
+  vectores: number;
+  tiene_pin: boolean;
+  huella_contenido: string | null;
+  bibliotecas: string[];
+  error_acceso: string | null;
+}
+
+export interface PlanRestauracion {
+  manifiesto_respaldo: Manifiesto;
+  db_destino: string;
+  perfil_actual: ResumenPerfil;
+  bibliotecas_respaldo: BibliotecaInfo[];
+  requiere_clave_recuperacion: boolean;
+  llave_compatible_sistema: boolean;
+  advertencias: string[];
+}
+
+export interface InformeRestauracion {
+  manifiesto: Manifiesto;
+  db_destino: string;
+  salvaguarda_creada: string | null;
+  recuperada_con_clave: boolean;
+  reindexado_en_pausa: boolean;
+  bibliotecas_presentes: string[];
+  bibliotecas_ausentes: string[];
+}
+
+export const respaldoCrear = () => invoke<ResultadoCrearRespaldo | null>("respaldo_crear");
+
+export const respaldoSeleccionar = (clave?: string | null) =>
+  invoke<RespaldoInfoResumen | null>("respaldo_seleccionar", { clave: clave ?? null });
+
+export const respaldoComprobar = (clave?: string | null) =>
+  invoke<Manifiesto>("respaldo_comprobar", { clave: clave ?? null });
+
+export const respaldoEnsayar = (clave?: string | null) =>
+  invoke<InformeEnsayo>("respaldo_ensayar", { clave: clave ?? null });
+
+export const restauracionPlanificar = (clave?: string | null) =>
+  invoke<PlanRestauracion>("restauracion_planificar", { clave: clave ?? null });
+
+export const restauracionEjecutar = (confirmar: boolean, clave?: string | null) =>
+  invoke<InformeRestauracion>("restauracion_ejecutar", { confirmar, clave: clave ?? null });
+
+export const reanudarReindexado = () => invoke<void>("reanudar_reindexado");
+
+export const motivoReindexadoPausado = () => invoke<string | null>("motivo_reindexado_pausado");
+
+export const abrirCarpetaSalvaguarda = (ruta: string) =>
+  invoke<void>("abrir_carpeta_salvaguarda", { ruta });
+
+export async function alRestaurar(f: (i: InformeRestauracion) => void): Promise<void> {
+  try {
+    await listen<InformeRestauracion>("restaurado", (e) => f(e.payload));
+  } catch {
+    // sin eventos
   }
 }

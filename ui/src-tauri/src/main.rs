@@ -49,6 +49,9 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use obrain_api::respaldo::{
+    self, InformeEnsayo, InformeRestauracion, Manifiesto, OpcionesRestauracion, PlanRestauracion,
+};
 use obrain_api::seguridad::{self, Estado as EstadoSeguridad};
 use obrain_api::vigilar::{self, Vigia};
 use obrain_api::{
@@ -78,6 +81,29 @@ struct Vigilante(Mutex<Option<Vigia>>);
 
 /// Algo cambió con una pasada en marcha: al terminar, sale otra.
 struct Pendiente(AtomicBool);
+
+/// Estado seguro de operaciones de respaldo y restauración.
+/// Retiene la carpeta seleccionada por el usuario desde el diálogo de Windows
+/// y un cerrojo atómico para impedir restauraciones concurrentes.
+struct EstadoRespaldo {
+    seleccionada: Mutex<Option<PathBuf>>,
+    restaurando: AtomicBool,
+}
+
+#[derive(serde::Serialize)]
+struct RespaldoInfoResumen {
+    carpeta: String,
+    nombre_carpeta: String,
+    manifiesto: Manifiesto,
+    requiere_clave: bool,
+}
+
+#[derive(serde::Serialize)]
+struct ResultadoCrearRespaldo {
+    carpeta: String,
+    nombre_carpeta: String,
+    manifiesto: Manifiesto,
+}
 
 const CERRADA: &str = "la base está cerrada: escribe tu clave de recuperación";
 
@@ -551,6 +577,395 @@ fn pin_restablecer(
     con(&cerebro, |b| b.reset_pin(&codigo, nuevo.as_deref()))
 }
 
+// ───────────────────────────────────────────── respaldos y restauración
+
+/// Crea un respaldo consistente, cifrado y verificado de la base activa.
+///
+/// El diálogo de carpeta lo abre Rust en el sistema operativo; el webview
+/// no recibe ni envía rutas directas del disco. Genera una subcarpeta con
+/// marca temporal para no sobrescribir ningún respaldo previo.
+#[tauri::command]
+async fn respaldo_crear(
+    app: AppHandle,
+    cerebro: State<'_, Cerebro>,
+    respaldo_state: State<'_, EstadoRespaldo>,
+) -> Result<Option<ResultadoCrearRespaldo>, String> {
+    if cerebro.0.lock().map(|g| g.is_none()).unwrap_or(true) {
+        return Err(CERRADA.to_string());
+    }
+
+    let a = app.clone();
+    let elegida = tauri::async_runtime::spawn_blocking(move || {
+        a.dialog()
+            .file()
+            .set_title("Elige la carpeta donde guardar el respaldo")
+            .blocking_pick_folder()
+    })
+    .await
+    .map_err(texto)?;
+
+    let Some(carpeta) = elegida else {
+        return Ok(None);
+    };
+    let carpeta_padre = carpeta.into_path().map_err(texto)?;
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let nombre_subcarpeta = format!("obrain-respaldo-{}", timestamp);
+    let destino = carpeta_padre.join(&nombre_subcarpeta);
+
+    let db = default_db_path();
+    let d = destino.clone();
+    let manifiesto = tauri::async_runtime::spawn_blocking(move || {
+        respaldo::crear(&db, &d)
+    })
+    .await
+    .map_err(texto)?
+    .map_err(texto)?;
+
+    let nombre = destino
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| destino.display().to_string());
+    let ruta_str = destino.display().to_string();
+
+    if let Ok(mut sel) = respaldo_state.seleccionada.lock() {
+        *sel = Some(destino);
+    }
+
+    Ok(Some(ResultadoCrearRespaldo {
+        carpeta: ruta_str,
+        nombre_carpeta: nombre,
+        manifiesto,
+    }))
+}
+
+/// Selecciona una carpeta de respaldo existente mediante el diálogo nativo de Windows.
+///
+/// Verifica inmediatamente el manifiesto y hashes BLAKE3 de sus archivos,
+/// y determina si la base requiere clave de recuperación para abrirse en esta máquina.
+#[tauri::command]
+async fn respaldo_seleccionar(
+    clave: Option<String>,
+    app: AppHandle,
+    respaldo_state: State<'_, EstadoRespaldo>,
+) -> Result<Option<RespaldoInfoResumen>, String> {
+    let a = app.clone();
+    let elegida = tauri::async_runtime::spawn_blocking(move || {
+        a.dialog()
+            .file()
+            .set_title("Selecciona la carpeta de tu respaldo")
+            .blocking_pick_folder()
+    })
+    .await
+    .map_err(texto)?;
+
+    let Some(carpeta) = elegida else {
+        return Ok(None);
+    };
+    let ruta = carpeta.into_path().map_err(texto)?;
+
+    let r = ruta.clone();
+    let c = clave.clone();
+    let (manifiesto, requiere_clave) = tauri::async_runtime::spawn_blocking(move || {
+        let m = respaldo::verificar(&r)?;
+        let req = match respaldo::verificar_con_clave(&r, c.as_deref()) {
+            Ok(_) => false,
+            Err(respaldo::Error::Keys(_)) => true,
+            Err(e) if c.is_some() => return Err(e),
+            Err(_) => true,
+        };
+        Ok::<_, respaldo::Error>((m, req))
+    })
+    .await
+    .map_err(texto)?
+    .map_err(texto)?;
+
+    let nombre = ruta
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| ruta.display().to_string());
+    let ruta_str = ruta.display().to_string();
+
+    if let Ok(mut sel) = respaldo_state.seleccionada.lock() {
+        *sel = Some(ruta);
+    }
+
+    Ok(Some(RespaldoInfoResumen {
+        carpeta: ruta_str,
+        nombre_carpeta: nombre,
+        manifiesto,
+        requiere_clave,
+    }))
+}
+
+/// Comprueba la integridad exhaustiva del respaldo seleccionado (hashes, páginas HMAC, B-trees).
+#[tauri::command]
+async fn respaldo_comprobar(
+    clave: Option<String>,
+    respaldo_state: State<'_, EstadoRespaldo>,
+) -> Result<Manifiesto, String> {
+    let ruta = {
+        let guarda = respaldo_state.seleccionada.lock().map_err(texto)?;
+        guarda.as_ref().cloned().ok_or_else(|| "No hay ninguna carpeta de respaldo seleccionada".to_string())?
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        respaldo::verificar_con_clave(&ruta, clave.as_deref()).map_err(texto)
+    })
+    .await
+    .map_err(texto)?
+}
+
+/// Ensaya de forma aislada la apertura y recuperación del respaldo en un entorno temporal,
+/// sin tocar en ningún momento el perfil activo.
+#[tauri::command]
+async fn respaldo_ensayar(
+    clave: Option<String>,
+    respaldo_state: State<'_, EstadoRespaldo>,
+) -> Result<InformeEnsayo, String> {
+    let ruta = {
+        let guarda = respaldo_state.seleccionada.lock().map_err(texto)?;
+        guarda.as_ref().cloned().ok_or_else(|| "No hay ninguna carpeta de respaldo seleccionada".to_string())?
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        respaldo::ensayar(&ruta, None, clave.as_deref(), None).map_err(texto)
+    })
+    .await
+    .map_err(texto)?
+}
+
+/// Diagnostica y elabora el plan de sustitución antes de una restauración real.
+///
+/// Compara el respaldo contra el perfil activo, advierte si la base activa
+/// tiene novedades o más aserciones, y reporta el estado de presencia local
+/// de las bibliotecas registradas en el respaldo.
+#[tauri::command]
+async fn restauracion_planificar(
+    clave: Option<String>,
+    respaldo_state: State<'_, EstadoRespaldo>,
+) -> Result<PlanRestauracion, String> {
+    let ruta = {
+        let guarda = respaldo_state.seleccionada.lock().map_err(texto)?;
+        guarda.as_ref().cloned().ok_or_else(|| "No hay ninguna carpeta de respaldo seleccionada".to_string())?
+    };
+    let db = default_db_path();
+    tauri::async_runtime::spawn_blocking(move || {
+        respaldo::planificar(&ruta, &db, clave.as_deref()).map_err(texto)
+    })
+    .await
+    .map_err(texto)?
+}
+
+/// Ejecuta la restauración coordinada de la base sobre el perfil activo.
+///
+/// Requiere autorización explícita (`confirmar = true`).
+/// Coordina la detención del vigía, espera al indexador si estuviera trabajando,
+/// libera la conexión de Brain, crea salvaguarda completa y ejecuta el protocolo
+/// con reversibilidad automática y recibo de transición en disco.
+#[tauri::command]
+async fn restauracion_ejecutar(
+    clave: Option<String>,
+    confirmar: bool,
+    app: AppHandle,
+    cerebro: State<'_, Cerebro>,
+    indexando: State<'_, Indexando>,
+    vigilante: State<'_, Vigilante>,
+    pendiente: State<'_, Pendiente>,
+    respaldo_state: State<'_, EstadoRespaldo>,
+) -> Result<InformeRestauracion, String> {
+    if !confirmar {
+        return Err("La restauración requiere autorización explícita de la persona.".to_string());
+    }
+
+    if respaldo_state.restaurando.swap(true, Ordering::SeqCst) {
+        return Err("Ya hay una operación de restauración en marcha.".to_string());
+    }
+
+    let res = ejecutar_restauracion_coordinada(
+        clave,
+        &app,
+        &cerebro,
+        &indexando,
+        &vigilante,
+        &pendiente,
+        &respaldo_state,
+    )
+    .await;
+
+    respaldo_state.restaurando.store(false, Ordering::SeqCst);
+    indexando.0.store(false, Ordering::SeqCst);
+
+    res
+}
+
+async fn ejecutar_restauracion_coordinada(
+    clave: Option<String>,
+    app: &AppHandle,
+    cerebro: &State<'_, Cerebro>,
+    indexando: &State<'_, Indexando>,
+    vigilante: &State<'_, Vigilante>,
+    pendiente: &State<'_, Pendiente>,
+    respaldo_state: &State<'_, EstadoRespaldo>,
+) -> Result<InformeRestauracion, String> {
+    let carpeta = {
+        let guarda = respaldo_state.seleccionada.lock().map_err(texto)?;
+        guarda.as_ref().cloned().ok_or_else(|| "No hay ninguna carpeta de respaldo seleccionada".to_string())?
+    };
+
+    let db = default_db_path();
+
+    // 1. Si el indexador está trabajando en segundo plano, esperar hasta 30 s a que termine
+    let inicio = std::time::Instant::now();
+    while indexando.0.load(Ordering::SeqCst) {
+        if inicio.elapsed() > std::time::Duration::from_secs(30) {
+            return Err("El indexador de bibliotecas está ocupado. Espera a que termine e inténtalo de nuevo.".to_string());
+        }
+        tauri::async_runtime::spawn_blocking(|| {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        })
+        .await
+        .map_err(texto)?;
+    }
+
+    // Bloquear nuevas indexaciones durante la restauración
+    indexando.0.store(true, Ordering::SeqCst);
+    pendiente.0.store(false, Ordering::SeqCst);
+
+    // 2. Detener el vigilante de bibliotecas soltándolo
+    if let Ok(mut vigia_guard) = vigilante.0.lock() {
+        let _ = vigia_guard.take();
+    }
+
+    // 3. Extraer y cerrar Brain para liberar los descriptores de archivo SQLite en Windows
+    let brain_previo = {
+        let mut guarda = cerebro.0.lock().map_err(texto)?;
+        guarda.take()
+    };
+    drop(brain_previo);
+
+    tauri::async_runtime::spawn_blocking(|| {
+        std::thread::sleep(std::time::Duration::from_millis(80));
+    })
+    .await
+    .map_err(texto)?;
+
+    // 4. Restauración con salvaguarda y reversibilidad en staging
+    let db_clon = db.clone();
+    let carpeta_clon = carpeta.clone();
+    let clave_clon = clave.clone();
+
+    let opciones = OpcionesRestauracion {
+        codigo_recuperacion: clave_clon,
+        autorizar: true,
+        pausar_reindexado: true,
+        carpeta_salvaguarda: None,
+    };
+
+    let res = tauri::async_runtime::spawn_blocking(move || {
+        respaldo::restaurar(&carpeta_clon, &db_clon, opciones)
+    })
+    .await
+    .map_err(texto)?;
+
+    match res {
+        Ok(informe) => {
+            match Brain::open(&db) {
+                Ok(b) => {
+                    if let Ok(mut g) = cerebro.0.lock() {
+                        *g = Some(b);
+                    }
+                    reiniciar_vigia(app, vigilante);
+                    let _ = app.emit("restaurado", &informe);
+                    Ok(informe)
+                }
+                Err(e) => {
+                    eprintln!("error abriendo base restaurada: {e}");
+                    Err(format!("El perfil se restauró, pero ocurrió un error al abrirlo: {e}"))
+                }
+            }
+        }
+        Err(respaldo::Error::RestauracionFallidaYRecuperada(motivo)) => {
+            if let Ok(b) = Brain::open(&db) {
+                if let Ok(mut g) = cerebro.0.lock() {
+                    *g = Some(b);
+                }
+                reiniciar_vigia(app, vigilante);
+            }
+            Err(format!("No se pudo completar la restauración ({motivo}); se ha recuperado tu perfil anterior intacto."))
+        }
+        Err(respaldo::Error::TransicionAmbigua(p)) => {
+            eprintln!("transición ambigua detectada en {}", p.display());
+            Err(format!("Transición interrumpida con estado ambiguo en {}. Se preservan las evidencias intactas.", p.display()))
+        }
+        Err(respaldo::Error::RestauracionCritica(e1, e2, p)) => {
+            eprintln!("restauración crítica: {e1}, {e2}, {}", p.display());
+            Err(format!("Fallo crítico ({e1}). Los archivos originales se conservan en {}.", p.display()))
+        }
+        Err(e) => {
+            if let Ok(b) = Brain::open(&db) {
+                if let Ok(mut g) = cerebro.0.lock() {
+                    *g = Some(b);
+                }
+                reiniciar_vigia(app, vigilante);
+            }
+            Err(texto(e))
+        }
+    }
+}
+
+fn reiniciar_vigia(app: &AppHandle, vigilante: &State<'_, Vigilante>) {
+    let handle = app.clone();
+    let vigia = Vigia::empezar(vigilar::PAUSA, move || por_cambio(&handle))
+        .map_err(|e| eprintln!("no se puede vigilar tus carpetas tras restauración: {e}"))
+        .ok();
+    if let Ok(mut g) = vigilante.0.lock() {
+        *g = vigia;
+    }
+    if let Ok(g) = app.state::<Cerebro>().0.lock() {
+        if let Some(b) = g.as_ref() {
+            if let (Ok(bibliotecas), Ok(v)) = (
+                obrain_api::indexar::libraries(b.store()),
+                app.state::<Vigilante>().0.lock(),
+            ) {
+                if let Some(vigia) = v.as_ref() {
+                    let b_paths: Vec<PathBuf> = bibliotecas.into_iter().map(PathBuf::from).collect();
+                    vigia.sincronizar(&b_paths);
+                }
+            }
+        }
+    }
+}
+
+/// Reanuda la indexación automática tras una restauración, una vez que el usuario
+/// ha confirmado sus bibliotecas.
+#[tauri::command]
+fn reanudar_reindexado(cerebro: State<'_, Cerebro>) -> Result<(), String> {
+    let mut guarda = cerebro.0.lock().map_err(texto)?;
+    let brain = guarda.as_mut().ok_or_else(|| CERRADA.to_string())?;
+    seguridad::reanudar_reindexado(brain.store().conn()).map_err(texto)
+}
+
+/// Consulta si el reindexado está pausado y el motivo registrado en la base.
+#[tauri::command]
+fn motivo_reindexado_pausado(cerebro: State<'_, Cerebro>) -> Result<Option<String>, String> {
+    let mut guarda = cerebro.0.lock().map_err(texto)?;
+    let brain = guarda.as_mut().ok_or_else(|| CERRADA.to_string())?;
+    seguridad::motivo_reindexado_pausado(brain.store().conn()).map_err(texto)
+}
+
+/// Revela la carpeta de salvaguarda en el explorador de archivos.
+#[tauri::command]
+fn abrir_carpeta_salvaguarda(ruta: String, app: AppHandle) -> Result<(), String> {
+    let p = PathBuf::from(&ruta);
+    if p.exists() {
+        app.opener().reveal_item_in_dir(ruta).map_err(texto)
+    } else {
+        Err("La carpeta de salvaguarda no existe o ha sido movida".to_string())
+    }
+}
+
 // ───────────────────────────────────────────────────────────── indexar
 
 /// Vuelve a leer tus bibliotecas. **Vuelve al instante**: el trabajo va en un
@@ -791,6 +1206,10 @@ fn main() {
                 .ok();
             app.manage(Vigilante(Mutex::new(vigia)));
             app.manage(Pendiente(AtomicBool::new(false)));
+            app.manage(EstadoRespaldo {
+                seleccionada: Mutex::new(None),
+                restaurando: AtomicBool::new(false),
+            });
             if abierta {
                 arrancar_en_fondo(app.handle().clone());
             }
@@ -834,7 +1253,16 @@ fn main() {
             pin_quitar,
             pin_restablecer,
             actualizar,
-            anadir_biblioteca
+            anadir_biblioteca,
+            respaldo_crear,
+            respaldo_seleccionar,
+            respaldo_comprobar,
+            respaldo_ensayar,
+            restauracion_planificar,
+            restauracion_ejecutar,
+            reanudar_reindexado,
+            motivo_reindexado_pausado,
+            abrir_carpeta_salvaguarda
         ])
         .run(tauri::generate_context!())
         .expect("no se pudo arrancar la ventana");
