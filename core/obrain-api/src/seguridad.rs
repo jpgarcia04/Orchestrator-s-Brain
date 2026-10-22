@@ -36,6 +36,9 @@ pub struct Estado {
     pub espera_ms: i64,
     /// Caducidad monotónica del desbloqueo. Las lecturas no la renuevan.
     pub restante_ms: Option<u64>,
+    /// La reindexación automática está suspendida (p. ej. tras una restauración)
+    /// para proteger el conocimiento hasta que la persona revise sus bibliotecas.
+    pub reindexado_pausado: bool,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -71,6 +74,9 @@ pub enum Error {
 
     #[error("esta base no está cifrada: no tiene clave de recuperación")]
     SinCifrar,
+
+    #[error("transición de restauración pendiente o interrumpida: {0}")]
+    Transicion(String),
 }
 
 pub const PIN_MIN: usize = 4;
@@ -112,6 +118,41 @@ fn quitar(conn: &Connection, clave: &str) -> Result<()> {
     Ok(())
 }
 
+/// Lee un ajuste de la tabla de seguridad cifrada.
+pub fn leer_ajuste(conn: &Connection, clave: &str) -> Result<Option<String>> {
+    leer(conn, clave)
+}
+
+/// Escribe o actualiza un ajuste en la tabla de seguridad cifrada.
+pub fn poner_ajuste(conn: &Connection, clave: &str, valor: &str) -> Result<()> {
+    poner(conn, clave, valor)
+}
+
+/// Elimina un ajuste de la tabla de seguridad cifrada.
+pub fn quitar_ajuste(conn: &Connection, clave: &str) -> Result<()> {
+    quitar(conn, clave)
+}
+
+/// Indica si la reindexación automática está pausada (p. ej. tras una restauración).
+pub fn reindexado_pausado(conn: &Connection) -> Result<bool> {
+    Ok(leer(conn, "reindexado_pausado")?.is_some())
+}
+
+/// Devuelve el motivo por el cual la reindexación está pausada, si lo hay.
+pub fn motivo_reindexado_pausado(conn: &Connection) -> Result<Option<String>> {
+    leer(conn, "reindexado_pausado")
+}
+
+/// Suspende temporalmente la reindexación automática.
+pub fn pausar_reindexado(conn: &Connection, motivo: &str) -> Result<()> {
+    poner(conn, "reindexado_pausado", motivo)
+}
+
+/// Reanuda la reindexación automática eliminando la suspensión temporal.
+pub fn reanudar_reindexado(conn: &Connection) -> Result<()> {
+    quitar(conn, "reindexado_pausado")
+}
+
 fn con_sufijo(db: &Path, sufijo: &str) -> PathBuf {
     let mut s = db.as_os_str().to_owned();
     s.push(sufijo);
@@ -138,6 +179,9 @@ pub fn abrir(db: &Path) -> Result<Store> {
 
 /// [`abrir`] con otro coste de Argon2id. Sólo para los tests.
 pub fn abrir_con(db: &Path, kdf: KdfParams) -> Result<Store> {
+    if let Err(e) = crate::respaldo::comprobar_y_reparar_transicion(db) {
+        return Err(Error::Transicion(e.to_string()));
+    }
     if obrain_keys::exists(db) {
         let cifrando = con_sufijo(db, ".cifrando");
         if cifrando.exists() {
@@ -301,6 +345,7 @@ pub fn estado(conn: &Connection, ahora_ms: i64) -> Result<Estado> {
         desbloqueada: false,
         espera_ms: espera,
         restante_ms: None,
+        reindexado_pausado: reindexado_pausado(conn)?,
     })
 }
 

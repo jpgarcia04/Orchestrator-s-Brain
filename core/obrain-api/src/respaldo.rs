@@ -122,6 +122,34 @@ pub enum Error {
 
     #[error("generación de respaldo interrumpida en etapa de prueba: {0}")]
     Interrumpido(String),
+
+    #[error(
+        "la base activa {0} está en uso por otro proceso o conexión; ciérrala antes de restaurar"
+    )]
+    BaseEnUso(PathBuf),
+
+    #[error(
+        "la restauración requiere autorización explícita; revisa el plan de sustitución y confirma con --confirmar"
+    )]
+    NoAutorizado,
+
+    #[error("falló la restauración ({0}); se recuperó el estado anterior desde la salvaguarda")]
+    RestauracionFallidaYRecuperada(String),
+
+    #[error(
+        "falló la restauración ({0}) y no se pudo recuperar la salvaguarda ({1}); los archivos originales se conservan en {2}"
+    )]
+    RestauracionCritica(String, String, PathBuf),
+
+    #[error(
+        "se detectó una restauración previa interrumpida en {0}; se recuperó desde la salvaguarda"
+    )]
+    TransicionInterrumpidaRecuperada(PathBuf),
+
+    #[error(
+        "se detectó una transición interrumpida con estado ambiguo en {0}; se detuvo la recuperación automática para preservar las evidencias"
+    )]
+    TransicionAmbigua(PathBuf),
 }
 
 /// Metadatos verificables de un archivo del respaldo.
@@ -195,6 +223,106 @@ pub struct InformeEnsayo {
     pub bibliotecas_registradas: Vec<String>,
     pub bibliotecas_presentes: usize,
     pub bibliotecas_ausentes_en_disco: Vec<String>,
+}
+
+/// Nombre del archivo de recibo de transición de restauración.
+pub const RECIBO_TRANSICION_ARCHIVO: &str = "brain.obrain.transicion.json";
+
+/// Información de una biblioteca registrada en el respaldo y su presencia local.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct BibliotecaInfo {
+    pub ruta: String,
+    pub existe_en_disco: bool,
+}
+
+/// Resumen verificable del estado de un perfil de Brain (activo o anterior).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ResumenPerfil {
+    pub existe: bool,
+    pub cifrada: bool,
+    pub abrible: bool,
+    pub esquema_version: i32,
+    pub entidades: i64,
+    pub aserciones: i64,
+    pub aserciones_vigentes: i64,
+    pub fragmentos: i64,
+    pub vectores: i64,
+    pub tiene_pin: bool,
+    pub huella_contenido: Option<String>,
+    pub bibliotecas: Vec<String>,
+    pub error_acceso: Option<String>,
+}
+
+/// Diagnóstico y plan previo a la sustitución de un perfil existente.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct PlanRestauracion {
+    pub manifiesto_respaldo: Manifiesto,
+    pub db_destino: PathBuf,
+    pub perfil_actual: ResumenPerfil,
+    pub bibliotecas_respaldo: Vec<BibliotecaInfo>,
+    pub requiere_clave_recuperacion: bool,
+    pub llave_compatible_sistema: bool,
+    pub advertencias: Vec<String>,
+}
+
+/// Resultado de la operación de restauración.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct InformeRestauracion {
+    pub manifiesto: Manifiesto,
+    pub db_destino: PathBuf,
+    pub salvaguarda_creada: Option<PathBuf>,
+    pub recuperada_con_clave: bool,
+    pub reindexado_en_pausa: bool,
+    pub bibliotecas_presentes: Vec<String>,
+    pub bibliotecas_ausentes: Vec<String>,
+}
+
+/// Opciones de configuración para la restauración.
+#[derive(Debug, Clone)]
+pub struct OpcionesRestauracion {
+    pub codigo_recuperacion: Option<String>,
+    pub autorizar: bool,
+    pub pausar_reindexado: bool,
+    pub carpeta_salvaguarda: Option<PathBuf>,
+}
+
+impl Default for OpcionesRestauracion {
+    fn default() -> Self {
+        Self {
+            codigo_recuperacion: None,
+            autorizar: false,
+            pausar_reindexado: true,
+            carpeta_salvaguarda: None,
+        }
+    }
+}
+
+/// Etapas internas de restauración, expuestas para pruebas de interrupción y reversibilidad.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EtapaRestauracion {
+    TrasVerificarRespaldo,
+    TrasInspeccionarActiva,
+    TrasCrearSalvaguarda,
+    TrasPrepararStaging,
+    TrasDesplazarActiva,
+    TrasSustituirArchivos,
+    AntesDeValidarFinal,
+}
+
+/// Recibo de transición de restauración persistido en disco para recuperación ante fallos.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ReciboTransicion {
+    pub version: u32,
+    pub creado_en_ms: i64,
+    pub salvaguarda_dir: Option<PathBuf>,
+    pub staging_dir: PathBuf,
+    pub target_db: PathBuf,
+    pub target_llave: PathBuf,
+    pub staged_db_hash: String,
+    pub staged_llave_hash: String,
+    pub target_db_hash_anterior: Option<String>,
+    pub target_llave_hash_anterior: Option<String>,
+    pub estado: String,
 }
 
 /// Etapas internas de generación, expuestas para pruebas de interrupción.
@@ -637,6 +765,877 @@ pub fn ensayar(
         bibliotecas_presentes,
         bibliotecas_ausentes_en_disco,
     })
+}
+
+/// Diagnóstico y plan detallado previo a la sustitución de un perfil existente.
+pub fn planificar(
+    carpeta_respaldo: &Path,
+    db_destino: &Path,
+    codigo_recuperacion: Option<&str>,
+) -> Result<PlanRestauracion> {
+    let manifiesto = verificar_con_clave(carpeta_respaldo, codigo_recuperacion)?;
+    let db_destino_abs = absoluta(db_destino);
+    let perfil_actual = inspeccionar_perfil(&db_destino_abs);
+
+    let key = if let Some(c) = codigo_recuperacion {
+        let parsed = RecoveryCode::parse(c)?;
+        obrain_keys::unlock_recovery(&carpeta_respaldo.join(BASE_ARCHIVO), &parsed)?
+    } else {
+        obrain_keys::unlock(&carpeta_respaldo.join(BASE_ARCHIVO))?
+    };
+    let bibliotecas_respaldo_rutas = obtener_bibliotecas_respaldo(carpeta_respaldo, &key)?;
+    let bibliotecas_respaldo: Vec<BibliotecaInfo> = bibliotecas_respaldo_rutas
+        .into_iter()
+        .map(|ruta| {
+            let existe_en_disco = Path::new(&ruta).is_dir();
+            BibliotecaInfo {
+                ruta,
+                existe_en_disco,
+            }
+        })
+        .collect();
+
+    let requiere_clave_recuperacion =
+        obrain_keys::unlock(&carpeta_respaldo.join(BASE_ARCHIVO)).is_err();
+    let llave_compatible_sistema = !requiere_clave_recuperacion;
+
+    let mut advertencias = Vec::new();
+    if perfil_actual.existe {
+        advertencias.push(format!(
+            "Se sustituirá el perfil existente en {} ({} entidades, {} aserciones).",
+            db_destino.display(),
+            perfil_actual.entidades,
+            perfil_actual.aserciones
+        ));
+        if perfil_actual.entidades > manifiesto.instantanea.entidades
+            || perfil_actual.aserciones > manifiesto.instantanea.aserciones
+        {
+            advertencias.push(
+                "El perfil actual contiene más entidades o aserciones que el respaldo a restaurar (posible pérdida de novedades si no se respaldó previamente)."
+                    .into(),
+            );
+        }
+    } else {
+        advertencias.push(format!(
+            "No existe una base previa en {}; se configurará un nuevo perfil.",
+            db_destino.display()
+        ));
+    }
+
+    let ausentes_count = bibliotecas_respaldo
+        .iter()
+        .filter(|b| !b.existe_en_disco)
+        .count();
+    if ausentes_count > 0 {
+        advertencias.push(format!(
+            "{ausentes_count} carpeta(s) de biblioteca registradas no existen en este equipo. El índice recuperado se mantendrá protegido y la reindexación automática se suspenderá."
+        ));
+    }
+    let presentes_count = bibliotecas_respaldo
+        .iter()
+        .filter(|b| b.existe_en_disco)
+        .count();
+    if presentes_count > 0 {
+        advertencias.push(format!(
+            "{presentes_count} carpeta(s) de biblioteca coinciden con rutas en este disco. La reindexación quedará en pausa hasta tu revisión."
+        ));
+    }
+    if requiere_clave_recuperacion && codigo_recuperacion.is_none() {
+        advertencias.push(
+            "La llave del respaldo requiere la clave de recuperación para poder abrirse en este equipo."
+                .into(),
+        );
+    }
+
+    Ok(PlanRestauracion {
+        manifiesto_respaldo: manifiesto,
+        db_destino: db_destino_abs,
+        perfil_actual,
+        bibliotecas_respaldo,
+        requiere_clave_recuperacion,
+        llave_compatible_sistema,
+        advertencias,
+    })
+}
+
+/// Restaura de forma real, controlada y reversible un respaldo sobre `db_destino`.
+pub fn restaurar(
+    carpeta_respaldo: &Path,
+    db_destino: &Path,
+    opciones: OpcionesRestauracion,
+) -> Result<InformeRestauracion> {
+    restaurar_con_etapa(carpeta_respaldo, db_destino, opciones, |_| Ok(()))
+}
+
+/// Variante de [`restaurar`] con puntos de interrupción observables para comprobación
+/// de errores y reversibilidad controlada en pruebas.
+pub fn restaurar_con_etapa<F>(
+    carpeta_respaldo: &Path,
+    db_destino: &Path,
+    opciones: OpcionesRestauracion,
+    mut al_avanzar: F,
+) -> Result<InformeRestauracion>
+where
+    F: FnMut(EtapaRestauracion) -> Result<()>,
+{
+    if !opciones.autorizar {
+        return Err(Error::NoAutorizado);
+    }
+
+    let db_destino_abs = absoluta(db_destino);
+    let parent = db_destino_abs.parent().ok_or_else(|| {
+        Error::DestinoInvalido(format!(
+            "no se puede determinar la carpeta padre de {}",
+            db_destino.display()
+        ))
+    })?;
+    std::fs::create_dir_all(parent)?;
+
+    // 0. Si existía una transición anterior interrumpida, resolverla antes de proceder
+    let _ = comprobar_y_reparar_transicion(&db_destino_abs)?;
+
+    // 1. Verificar por completo el respaldo en modo solo lectura
+    let manifiesto =
+        verificar_con_clave(carpeta_respaldo, opciones.codigo_recuperacion.as_deref())?;
+    al_avanzar(EtapaRestauracion::TrasVerificarRespaldo)?;
+
+    // 2. Comprobar que no haya conexiones activas bloqueando la base
+    comprobar_conexiones_activas(&db_destino_abs)?;
+    let _perfil_actual = inspeccionar_perfil(&db_destino_abs);
+    al_avanzar(EtapaRestauracion::TrasInspeccionarActiva)?;
+
+    // 3. Crear salvaguarda recuperable del perfil actual si existe
+    let salvaguarda_creada = if db_destino_abs.exists() {
+        let s = crear_salvaguarda(&db_destino_abs, opciones.carpeta_salvaguarda.as_deref())?;
+        Some(s)
+    } else {
+        None
+    };
+    al_avanzar(EtapaRestauracion::TrasCrearSalvaguarda)?;
+
+    // 4. Preparar la nueva base y su material criptográfico en un staging aislado en el mismo volumen
+    let staging = DirTemporal::new_in(parent, ".obrain-restaurar-staging-")?;
+    let staged_db = staging.path().join(BASE_ARCHIVO);
+    let staged_llave = staging.path().join(LLAVE_ARCHIVO);
+
+    copiar_sincronizado(&carpeta_respaldo.join(BASE_ARCHIVO), &staged_db)?;
+    copiar_sincronizado(&carpeta_respaldo.join(LLAVE_ARCHIVO), &staged_llave)?;
+
+    let recuperada_con_clave = if let Some(ref codigo) = opciones.codigo_recuperacion {
+        seguridad::recuperar(&staged_db, codigo)?;
+        true
+    } else {
+        // Asegurar que abre con la caja del sistema actual (DPAPI)
+        let _ = obrain_keys::unlock(&staged_db)?;
+        false
+    };
+
+    let staged_key = obrain_keys::unlock(&staged_db)?;
+    Store::verify_snapshot(&staged_db, &staged_key)?;
+
+    let reindexado_en_pausa = if opciones.pausar_reindexado {
+        let conn = Connection::open_with_flags(&staged_db, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        conn.busy_timeout(std::time::Duration::from_secs(10))?;
+        aplicar_llave_escritura(&conn, &staged_key)?;
+        seguridad::pausar_reindexado(&conn, "restauración de respaldo reciente")?;
+        Store::checkpoint(&conn)?;
+        drop(conn);
+        sincronizar_archivo(&staged_db)?;
+        true
+    } else {
+        false
+    };
+
+    let staged_db_hash = describir_archivo(&staged_db, BASE_ARCHIVO)?.blake3;
+    let staged_llave_hash = describir_archivo(&staged_llave, LLAVE_ARCHIVO)?.blake3;
+
+    al_avanzar(EtapaRestauracion::TrasPrepararStaging)?;
+
+    // 5. Persistir el recibo de transición antes de mover archivos activos
+    let recibo_path = parent.join(RECIBO_TRANSICION_ARCHIVO);
+    let target_llave = obrain_keys::key_path(&db_destino_abs);
+
+    let (target_db_hash_anterior, target_llave_hash_anterior) = if db_destino_abs.exists() {
+        let h_db = describir_archivo(&db_destino_abs, "db")?.blake3;
+        let h_ll = if target_llave.exists() {
+            Some(describir_archivo(&target_llave, "llave")?.blake3)
+        } else {
+            None
+        };
+        (Some(h_db), h_ll)
+    } else {
+        (None, None)
+    };
+
+    let mut recibo = ReciboTransicion {
+        version: 1,
+        creado_en_ms: ahora_ms(),
+        salvaguarda_dir: salvaguarda_creada.clone(),
+        staging_dir: staging.path().to_path_buf(),
+        target_db: db_destino_abs.clone(),
+        target_llave: target_llave.clone(),
+        staged_db_hash: staged_db_hash.clone(),
+        staged_llave_hash: staged_llave_hash.clone(),
+        target_db_hash_anterior: target_db_hash_anterior.clone(),
+        target_llave_hash_anterior,
+        estado: "preparado".into(),
+    };
+    escribir_recibo_transicion(&recibo_path, &recibo)?;
+
+    // 6. Sustitución controlada con reversibilidad
+    let db_anterior = db_destino_abs.with_extension("obrain.anterior");
+    let llave_anterior = target_llave.with_extension("llave.anterior");
+
+    // Repetir comprobaciones críticas inmediatamente antes de la sustitución
+    comprobar_conexiones_activas(&db_destino_abs)?;
+    if db_destino_abs.exists() {
+        if let Some(ref h_ant) = target_db_hash_anterior {
+            let actual_hash = describir_archivo(&db_destino_abs, "db")?.blake3;
+            if &actual_hash != h_ant {
+                return Err(Error::DestinoInvalido(
+                    "la base activa cambió durante la preparación de la restauración; operación cancelada para proteger los datos".into(),
+                ));
+            }
+        }
+    }
+
+    let sustitucion_resultado = (|| -> Result<()> {
+        if db_destino_abs.exists() {
+            if db_anterior.exists() {
+                let _ = std::fs::remove_file(&db_anterior);
+            }
+            std::fs::rename(&db_destino_abs, &db_anterior)?;
+        }
+        if target_llave.exists() {
+            if llave_anterior.exists() {
+                let _ = std::fs::remove_file(&llave_anterior);
+            }
+            std::fs::rename(&target_llave, &llave_anterior)?;
+        }
+        for suf in ["-wal", "-shm", "-journal"] {
+            let _ = std::fs::remove_file(con_sufijo(&db_destino_abs, suf));
+        }
+
+        recibo.estado = "reemplazando".into();
+        escribir_recibo_transicion(&recibo_path, &recibo)?;
+        al_avanzar(EtapaRestauracion::TrasDesplazarActiva)?;
+
+        std::fs::rename(&staged_db, &db_destino_abs)?;
+        std::fs::rename(&staged_llave, &target_llave)?;
+        al_avanzar(EtapaRestauracion::TrasSustituirArchivos)?;
+
+        al_avanzar(EtapaRestauracion::AntesDeValidarFinal)?;
+
+        // 7. Validar el resultado final de la base instalada
+        let brain_validado = crate::Brain::open(&db_destino_abs).map_err(|e| match e {
+            crate::Error::Core(c) => Error::Core(c),
+            crate::Error::Seguridad(s) => Error::Seguridad(s),
+            crate::Error::Respaldo(r) => r,
+            other => Error::InstantaneaNoCoincide(other.to_string()),
+        })?;
+        let resumen_final = inspeccionar_instantanea(brain_validado.store().conn())?;
+        if resumen_final.entidades != manifiesto.instantanea.entidades
+            || resumen_final.aserciones != manifiesto.instantanea.aserciones
+            || resumen_final.huella_contenido != manifiesto.instantanea.huella_contenido
+        {
+            return Err(Error::InstantaneaNoCoincide(
+                "los datos de la base restaurada no reproducen la huella del manifiesto".into(),
+            ));
+        }
+        drop(brain_validado);
+
+        Ok(())
+    })();
+
+    if let Err(e) = sustitucion_resultado {
+        // Rollback automático: restablecer el perfil original
+        let rollback_res = if db_anterior.exists() {
+            revertir_sustitucion_anterior(
+                &db_destino_abs,
+                &target_llave,
+                &db_anterior,
+                &llave_anterior,
+            )
+        } else if let Some(ref salv) = salvaguarda_creada {
+            revertir_sustitucion_salvaguarda(&db_destino_abs, &target_llave, salv)
+        } else {
+            Ok(())
+        };
+        return match rollback_res {
+            Ok(()) => {
+                let _ = std::fs::remove_file(&recibo_path);
+                let _ = std::fs::remove_file(&db_anterior);
+                let _ = std::fs::remove_file(&llave_anterior);
+                Err(Error::RestauracionFallidaYRecuperada(e.to_string()))
+            }
+            Err(e_roll) => {
+                // Fallo durante el propio rollback: PRESERVAR estrictamente el recibo de transición,
+                // archivos .anterior y salvaguarda para permitir intervención manual sin pérdida destructiva.
+                Err(Error::RestauracionCritica(
+                    e.to_string(),
+                    e_roll.to_string(),
+                    salvaguarda_creada.unwrap_or_else(|| parent.to_path_buf()),
+                ))
+            }
+        };
+    }
+
+    // Limpieza tras éxito completo
+    let _ = std::fs::remove_file(&db_anterior);
+    let _ = std::fs::remove_file(&llave_anterior);
+    let _ = std::fs::remove_file(&recibo_path);
+    let staged_folder = staging.keep();
+    let _ = std::fs::remove_dir_all(&staged_folder);
+
+    // Listar bibliotecas para informar
+    let bibliotecas_respaldo_rutas = {
+        let conn = Connection::open_with_flags(&db_destino_abs, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let k = obrain_keys::unlock(&db_destino_abs)?;
+        aplicar_llave_lectura(&conn, &k)?;
+        obtener_bibliotecas_de_conexion(&conn)?
+    };
+    let mut bibliotecas_presentes = Vec::new();
+    let mut bibliotecas_ausentes = Vec::new();
+    for ruta in bibliotecas_respaldo_rutas {
+        if Path::new(&ruta).is_dir() {
+            bibliotecas_presentes.push(ruta);
+        } else {
+            bibliotecas_ausentes.push(ruta);
+        }
+    }
+
+    Ok(InformeRestauracion {
+        manifiesto,
+        db_destino: db_destino_abs,
+        salvaguarda_creada,
+        recuperada_con_clave,
+        reindexado_en_pausa,
+        bibliotecas_presentes,
+        bibliotecas_ausentes,
+    })
+}
+
+/// Comprueba si existe un recibo de transición pendiente por una restauración interrumpida,
+/// y la repara automáticamente recuperando de forma fiable o finalizando la limpieza.
+/// Ante cualquier ambigüedad, se detiene inmediatamente sin modificar archivos y preserva las evidencias.
+pub fn comprobar_y_reparar_transicion(db_destino: &Path) -> Result<Option<String>> {
+    let db_destino_abs = absoluta(db_destino);
+    let parent = match db_destino_abs.parent() {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+    let recibo_path = parent.join(RECIBO_TRANSICION_ARCHIVO);
+    if !recibo_path.exists() {
+        return Ok(None);
+    }
+
+    let texto = std::fs::read_to_string(&recibo_path)?;
+    let recibo: ReciboTransicion = serde_json::from_str(&texto)
+        .map_err(|e| Error::ManifiestoInvalido(format!("recibo de transición dañado: {e}")))?;
+
+    let target_db = &recibo.target_db;
+    let target_llave = &recibo.target_llave;
+
+    let target_db_match = if target_db.exists() {
+        describir_archivo(target_db, "db")
+            .map(|m| m.blake3 == recibo.staged_db_hash)
+            .unwrap_or(false)
+    } else {
+        false
+    };
+    let target_llave_match = if target_llave.exists() {
+        describir_archivo(target_llave, "llave")
+            .map(|m| m.blake3 == recibo.staged_llave_hash)
+            .unwrap_or(false)
+    } else {
+        false
+    };
+
+    let db_anterior = target_db.with_extension("obrain.anterior");
+    let llave_anterior = target_llave.with_extension("llave.anterior");
+
+    // Caso 1: La sustitución completó satisfactoriamente (ambos archivos coinciden con el staging).
+    if target_db_match && target_llave_match {
+        let _ = std::fs::remove_file(&recibo_path);
+        let _ = std::fs::remove_file(&db_anterior);
+        let _ = std::fs::remove_file(&llave_anterior);
+        let _ = std::fs::remove_dir_all(&recibo.staging_dir);
+        return Ok(Some(
+            "se completó y limpió una transición de restauración previa".to_string(),
+        ));
+    }
+
+    // Caso 2: Interrupción antes de desplazar la base activa (el perfil previo está intacto en destino).
+    let target_db_es_original = match &recibo.target_db_hash_anterior {
+        Some(h_ant) => {
+            target_db.exists()
+                && describir_archivo(target_db, "db")
+                    .map(|m| &m.blake3 == h_ant)
+                    .unwrap_or(false)
+        }
+        None => !target_db.exists(),
+    };
+    let target_llave_es_original = match &recibo.target_llave_hash_anterior {
+        Some(h_ant_ll) => {
+            target_llave.exists()
+                && describir_archivo(target_llave, "llave")
+                    .map(|m| &m.blake3 == h_ant_ll)
+                    .unwrap_or(false)
+        }
+        None => !target_llave.exists(),
+    };
+    if target_db_es_original
+        && target_llave_es_original
+        && !db_anterior.exists()
+        && !llave_anterior.exists()
+    {
+        let _ = std::fs::remove_file(&recibo_path);
+        let _ = std::fs::remove_dir_all(&recibo.staging_dir);
+        return Ok(Some(
+            "se descartó una transición interrumpida antes de sustitución; el perfil original permaneció intacto".to_string(),
+        ));
+    }
+
+    // Caso 3: Recuperable fiablemente desde db_anterior (.obrain.anterior) Y llave_anterior (.llave.anterior).
+    let db_anterior_valida = if db_anterior.exists() {
+        match &recibo.target_db_hash_anterior {
+            Some(h_ant) => describir_archivo(&db_anterior, "db")
+                .map(|m| &m.blake3 == h_ant)
+                .unwrap_or(false),
+            None => true,
+        }
+    } else {
+        false
+    };
+
+    let llave_anterior_valida = match &recibo.target_llave_hash_anterior {
+        Some(h_ant_ll) => {
+            llave_anterior.exists()
+                && describir_archivo(&llave_anterior, "llave")
+                    .map(|m| &m.blake3 == h_ant_ll)
+                    .unwrap_or(false)
+        }
+        None => !llave_anterior.exists(),
+    };
+
+    if db_anterior_valida && llave_anterior_valida {
+        revertir_sustitucion_anterior(target_db, target_llave, &db_anterior, &llave_anterior)?;
+        let _ = std::fs::remove_file(&recibo_path);
+        let _ = std::fs::remove_file(&db_anterior);
+        let _ = std::fs::remove_file(&llave_anterior);
+        let _ = std::fs::remove_dir_all(&recibo.staging_dir);
+        return Ok(Some(
+            "se recuperó el estado original desde los archivos previos tras detectar una restauración interrumpida".to_string(),
+        ));
+    }
+
+    // Caso 4: Recuperable fiablemente desde la carpeta de salvaguarda (tanto base como llave coincidentes).
+    let salvaguarda_valida = if let Some(ref salv) = recibo.salvaguarda_dir {
+        let src_db = salv.join(BASE_ARCHIVO);
+        let src_ll = salv.join(LLAVE_ARCHIVO);
+
+        let db_salv_valida = if src_db.exists() {
+            match &recibo.target_db_hash_anterior {
+                Some(h_ant) => describir_archivo(&src_db, "db")
+                    .map(|m| &m.blake3 == h_ant)
+                    .unwrap_or(false),
+                None => true,
+            }
+        } else {
+            false
+        };
+
+        let llave_salv_valida = match &recibo.target_llave_hash_anterior {
+            Some(h_ant_ll) => {
+                src_ll.exists()
+                    && describir_archivo(&src_ll, "llave")
+                        .map(|m| &m.blake3 == h_ant_ll)
+                        .unwrap_or(false)
+            }
+            None => true,
+        };
+
+        db_salv_valida && llave_salv_valida
+    } else {
+        false
+    };
+
+    if salvaguarda_valida {
+        let salv = recibo.salvaguarda_dir.as_ref().unwrap();
+        revertir_sustitucion_salvaguarda(target_db, target_llave, salv)?;
+        let _ = std::fs::remove_file(&recibo_path);
+        let _ = std::fs::remove_file(&db_anterior);
+        let _ = std::fs::remove_file(&llave_anterior);
+        let _ = std::fs::remove_dir_all(&recibo.staging_dir);
+        return Ok(Some(
+            "se recuperó el estado original desde la salvaguarda tras detectar una restauración interrumpida".to_string(),
+        ));
+    }
+
+    // Caso 5: Ambigüedad no recuperable de forma fiable:
+    // NO modificar ni borrar ningún archivo. Preservar todas las evidencias y detenerse.
+    Err(Error::TransicionAmbigua(recibo_path))
+}
+
+fn revertir_sustitucion_anterior(
+    target_db: &Path,
+    target_llave: &Path,
+    db_anterior: &Path,
+    llave_anterior: &Path,
+) -> Result<()> {
+    if target_db.exists() {
+        let _ = std::fs::remove_file(target_db);
+    }
+    for suf in ["-wal", "-shm", "-journal"] {
+        let _ = std::fs::remove_file(con_sufijo(target_db, suf));
+    }
+    if target_llave.exists() {
+        let _ = std::fs::remove_file(target_llave);
+    }
+
+    if llave_anterior.exists() {
+        std::fs::rename(llave_anterior, target_llave)?;
+    }
+    std::fs::rename(db_anterior, target_db)?;
+
+    Ok(())
+}
+
+fn revertir_sustitucion_salvaguarda(
+    target_db: &Path,
+    target_llave: &Path,
+    salvaguarda_dir: &Path,
+) -> Result<()> {
+    if target_db.exists() {
+        let _ = std::fs::remove_file(target_db);
+    }
+    for suf in ["-wal", "-shm", "-journal"] {
+        let _ = std::fs::remove_file(con_sufijo(target_db, suf));
+    }
+    if target_llave.exists() {
+        let _ = std::fs::remove_file(target_llave);
+    }
+
+    let src_ll = salvaguarda_dir.join(LLAVE_ARCHIVO);
+    if src_ll.exists() {
+        copiar_sincronizado(&src_ll, target_llave)?;
+    }
+
+    let src_db = salvaguarda_dir.join(BASE_ARCHIVO);
+    if src_db.exists() {
+        copiar_sincronizado(&src_db, target_db)?;
+    }
+
+    Ok(())
+}
+
+fn escribir_recibo_transicion(path: &Path, recibo: &ReciboTransicion) -> Result<()> {
+    let json = serde_json::to_string_pretty(recibo)
+        .map_err(|e| Error::ManifiestoInvalido(e.to_string()))?;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)?;
+    file.write_all(json.as_bytes())?;
+    file.sync_all()?;
+    Ok(())
+}
+
+fn crear_salvaguarda(db: &Path, destino_personalizado: Option<&Path>) -> Result<PathBuf> {
+    let parent = db.parent().ok_or_else(|| {
+        Error::DestinoInvalido(format!(
+            "no se puede determinar la carpeta padre de {}",
+            db.display()
+        ))
+    })?;
+
+    let salvaguarda_dir = match destino_personalizado {
+        Some(p) => {
+            let p_abs = absoluta(p);
+            std::fs::create_dir_all(&p_abs)?;
+            p_abs
+        }
+        None => {
+            let dir_base = parent.join("salvaguardas");
+            std::fs::create_dir_all(&dir_base)?;
+            let mut azar = [0u8; 4];
+            let _ = getrandom::fill(&mut azar);
+            let hex: String = azar.iter().map(|b| format!("{b:02x}")).collect();
+            let d = dir_base.join(format!("salvaguarda-{}-{hex}", ahora_ms()));
+            std::fs::create_dir_all(&d)?;
+            d
+        }
+    };
+
+    let target_db = salvaguarda_dir.join(BASE_ARCHIVO);
+    let target_llave = salvaguarda_dir.join(LLAVE_ARCHIVO);
+
+    copiar_sincronizado(db, &target_db)?;
+    let src_llave = obrain_keys::key_path(db);
+    if src_llave.exists() {
+        copiar_sincronizado(&src_llave, &target_llave)?;
+    }
+
+    for suf in ["-wal", "-shm"] {
+        let src_aux = con_sufijo(db, suf);
+        if src_aux.exists() && src_aux.metadata().map(|m| m.len() > 0).unwrap_or(false) {
+            let dst_aux = con_sufijo(&target_db, suf);
+            let _ = copiar_sincronizado(&src_aux, &dst_aux);
+        }
+    }
+
+    let meta_db = describir_archivo(&target_db, BASE_ARCHIVO)?;
+    let meta_llave = if target_llave.exists() {
+        Some(describir_archivo(&target_llave, LLAVE_ARCHIVO)?)
+    } else {
+        None
+    };
+
+    #[derive(serde::Serialize)]
+    struct InfoSalvaguarda {
+        creado_en_ms: i64,
+        db_original: String,
+        base: ArchivoRespaldo,
+        llave: Option<ArchivoRespaldo>,
+    }
+
+    let info = InfoSalvaguarda {
+        creado_en_ms: ahora_ms(),
+        db_original: db.display().to_string(),
+        base: meta_db,
+        llave: meta_llave,
+    };
+
+    let info_path = salvaguarda_dir.join("info.json");
+    let json = serde_json::to_string_pretty(&info)
+        .map_err(|e| Error::ManifiestoInvalido(e.to_string()))?;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&info_path)?;
+    file.write_all(json.as_bytes())?;
+    file.sync_all()?;
+
+    Ok(salvaguarda_dir)
+}
+
+fn inspeccionar_perfil(db: &Path) -> ResumenPerfil {
+    if !db.exists() {
+        return ResumenPerfil {
+            existe: false,
+            cifrada: false,
+            abrible: false,
+            esquema_version: 0,
+            entidades: 0,
+            aserciones: 0,
+            aserciones_vigentes: 0,
+            fragmentos: 0,
+            vectores: 0,
+            tiene_pin: false,
+            huella_contenido: None,
+            bibliotecas: Vec::new(),
+            error_acceso: None,
+        };
+    }
+
+    let cifrada = obrain_keys::exists(db);
+    let key_opt = if cifrada {
+        match obrain_keys::unlock(db) {
+            Ok(k) => Some(k),
+            Err(e) => {
+                return ResumenPerfil {
+                    existe: true,
+                    cifrada: true,
+                    abrible: false,
+                    esquema_version: 0,
+                    entidades: 0,
+                    aserciones: 0,
+                    aserciones_vigentes: 0,
+                    fragmentos: 0,
+                    vectores: 0,
+                    tiene_pin: false,
+                    huella_contenido: None,
+                    bibliotecas: Vec::new(),
+                    error_acceso: Some(e.to_string()),
+                };
+            }
+        }
+    } else {
+        None
+    };
+
+    let inspect_res = (|| -> Result<(ResumenInstantanea, Vec<String>)> {
+        let private = DirTemporal::new("obrain-inspect-perfil-")?;
+        let copy_db = private.path().join(BASE_ARCHIVO);
+        std::fs::copy(db, &copy_db)?;
+        let conn = Connection::open_with_flags(&copy_db, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        if let Some(ref k) = key_opt {
+            aplicar_llave_lectura(&conn, k)?;
+        }
+        let resumen = inspeccionar_instantanea(&conn)?;
+        let bibs = obtener_bibliotecas_de_conexion(&conn)?;
+        Ok((resumen, bibs))
+    })();
+
+    match inspect_res {
+        Ok((resumen, bibliotecas)) => ResumenPerfil {
+            existe: true,
+            cifrada,
+            abrible: true,
+            esquema_version: resumen.esquema_version,
+            entidades: resumen.entidades,
+            aserciones: resumen.aserciones,
+            aserciones_vigentes: resumen.aserciones_vigentes,
+            fragmentos: resumen.fragmentos,
+            vectores: resumen.vectores,
+            tiene_pin: resumen.tiene_pin,
+            huella_contenido: Some(resumen.huella_contenido),
+            bibliotecas,
+            error_acceso: None,
+        },
+        Err(e) => ResumenPerfil {
+            existe: true,
+            cifrada,
+            abrible: false,
+            esquema_version: 0,
+            entidades: 0,
+            aserciones: 0,
+            aserciones_vigentes: 0,
+            fragmentos: 0,
+            vectores: 0,
+            tiene_pin: false,
+            huella_contenido: None,
+            bibliotecas: Vec::new(),
+            error_acceso: Some(e.to_string()),
+        },
+    }
+}
+
+fn comprobar_conexiones_activas(db: &Path) -> Result<()> {
+    if !db.exists() {
+        return Ok(());
+    }
+
+    // 1. Checkpoint con timeout en SQLite
+    let conn_res = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_WRITE);
+    match conn_res {
+        Ok(conn) => {
+            let _ = conn.busy_timeout(std::time::Duration::from_millis(500));
+            if obrain_keys::exists(db) {
+                if let Ok(k) = obrain_keys::unlock(db) {
+                    let _ = conn.execute_batch(&format!(
+                        "PRAGMA key = \"{}\"; PRAGMA temp_store = MEMORY;",
+                        k.sqlcipher_literal().as_str()
+                    ));
+                }
+            }
+            if conn
+                .execute_batch("PRAGMA locking_mode = EXCLUSIVE;")
+                .is_err()
+            {
+                return Err(Error::BaseEnUso(db.to_path_buf()));
+            }
+            let check: std::result::Result<(i64, i64, i64), _> =
+                conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                });
+            match check {
+                Ok((busy, frames, copied)) => {
+                    if busy != 0 || (frames >= 0 && frames != copied) {
+                        return Err(Error::BaseEnUso(db.to_path_buf()));
+                    }
+                }
+                Err(_) => {
+                    return Err(Error::BaseEnUso(db.to_path_buf()));
+                }
+            }
+            drop(conn);
+        }
+        Err(_) => {
+            return Err(Error::BaseEnUso(db.to_path_buf()));
+        }
+    }
+
+    // 2. Comprobar que el archivo se pueda abrir con exclusividad en el SO
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        for path in [db.to_path_buf(), con_sufijo(db, "-wal")] {
+            if path.exists() {
+                match std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .share_mode(0)
+                    .open(&path)
+                {
+                    Ok(_) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                        return Err(Error::BaseEnUso(db.to_path_buf()));
+                    }
+                    Err(e) => return Err(Error::Io(e)),
+                }
+            }
+        }
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        match std::fs::OpenOptions::new().read(true).write(true).open(db) {
+            Ok(_) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                Err(Error::BaseEnUso(db.to_path_buf()))
+            }
+            Err(e) => Err(Error::Io(e)),
+        }
+    }
+}
+
+fn obtener_bibliotecas_de_conexion(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT a_path.object_text \
+         FROM assertions a_facet \
+         JOIN assertions a_path ON a_facet.subject = a_path.subject \
+         WHERE a_facet.predicate = 'has_facet' \
+           AND a_facet.object_text = 'library' \
+           AND a_facet.retracted_at IS NULL \
+           AND a_path.predicate = 'folder_path' \
+           AND a_path.retracted_at IS NULL \
+         ORDER BY a_path.object_text",
+    )?;
+    let mut rows = stmt.query([])?;
+    let mut bibliotecas = Vec::new();
+    while let Some(row) = rows.next()? {
+        if let Some(t) = row.get::<_, Option<String>>(0)? {
+            bibliotecas.push(t);
+        }
+    }
+    Ok(bibliotecas)
+}
+
+fn obtener_bibliotecas_respaldo(
+    carpeta_respaldo: &Path,
+    key: &obrain_keys::DataKey,
+) -> Result<Vec<String>> {
+    let base_path = carpeta_respaldo.join(BASE_ARCHIVO);
+    let private = DirTemporal::new("obrain-inspect-bibs-")?;
+    let copy_db = private.path().join(BASE_ARCHIVO);
+    std::fs::copy(&base_path, &copy_db)?;
+    let conn = Connection::open_with_flags(&copy_db, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    aplicar_llave_lectura(&conn, key)?;
+    obtener_bibliotecas_de_conexion(&conn)
+}
+
+fn aplicar_llave_escritura(conn: &Connection, key: &obrain_keys::DataKey) -> Result<()> {
+    conn.execute_batch(&format!(
+        "PRAGMA key = \"{}\"; PRAGMA temp_store = MEMORY;",
+        key.sqlcipher_literal().as_str()
+    ))?;
+    conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| {
+        r.get::<_, i64>(0)
+    })
+    .map_err(|_| Error::LlaveNoCorresponde("la llave no abre la base staged".into()))?;
+    Ok(())
 }
 
 fn validar_origen(db: &Path) -> Result<()> {
@@ -1219,6 +2218,12 @@ fn escribir_manifiesto(path: &Path, manifiesto: &Manifiesto) -> Result<()> {
 
 fn absoluta(p: &Path) -> PathBuf {
     std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf())
+}
+
+fn con_sufijo(p: &Path, sufijo: &str) -> PathBuf {
+    let mut s = p.as_os_str().to_owned();
+    s.push(sufijo);
+    PathBuf::from(s)
 }
 
 fn ahora_ms() -> i64 {
