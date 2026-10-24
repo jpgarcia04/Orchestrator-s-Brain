@@ -1,6 +1,6 @@
 [package]
 name = "obrain-app"
-version = "0.0.1"
+version = "0.0.2"
 description = "Orchestrator's Brain — la barra sobre el sustrato"
 edition = "2024"
 rust-version = "1.85"

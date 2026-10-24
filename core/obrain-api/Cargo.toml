@@ -1,6 +1,6 @@
 [package]
 name = "obrain-api"
-version = "0.0.1"
+version = "0.0.2"
 description = "La superficie del núcleo: buscar, mirar y recorrer — M5 de Orchestrator's Brain"
 edition.workspace = true
 license.workspace = true
