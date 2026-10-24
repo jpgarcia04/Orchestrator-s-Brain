@@ -11,7 +11,7 @@ const data = (code) => `data:text/javascript;base64,${Buffer.from(code).toString
 const transpile = (code) => ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const pin = pathToFileURL(resolve('src/lib/pin-session.ts')).href;
 const core = data('export const invoke = (...args) => globalThis.__brainInvoke(...args);');
-const events = data('export const listen = async () => () => {};');
+const events = data('export const listen = async (name, cb) => { (globalThis.__brainListeners ??= {})[name] = cb; return () => {}; };');
 const bridge = data(transpile(readFileSync('src/lib/nucleo.ts', 'utf8'))
   .replace('"@tauri-apps/api/core"', JSON.stringify(core))
   .replace('"@tauri-apps/api/event"', JSON.stringify(events))
@@ -23,7 +23,7 @@ const compiled = compileModule(transpile(source), { filename: 'app.svelte.js', g
   .replace('"./nombres"', JSON.stringify(names))
   .replace('"./pin-session"', JSON.stringify(pin))
   .replace(/['"]svelte\/internal\/client['"]/, JSON.stringify(pathToFileURL(resolve('node_modules/svelte/src/internal/client/index.js')).href));
-globalThis.window = { clearTimeout, setTimeout };
+globalThis.window = { clearTimeout, setTimeout: (fn, ms) => setTimeout(fn, ms).unref() };
 const { app } = await import(data(compiled));
 const {
   respaldoCrear,
@@ -208,4 +208,141 @@ test('la reindexación pausada se refleja en la seguridad y reanudarSincronizaci
   await app.reanudarSincronizacion();
   assert.equal(reanudado, true);
   assert.equal(app.seguridad.reindexado_pausado, false);
+});
+
+test('una pausa preventiva no muestra falso error de lectura o biblioteca ausente, pero conserva errores reales al reanudar', async () => {
+  let pausado = true;
+  let anadirInvocado = false;
+  globalThis.__brainInvoke = async (command) => {
+    if (command === "estado") {
+      return {
+        db: "C:\\Users\\test\\brain.obrain",
+        cerrada: false,
+        semantic: false,
+        entities: 20,
+        assertions: 200,
+        libraries: ["C:\\Docs"],
+        indexing: false,
+        ocr: null,
+      };
+    }
+    if (command === "seguridad") {
+      return {
+        cifrada: true,
+        proteccion: "dpapi",
+        recuperacion_pendiente: false,
+        pin: false,
+        desbloqueada: true,
+        espera_ms: 0,
+        restante_ms: null,
+        reindexado_pausado: pausado,
+      };
+    }
+    if (command === "explorar") {
+      return { focus: null, label: "Bóveda", path: "", trail: [], rows: [], folders: 0, files: 0, protection: null };
+    }
+    if (command === "colecciones") {
+      return [];
+    }
+    if (command === "actualizar") {
+      return true;
+    }
+    if (command === "anadir_biblioteca") {
+      anadirInvocado = true;
+      return true;
+    }
+    return {};
+  };
+
+  await app.arrancar();
+  app.aviso = "";
+
+  // 1. Pasada automática al arrancar mientras la sincronización está en pausa: no debe emitir falso error.
+  await globalThis.__brainListeners["indexado"]({
+    payload: {
+      report: {
+        libraries: [],
+        missing: [],
+        errors: [],
+        paused: "restauración de respaldo reciente",
+        deferred: [],
+        files_seen: 0,
+        files_new: 0,
+        edges_new: 0,
+        documents_read: 0,
+        chunks_new: 0,
+        pending: 3,
+        ocr: 0,
+        sensitive: 0,
+        vault: 0,
+        inherited: 0,
+        expiring: 0,
+        trashed: 0,
+        returned: 0,
+        forgotten: 0,
+        vectors_new: 0,
+        semantic: false,
+        elapsed_ms: 1,
+      },
+      error: null,
+      live: false,
+    },
+  });
+  assert.equal(app.aviso, "");
+
+  // 2. Pulsar «Actualizar» o «Añadir carpeta» durante la pausa informa de la pausa sin fingir error de lectura.
+  await app.actualizar();
+  assert.match(app.aviso, /sincronización está en pausa/i);
+  assert.doesNotMatch(app.aviso, /falta una biblioteca|error de lectura/i);
+
+  app.aviso = "";
+  await app.anadirCarpeta();
+  assert.equal(anadirInvocado, false);
+  assert.match(app.aviso, /sincronización está en pausa/i);
+
+  // 3. Una vez reanudada la sincronización, una biblioteca realmente ausente sí muestra el aviso de aplazamiento.
+  pausado = false;
+  await app.recargarSeguridad();
+  app.aviso = "";
+  await globalThis.__brainListeners["indexado"]({
+    payload: {
+      report: {
+        libraries: [],
+        missing: ["D:\\BibliotecaDesconectada"],
+        errors: [],
+        paused: null,
+        deferred: [],
+        files_seen: 0,
+        files_new: 0,
+        edges_new: 0,
+        documents_read: 0,
+        chunks_new: 0,
+        pending: 0,
+        ocr: 0,
+        sensitive: 0,
+        vault: 0,
+        inherited: 0,
+        expiring: 0,
+        trashed: 0,
+        returned: 0,
+        forgotten: 0,
+        vectors_new: 0,
+        semantic: false,
+        elapsed_ms: 2,
+      },
+      error: null,
+      live: false,
+    },
+  });
+  assert.match(app.aviso, /falta una biblioteca o hubo un error de lectura/);
+});
+
+test('el indicador .punto-aviso en Seguridad.svelte mantiene posición limpia sin margin-left duplicado', () => {
+  const svelte = readFileSync('src/componentes/Seguridad.svelte', 'utf8');
+  const match = svelte.match(/\.punto-aviso\s*\{([^}]*)\}/);
+  assert.ok(match, 'debe existir la regla .punto-aviso en Seguridad.svelte');
+  const bloque = match[1];
+  const aparicionesMargin = bloque.match(/margin-left\s*:/g) ?? [];
+  assert.ok(aparicionesMargin.length <= 1, `no debe haber margin-left duplicado en .punto-aviso: ${bloque}`);
+  assert.doesNotMatch(bloque, /34px/, 'no debe desplazar el indicador 34px en la pestaña');
 });

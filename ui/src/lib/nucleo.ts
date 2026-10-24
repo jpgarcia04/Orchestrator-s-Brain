@@ -490,6 +490,7 @@ export interface Informe {
   libraries: string[];
   missing: string[];
   errors: string[];
+  paused: string | null;
   deferred: string[];
   files_seen: number;
   files_new: number;
@@ -732,7 +733,7 @@ export const anadirBiblioteca = () => invoke<boolean>("anadir_biblioteca");
  * cada «actualizar». Si el canal de eventos no existe (la interfaz abierta en
  * un navegador de pruebas), no avisa y no rompe nada.
  */
-export async function alIndexar(f: (i: Indexado) => void): Promise<void> {
+export async function alIndexar(f: (i: Indexado) => void | Promise<void>): Promise<void> {
   try {
     await listen<Indexado>("indexado", (e) => f(e.payload));
   } catch {

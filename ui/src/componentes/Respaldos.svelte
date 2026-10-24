@@ -129,6 +129,7 @@
         seleccionado = res;
       }
     } catch (e) {
+      seleccionado = null;
       error = frase(e);
     } finally {
       ocupado = false;
@@ -603,28 +604,32 @@
   }
   .alerta-error {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 10px;
     padding: 10px 14px;
     border-radius: 10px;
     background: rgba(220, 53, 69, 0.12);
     color: var(--peligro);
     font-size: 13px;
+    line-height: 1.45;
     border: 1px solid var(--peligro);
   }
   .alerta-exito {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 10px;
     padding: 10px 14px;
     border-radius: 10px;
     background: rgba(40, 167, 69, 0.12);
     color: var(--bien);
     font-size: 13px;
+    line-height: 1.45;
     border: 1px solid var(--bien);
   }
-  .alerta-exito.destacada {
-    align-items: flex-start;
+  .alerta-error :global(svg),
+  .alerta-exito :global(svg) {
+    flex-shrink: 0;
+    margin-top: 1px;
   }
   .resumen-respaldo, .tarjeta-seleccionado {
     margin-left: 34px;

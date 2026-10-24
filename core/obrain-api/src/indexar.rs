@@ -41,6 +41,10 @@ pub struct IndexReport {
     pub missing: Vec<String>,
     /// El recorrido no fue fiable; no se escribió ni se publicó una pasada parcial.
     pub errors: Vec<String>,
+    /// La pasada se omitió deliberadamente porque la reindexación está en pausa
+    /// preventiva (contiene el motivo registrado, p. ej. tras una restauración).
+    /// No representa un fallo de lectura ni ausencia de bibliotecas.
+    pub paused: Option<String>,
     /// Archivos cuya identidad no bastó para decidir. Se reintentan al actualizar.
     pub deferred: Vec<String>,
     /// Archivos vistos en el disco.
@@ -122,10 +126,9 @@ pub fn index_with(
         let motivo = crate::seguridad::motivo_reindexado_pausado(store.conn())
             .ok()
             .flatten()
+            .filter(|m| !m.trim().is_empty())
             .unwrap_or_else(|| "restauración reciente".to_string());
-        r.errors.push(format!(
-            "reindexación suspendida ({motivo}): revisa tus bibliotecas y confírmalas con 'obrain bibliotecas --confirmar' antes de actualizar"
-        ));
+        r.paused = Some(motivo);
         r.elapsed_ms = started.elapsed().as_millis() as u64;
         return Ok(r);
     }

@@ -652,7 +652,8 @@ fn main() -> ExitCode {
                     }
                 }
             }
-            if let Ok(true) = seguridad::reindexado_pausado(store.conn()) {
+            let en_pausa = seguridad::reindexado_pausado(store.conn()).unwrap_or(false);
+            if en_pausa {
                 println!("⚠️  Reindexación automática en pausa tras la restauración.");
                 println!(
                     "    Revisa tus bibliotecas y reanuda la sincronización con: obrain bibliotecas --confirmar\n"
@@ -660,9 +661,13 @@ fn main() -> ExitCode {
             }
             match indexar::libraries(&store) {
                 Ok(v) if v.is_empty() => {
-                    println!(
-                        "todavía no hay bibliotecas. Añade una con:\n  obrain indexar <carpeta>"
-                    );
+                    if en_pausa {
+                        println!("no hay carpetas de biblioteca registradas en este perfil.");
+                    } else {
+                        println!(
+                            "todavía no hay bibliotecas. Añade una con:\n  obrain indexar <carpeta>"
+                        );
+                    }
                     ExitCode::SUCCESS
                 }
                 Ok(v) => {
@@ -910,7 +915,8 @@ fn main() -> ExitCode {
             }
         }
         "indexar" => {
-            let modelo = if sin_modelo {
+            let en_pausa = seguridad::reindexado_pausado(store.conn()).unwrap_or(false);
+            let modelo = if sin_modelo || en_pausa {
                 None
             } else {
                 match load_model(None) {
@@ -940,6 +946,12 @@ fn main() -> ExitCode {
             };
             match res {
                 Ok(r) => {
+                    if let Some(motivo) = &r.paused {
+                        println!(
+                            "⚠️  Reindexación suspendida ({motivo}).\n    Tu conocimiento restaurado sigue disponible, pero las bibliotecas no se han vuelto a leer.\n    Revisa tus carpetas con 'obrain bibliotecas' y reanuda la sincronización con:\n      obrain bibliotecas --confirmar"
+                        );
+                        return ExitCode::SUCCESS;
+                    }
                     informe(&r, &db);
                     if r.libraries.is_empty() && r.missing.is_empty() {
                         println!(
@@ -1192,6 +1204,10 @@ fn carpetas_n(n: usize) -> String {
 }
 
 fn informe(r: &IndexReport, db: &std::path::Path) {
+    if let Some(motivo) = &r.paused {
+        println!("⚠️  Reindexación suspendida ({motivo}) — se deja como estaba");
+        return;
+    }
     for b in &r.libraries {
         println!("▸ {b}");
     }

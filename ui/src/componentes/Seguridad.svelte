@@ -107,9 +107,9 @@
       Protección
     </button>
     <button class="boton-pestana" class:activa={pestana === "respaldos"} onclick={() => (pestana = "respaldos")}>
-      Respaldos y restauración
+      <span>Respaldos y restauración</span>
       {#if s?.reindexado_pausado}
-        <span class="punto-aviso"></span>
+        <span class="punto-aviso" title="Sincronización en pausa" aria-hidden="true"></span>
       {/if}
     </button>
   </div>
@@ -349,6 +349,9 @@
   }
   .boton-pestana {
     position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     padding: 6px 12px;
     border-radius: 8px;
     font-size: 13.5px;
@@ -367,13 +370,10 @@
     font-weight: 600;
   }
   .punto-aviso {
-    display: inline-block;
     width: 6px;
     height: 6px;
     border-radius: 50%;
     background: var(--calido);
-    margin-left: 6px;
-    vertical-align: middle;
-    margin-left: 34px;
+    flex-shrink: 0;
   }
 </style>
