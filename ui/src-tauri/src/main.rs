@@ -688,6 +688,10 @@ async fn respaldo_seleccionar(
     };
     let ruta = carpeta.into_path().map_err(texto)?;
 
+    if let Ok(mut sel) = respaldo_state.seleccionada.lock() {
+        *sel = None;
+    }
+
     let r = ruta.clone();
     let c = clave.clone();
     let (manifiesto, requiere_clave) = tauri::async_runtime::spawn_blocking(move || {
@@ -1055,14 +1059,17 @@ async fn anadir_biblioteca(app: AppHandle) -> Result<bool, String> {
     if app.state::<Indexando>().0.load(Ordering::SeqCst) {
         return Ok(false);
     }
-    if app
-        .state::<Cerebro>()
-        .0
-        .lock()
-        .map(|g| g.is_none())
-        .unwrap_or(true)
     {
-        return Err(CERRADA.to_string());
+        let guarda = app.state::<Cerebro>().inner().0.lock().map_err(texto)?;
+        let Some(brain) = guarda.as_ref() else {
+            return Err(CERRADA.to_string());
+        };
+        if seguridad::reindexado_pausado(brain.store().conn()).unwrap_or(false) {
+            return Err(
+                "la sincronización está en pausa tras la restauración; reanúdala antes de añadir carpetas"
+                    .to_string(),
+            );
+        }
     }
     // El diálogo bloquea hasta que se elige: fuera del hilo de la ventana.
     let a = app.clone();
@@ -1201,17 +1208,23 @@ fn arrancar_en_fondo(handle: AppHandle) {
 /// pasada que «actualizar». Si ya hay una en marcha, se anota y sale al
 /// terminar ésa: un archivo guardado después de que el escáner pasara por su
 /// carpeta no puede quedarse fuera.
+fn cerrada_o_en_pausa(cerebro: &Cerebro) -> bool {
+    cerebro
+        .0
+        .lock()
+        .map(|g| {
+            g.as_ref().is_none_or(|b| {
+                seguridad::reindexado_pausado(b.store().conn()).unwrap_or(false)
+            })
+        })
+        .unwrap_or(true)
+}
+
 fn por_cambio(app: &AppHandle) {
     if app.state::<EstadoRespaldo>().restaurando.load(Ordering::SeqCst) {
         return;
     }
-    if app
-        .state::<Cerebro>()
-        .0
-        .lock()
-        .map(|g| g.is_none())
-        .unwrap_or(true)
-    {
+    if cerrada_o_en_pausa(app.state::<Cerebro>().inner()) {
         return;
     }
     if app.state::<Indexando>().0.swap(true, Ordering::SeqCst) {
@@ -1219,12 +1232,7 @@ fn por_cambio(app: &AppHandle) {
         return;
     }
     if app.state::<EstadoRespaldo>().restaurando.load(Ordering::SeqCst)
-        || app
-            .state::<Cerebro>()
-            .0
-            .lock()
-            .map(|g| g.is_none())
-            .unwrap_or(true)
+        || cerrada_o_en_pausa(app.state::<Cerebro>().inner())
     {
         app.state::<Indexando>().0.store(false, Ordering::SeqCst);
         return;
@@ -1538,5 +1546,33 @@ mod tests {
         let brain_restaurado = guarda.as_mut().expect("Brain debe quedar abierto tras restaurar");
         assert_eq!(brain_restaurado.collections().unwrap().len(), 1);
         assert!(brain_restaurado.security().unwrap().reindexado_pausado);
+    }
+
+    #[test]
+    fn cerrada_o_en_pausa_inhibe_vigia_durante_pausa_y_se_reactiva_al_reanudar() {
+        let tmp = DirPrueba::nuevo("vigia-pausa");
+        let db = tmp.0.join("brain.obrain");
+        let brain = Brain::open(&db).expect("abrir base sintética");
+        let cerebro = Cerebro(Mutex::new(Some(brain)));
+
+        assert!(!cerrada_o_en_pausa(&cerebro));
+
+        {
+            let guarda = cerebro.0.lock().unwrap();
+            let b = guarda.as_ref().unwrap();
+            seguridad::pausar_reindexado(b.store().conn(), "restauración de respaldo reciente")
+                .unwrap();
+        }
+        assert!(cerrada_o_en_pausa(&cerebro));
+
+        {
+            let guarda = cerebro.0.lock().unwrap();
+            let b = guarda.as_ref().unwrap();
+            seguridad::reanudar_reindexado(b.store().conn()).unwrap();
+        }
+        assert!(!cerrada_o_en_pausa(&cerebro));
+
+        *cerebro.0.lock().unwrap() = None;
+        assert!(cerrada_o_en_pausa(&cerebro));
     }
 }

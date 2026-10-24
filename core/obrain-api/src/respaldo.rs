@@ -41,6 +41,9 @@ pub const LLAVE_ARCHIVO: &str = "brain.obrain.llave";
 /// Nombre del manifiesto dentro de un respaldo.
 pub const MANIFIESTO_ARCHIVO: &str = "manifiesto.json";
 
+/// Nombre del archivo de metadatos dentro de una salvaguarda previa.
+pub const INFO_SALVAGUARDA_ARCHIVO: &str = "info.json";
+
 /// Identificador de formato del manifiesto.
 pub const FORMATO_MANIFIESTO: &str = "obrain-respaldo-v1";
 
@@ -89,6 +92,11 @@ pub enum Error {
 
     #[error("un archivo del respaldo está vacío: {0}")]
     ArchivoVacio(PathBuf),
+
+    #[error(
+        "la carpeta seleccionada corresponde a una salvaguarda automática del perfil anterior (contiene info.json en lugar de manifiesto.json), no a un respaldo exportado; este flujo solo admite respaldos completos creados con Brain"
+    )]
+    EsSalvaguarda(PathBuf),
 
     #[error("el respaldo contiene un archivo auxiliar o desconocido: {0}")]
     ArchivoInesperado(PathBuf),
@@ -475,6 +483,10 @@ fn verificar_interno(
     carpeta_respaldo: &Path,
     codigo_recuperacion: Option<&str>,
 ) -> Result<Manifiesto> {
+    if es_carpeta_salvaguarda(carpeta_respaldo) {
+        return Err(Error::EsSalvaguarda(carpeta_respaldo.to_path_buf()));
+    }
+
     // 1. Rechazar archivos auxiliares o desconocidos en la carpeta del respaldo.
     for entry in std::fs::read_dir(carpeta_respaldo)? {
         let entry = entry?;
@@ -1342,6 +1354,55 @@ fn escribir_recibo_transicion(path: &Path, recibo: &ReciboTransicion) -> Result<
     Ok(())
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct InfoSalvaguarda {
+    creado_en_ms: i64,
+    db_original: String,
+    base: ArchivoRespaldo,
+    llave: Option<ArchivoRespaldo>,
+}
+
+fn es_salvaguarda_directa(carpeta: &Path) -> bool {
+    if carpeta.join(MANIFIESTO_ARCHIVO).exists() {
+        return false;
+    }
+    let info_path = carpeta.join(INFO_SALVAGUARDA_ARCHIVO);
+    if !info_path.is_file() {
+        return false;
+    }
+    if carpeta.join(BASE_ARCHIVO).is_file() {
+        return true;
+    }
+    std::fs::read_to_string(&info_path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<InfoSalvaguarda>(&s).ok())
+        .is_some()
+}
+
+fn es_carpeta_salvaguarda(carpeta: &Path) -> bool {
+    if es_salvaguarda_directa(carpeta) {
+        return true;
+    }
+    if carpeta.join(MANIFIESTO_ARCHIVO).exists() || carpeta.join(BASE_ARCHIVO).exists() {
+        return false;
+    }
+    let Ok(entries) = std::fs::read_dir(carpeta) else {
+        return false;
+    };
+    let mut vio_alguna = false;
+    for entry in entries {
+        let Ok(entry) = entry else {
+            return false;
+        };
+        let p = entry.path();
+        if !p.is_dir() || !es_salvaguarda_directa(&p) {
+            return false;
+        }
+        vio_alguna = true;
+    }
+    vio_alguna
+}
+
 fn crear_salvaguarda(db: &Path, destino_personalizado: Option<&Path>) -> Result<PathBuf> {
     let parent = db.parent().ok_or_else(|| {
         Error::DestinoInvalido(format!(
@@ -1392,14 +1453,6 @@ fn crear_salvaguarda(db: &Path, destino_personalizado: Option<&Path>) -> Result<
         None
     };
 
-    #[derive(serde::Serialize)]
-    struct InfoSalvaguarda {
-        creado_en_ms: i64,
-        db_original: String,
-        base: ArchivoRespaldo,
-        llave: Option<ArchivoRespaldo>,
-    }
-
     let info = InfoSalvaguarda {
         creado_en_ms: ahora_ms(),
         db_original: db.display().to_string(),
@@ -1407,7 +1460,7 @@ fn crear_salvaguarda(db: &Path, destino_personalizado: Option<&Path>) -> Result<
         llave: meta_llave,
     };
 
-    let info_path = salvaguarda_dir.join("info.json");
+    let info_path = salvaguarda_dir.join(INFO_SALVAGUARDA_ARCHIVO);
     let json = serde_json::to_string_pretty(&info)
         .map_err(|e| Error::ManifiestoInvalido(e.to_string()))?;
     let mut file = std::fs::OpenOptions::new()

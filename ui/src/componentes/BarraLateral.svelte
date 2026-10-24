@@ -87,6 +87,7 @@
 
   const estado = $derived.by(() => {
     if (app.indexando) return { texto: "Leyendo tu bóveda…", color: "var(--calido)" };
+    if (app.seguridad?.reindexado_pausado) return { texto: "Sincronización en pausa", color: "var(--calido)" };
     if (app.vacia) return { texto: "Sin carpetas todavía", color: "var(--tenue)" };
     return { texto: "Al día", color: "var(--bien)" };
   });

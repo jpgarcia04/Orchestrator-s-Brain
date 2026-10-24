@@ -2100,20 +2100,29 @@ fn restauracion_pausa_reindexado_y_bibliotecas_ausentes() {
     assert_eq!(motivo.as_deref(), Some("restauración de respaldo reciente"));
 
     let rep = indexar::reindex(&mut store, None).unwrap();
+    assert_eq!(
+        rep.paused.as_deref(),
+        Some("restauración de respaldo reciente")
+    );
     assert!(
+        rep.errors.is_empty(),
+        "una pausa preventiva intencionada no debe reportarse como error de lectura: {:?}",
         rep.errors
-            .iter()
-            .any(|e| e.contains("reindexación suspendida")),
-        "errores esperados conteniendo pausa: {:?}",
-        rep.errors
+    );
+    assert!(
+        rep.missing.is_empty(),
+        "mientras está en pausa no debe reportar bibliotecas como ausentes: {:?}",
+        rep.missing
     );
 
     // 2. Al reanudar explícitamente, se sincroniza normalmente sin corromper el índice
     seguridad::reanudar_reindexado(store.conn()).unwrap();
     assert!(!seguridad::reindexado_pausado(store.conn()).unwrap());
 
-    // La reindexación ahora se ejecuta y omite con seguridad la raíz ausente sin purgar documentos
+    // La reindexación ahora se ejecuta, señala la raíz realmente ausente y no purga documentos
     let rep2 = indexar::reindex(&mut store, None).unwrap();
+    assert!(rep2.paused.is_none());
+    assert_eq!(rep2.missing.len(), 1);
     assert_eq!(rep2.trashed, 0);
 }
 
@@ -2194,6 +2203,32 @@ fn cli_obrain_restaurar_plan_y_ejecucion_con_confirmacion() {
     assert!(out_bibs.status.success());
     let txt_bibs = String::from_utf8_lossy(&out_bibs.stdout);
     assert!(txt_bibs.contains("Reindexación automática en pausa"));
+    assert!(!txt_bibs.contains("todavía no hay bibliotecas"));
+
+    // 3b. obrain indexar durante la pausa explica la suspensión sin decir que no hay bibliotecas
+    let out_idx_pausa = Command::new(bin)
+        .args([
+            "--db",
+            db_activa.to_str().unwrap(),
+            "indexar",
+            "--sin-modelo",
+        ])
+        .output()
+        .unwrap();
+    assert!(out_idx_pausa.status.success());
+    let txt_idx_pausa = String::from_utf8_lossy(&out_idx_pausa.stdout);
+    assert!(
+        txt_idx_pausa.contains("Reindexación suspendida"),
+        "salida inesperada en pausa: {txt_idx_pausa}"
+    );
+    assert!(
+        !txt_idx_pausa.contains("todavía no hay bibliotecas"),
+        "no debe afirmar que faltan bibliotecas cuando está en pausa: {txt_idx_pausa}"
+    );
+    assert!(
+        !txt_idx_pausa.contains("recorrido aplazado"),
+        "no debe presentar la pausa como error de recorrido: {txt_idx_pausa}"
+    );
 
     // 4. obrain bibliotecas --confirmar reanuda la reindexación
     let out_reanudar = Command::new(bin)
@@ -2208,4 +2243,114 @@ fn cli_obrain_restaurar_plan_y_ejecucion_con_confirmacion() {
     assert!(out_reanudar.status.success());
     let txt_reanudar = String::from_utf8_lossy(&out_reanudar.stdout);
     assert!(txt_reanudar.contains("reindexación reanudada"));
+}
+
+#[test]
+fn salvaguarda_previa_se_reconoce_y_explica_sin_modificar_archivos() {
+    let dir = CarpetaPrueba::nueva("salvaguarda-como-respaldo");
+    let fx_origen = dir.path().join("origen").join("brain.obrain");
+    std::fs::create_dir_all(fx_origen.parent().unwrap()).unwrap();
+    construir_base_simple(&fx_origen, 4);
+    let respaldo_dir = dir.path().join("respaldo-exportado");
+    respaldo::crear(&fx_origen, &respaldo_dir).unwrap();
+
+    let db_activa = dir.path().join("activa").join("brain.obrain");
+    construir_base_simple(&db_activa, 6);
+
+    let informe = restaurar(
+        &respaldo_dir,
+        &db_activa,
+        OpcionesRestauracion {
+            codigo_recuperacion: None,
+            autorizar: true,
+            pausar_reindexado: true,
+            carpeta_salvaguarda: None,
+        },
+    )
+    .unwrap();
+    let salv_dir = informe.salvaguarda_creada.expect("debe crear salvaguarda");
+    let salv_padre = salv_dir.parent().unwrap().to_path_buf();
+
+    // Capturar estado exacto de los archivos de la salvaguarda antes de probar.
+    let instantanea_archivos = |carpeta: &std::path::Path| -> Vec<(String, String)> {
+        let mut pares: Vec<(String, String)> = std::fs::read_dir(carpeta)
+            .unwrap()
+            .map(|e| {
+                let e = e.unwrap();
+                let nombre = e.file_name().to_string_lossy().to_string();
+                let hash = blake3::hash(&std::fs::read(e.path()).unwrap())
+                    .to_hex()
+                    .to_string();
+                (nombre, hash)
+            })
+            .collect();
+        pares.sort();
+        pares
+    };
+    let antes = instantanea_archivos(&salv_dir);
+
+    // 1. Verificar, ensayar, planificar y restaurar reconocen la salvaguarda con mensaje claro.
+    let err_ver = respaldo::verificar(&salv_dir).unwrap_err();
+    assert!(
+        matches!(err_ver, RespaldoError::EsSalvaguarda(_)),
+        "esperado EsSalvaguarda, obtenido: {err_ver:?}"
+    );
+    let msg = err_ver.to_string();
+    assert!(msg.contains("salvaguarda"), "mensaje: {msg}");
+    assert!(msg.contains("info.json"), "mensaje: {msg}");
+    assert!(msg.contains("manifiesto.json"), "mensaje: {msg}");
+    assert!(!msg.contains("archivo auxiliar o desconocido"), "mensaje: {msg}");
+
+    assert!(matches!(
+        respaldo::ensayar(&salv_dir, None, None, None),
+        Err(RespaldoError::EsSalvaguarda(_))
+    ));
+    assert!(matches!(
+        planificar(&salv_dir, &db_activa, None),
+        Err(RespaldoError::EsSalvaguarda(_))
+    ));
+    assert!(matches!(
+        restaurar(
+            &salv_dir,
+            &db_activa,
+            OpcionesRestauracion {
+                autorizar: true,
+                ..Default::default()
+            }
+        ),
+        Err(RespaldoError::EsSalvaguarda(_))
+    ));
+
+    // 2. Seleccionar la carpeta contenedora `salvaguardas` también recibe explicación clara.
+    assert!(matches!(
+        respaldo::verificar(&salv_padre),
+        Err(RespaldoError::EsSalvaguarda(_))
+    ));
+
+    // 3. La CLI también ofrece la explicación clara sin error técnico genérico.
+    let bin = env!("CARGO_BIN_EXE_obrain");
+    let out_cli = Command::new(bin)
+        .args(["respaldo", salv_dir.to_str().unwrap(), "--verificar"])
+        .output()
+        .unwrap();
+    assert!(!out_cli.status.success());
+    let stderr_cli = String::from_utf8_lossy(&out_cli.stderr);
+    assert!(stderr_cli.contains("salvaguarda"), "stderr: {stderr_cli}");
+    assert!(!stderr_cli.contains("archivo auxiliar o desconocido"), "stderr: {stderr_cli}");
+
+    // 4. Ningún archivo de la salvaguarda fue convertido ni alterado.
+    assert_eq!(antes, instantanea_archivos(&salv_dir));
+    assert!(!salv_dir.join(MANIFIESTO_ARCHIVO).exists());
+
+    // 5. Un respaldo convencional contaminado con un `info.json` extra sigue rechazándose como ArchivoInesperado.
+    let respaldo_contaminado = dir.path().join("respaldo-con-extra");
+    std::fs::create_dir_all(&respaldo_contaminado).unwrap();
+    for f in [BASE_ARCHIVO, LLAVE_ARCHIVO, MANIFIESTO_ARCHIVO] {
+        std::fs::copy(respaldo_dir.join(f), respaldo_contaminado.join(f)).unwrap();
+    }
+    std::fs::write(respaldo_contaminado.join("info.json"), b"{}").unwrap();
+    assert!(matches!(
+        respaldo::verificar(&respaldo_contaminado),
+        Err(RespaldoError::ArchivoInesperado(_))
+    ));
 }

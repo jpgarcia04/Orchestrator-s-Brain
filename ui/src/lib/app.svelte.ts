@@ -178,6 +178,7 @@ class App {
   private datosEpoch = 0;
   private focoIndexado: string | null = null;
   private coleccionIndexada: string | null = null;
+  private actualizacionManual = false;
 
   constructor() {
     pinSession.subscribe(() => {
@@ -204,7 +205,7 @@ class App {
   }
 
   async arrancar(): Promise<void> {
-    await alIndexar((i) => void this.terminoIndexado(i));
+    await alIndexar((i) => this.terminoIndexado(i));
     await alEmpezarIndexado(() => this.empezoIndexado());
     await alRestaurar(async () => {
       this.avisar("Perfil restaurado. La sincronización automática está en pausa.");
@@ -304,12 +305,18 @@ class App {
   }
 
   private async terminoIndexado(i: Indexado): Promise<void> {
+    const manual = this.actualizacionManual;
+    this.actualizacionManual = false;
     this.empezoIndexado();
     this.ultimo = i;
     this.indexando = false;
     await this.refrescar();
     if (i.error) {
       this.avisar(`No se pudo actualizar: ${i.error}`);
+    } else if (i.report?.paused) {
+      if (manual && !i.live) {
+        this.avisar("La sincronización está en pausa tras la restauración. Revisa tus bibliotecas y reanúdala cuando estés listo.");
+      }
     } else if (i.report?.errors.length || i.report?.missing.length) {
       this.avisar(i.report.pending > 0
         ? `${i.report.pending} documento(s) siguen protegidos: no se completó la lectura o clasificación. Se reintentará al actualizar.`
@@ -326,19 +333,39 @@ class App {
   }
 
   async actualizar(): Promise<void> {
+    if (this.seguridad?.reindexado_pausado) {
+      this.avisar("La sincronización está en pausa tras la restauración. Revisa tus bibliotecas y reanúdala cuando estés listo.");
+      return;
+    }
     const epoch = this.datosEpoch;
     try {
-      if (await pedirActualizar() && epoch === this.datosEpoch) this.empezoIndexado();
+      this.actualizacionManual = true;
+      if (await pedirActualizar() && epoch === this.datosEpoch) {
+        this.empezoIndexado();
+      } else {
+        this.actualizacionManual = false;
+      }
     } catch (e) {
+      this.actualizacionManual = false;
       this.avisar(`No se pudo actualizar — ${e}`);
     }
   }
 
   async anadirCarpeta(): Promise<void> {
+    if (this.seguridad?.reindexado_pausado) {
+      this.avisar("La sincronización está en pausa tras la restauración. Reanúdala antes de añadir carpetas.");
+      return;
+    }
     const epoch = this.datosEpoch;
     try {
-      if (await anadirBiblioteca() && epoch === this.datosEpoch) this.empezoIndexado();
+      this.actualizacionManual = true;
+      if (await anadirBiblioteca() && epoch === this.datosEpoch) {
+        this.empezoIndexado();
+      } else {
+        this.actualizacionManual = false;
+      }
     } catch (e) {
+      this.actualizacionManual = false;
       this.avisar(`No se pudo añadir la carpeta — ${e}`);
     }
   }
