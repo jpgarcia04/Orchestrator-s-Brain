@@ -17,15 +17,20 @@
   import ShieldAlert from "@lucide/svelte/icons/shield-alert";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import Modal from "./Modal.svelte";
+  import Respaldos from "./Respaldos.svelte";
   import { app } from "../lib/app.svelte";
   import { frase } from "../lib/nombres";
   import { claveRecuperacion, pinPoner, pinQuitar } from "../lib/nucleo";
 
   const s = $derived(app.seguridad);
 
+  let pestana = $state<"proteccion" | "respaldos">("proteccion");
   let clave = $state<string | null>(null);
   let copiada = $state(false);
-  onMount(() => pinSession.subscribe(() => { clave = null; copiada = false; }));
+  onMount(() => {
+    if (app.seguridad?.reindexado_pausado) pestana = "respaldos";
+    return pinSession.subscribe(() => { clave = null; copiada = false; });
+  });
 
   /** Qué formulario del PIN está abierto. */
   let forma = $state<"" | "poner" | "cambiar" | "quitar">("");
@@ -96,7 +101,22 @@
   }
 </script>
 
-<Modal titulo="Seguridad" ancho={560} cerrar={() => (app.panelSeguridad = false)}>
+<Modal titulo="Seguridad" ancho={pestana === "respaldos" ? 620 : 560} cerrar={() => (app.panelSeguridad = false)}>
+  <div class="pestanas-cabecera">
+    <button class="boton-pestana" class:activa={pestana === "proteccion"} onclick={() => (pestana = "proteccion")}>
+      Protección
+    </button>
+    <button class="boton-pestana" class:activa={pestana === "respaldos"} onclick={() => (pestana = "respaldos")}>
+      Respaldos y restauración
+      {#if s?.reindexado_pausado}
+        <span class="punto-aviso"></span>
+      {/if}
+    </button>
+  </div>
+
+  {#if pestana === "respaldos"}
+    <Respaldos />
+  {:else}
   {#if s}
     <section class="bloque">
       <div class="linea">
@@ -233,6 +253,7 @@
     <p class="tenue">No se pudo comprobar la seguridad. El contenido protegido se ha retirado.</p>
     <button class="boton-prim hov" onclick={() => (app.pidiendoPin = true)}>Comprobar con PIN</button>
   {/if}
+  {/if}
 </Modal>
 
 <style>
@@ -318,6 +339,41 @@
   }
   .botones.izquierda {
     justify-content: flex-start;
+  }
+  .pestanas-cabecera {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid var(--linea);
+    padding-bottom: 8px;
+  }
+  .boton-pestana {
+    position: relative;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--tenue);
+    background: transparent;
+    transition: color 0.15s, background 0.15s;
+  }
+  .boton-pestana:hover {
+    color: var(--tinta);
+    background: var(--tarjeta);
+  }
+  .boton-pestana.activa {
+    color: var(--tinta);
+    background: var(--tarjeta);
+    font-weight: 600;
+  }
+  .punto-aviso {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--calido);
+    margin-left: 6px;
+    vertical-align: middle;
     margin-left: 34px;
   }
 </style>

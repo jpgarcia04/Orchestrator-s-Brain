@@ -80,6 +80,26 @@
     {/if}
   </div>
 
+  {#if app.seguridad?.reindexado_pausado}
+    <div class="banner-pausa">
+      <div class="banner-pausa-texto">
+        <strong>Sincronización de bibliotecas suspendida</strong>
+        <span>
+          La reindexación automática está pausada para proteger tus bibliotecas tras la restauración.
+          Revisa tus carpetas y pulsa reanudar cuando confirmes su ubicación en este equipo.
+        </span>
+      </div>
+      <div class="banner-pausa-acciones">
+        <button class="boton-prim hov" onclick={() => app.reanudarSincronizacion()}>
+          Reanudar sincronización
+        </button>
+        <button class="boton-sec hov" onclick={() => (app.panelSeguridad = true)}>
+          Ver seguridad y respaldos
+        </button>
+      </div>
+    </div>
+  {/if}
+
   {#if app.vacia}
     <section class="vacia" aria-label="Empezar">
       <h2 class="titular">Tu bóveda está vacía</h2>
@@ -427,5 +447,26 @@
     font-family: var(--mono);
     font-size: 12px;
     color: var(--tinta);
+  }
+  .banner-pausa {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px 20px;
+    border-radius: 14px;
+    background: var(--calido-fondo);
+    border: 1px solid var(--calido);
+  }
+  .banner-pausa-texto {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
+  .banner-pausa-acciones {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
   }
 </style>
