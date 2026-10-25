@@ -17,6 +17,11 @@ on:
         description: 'URL de descarga del paquete MSI 0.0.1 auténtico para prueba de actualización'
         required: false
         type: string
+      requerir_actualizacion:
+        description: 'Exigir que la prueba de actualización 0.0.1 -> 0.0.2 se ejecute y falle si falta el MSI'
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -52,15 +57,46 @@ jobs:
       - name: Verificar estáticamente metadatos del candidato MSI
         shell: pwsh
         run: ./tools/verificar-candidato-msi.ps1
-      - name: Descargar MSI 0.0.1 auténtico si se suministró URL
-        if: "${{ inputs.msi_001_url != '' }}"
+      - name: Descargar MSI 0.0.1 auténtico para prueba de actualización
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
           $dest = Join-Path $env:RUNNER_TEMP 'Orchestrator''s Brain_0.0.1_x64_en-US.msi'
-          Invoke-WebRequest -Uri "${{ inputs.msi_001_url }}" -OutFile $dest
-          "OBRAIN_MSI_001_PATH=$dest" >> $env:GITHUB_ENV
+          $url = "${{ inputs.msi_001_url }}"
+          if ($url) {
+            Write-Host "Descargando desde URL suministrada: $url"
+            Invoke-WebRequest -Uri $url -Headers @{ Authorization = "Bearer $env:GH_TOKEN" } -OutFile $dest
+          } else {
+            Write-Host "Intentando descargar asset desde release temporal temp-upgrade-fixture-0.0.1..."
+            try {
+              gh release download "temp-upgrade-fixture-0.0.1" --repo "${{ github.repository }}" --pattern "*.msi" --dir $env:RUNNER_TEMP
+            } catch {
+              Write-Warning "Fallo al descargar por tag temp-upgrade-fixture-0.0.1: $_. Intentando por tag untagged..."
+              try {
+                gh release download "untagged-c954bea3be92be2dfda4" --repo "${{ github.repository }}" --pattern "*.msi" --dir $env:RUNNER_TEMP
+              } catch {
+                Write-Warning "Fallo al descargar por tag untagged: $_"
+              }
+            }
+            if (-not (Test-Path -LiteralPath $dest)) {
+              $downloaded = Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter '*0.0.1*.msi' -File | Select-Object -First 1
+              if ($downloaded) {
+                Copy-Item -LiteralPath $downloaded.FullName -Destination $dest -Force
+              }
+            }
+          }
+          if (Test-Path -LiteralPath $dest) {
+            "OBRAIN_MSI_001_PATH=$dest" >> $env:GITHUB_ENV
+            $dlHash = (Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash
+            Write-Host "MSI 0.0.1 preparado en: $dest (SHA256=$dlHash)"
+          } else {
+            Write-Warning "No se localizó el archivo MSI 0.0.1 tras el intento de descarga."
+          }
       - name: Inspeccionar, instalar limpia, actualizar y desinstalar
         shell: pwsh
+        env:
+          REQUIRE_UPGRADE: "${{ inputs.requerir_actualizacion != false }}"
         run: ./tools/validar-msi-runner.ps1
       - name: Conservar evidencias del runner
         if: always()

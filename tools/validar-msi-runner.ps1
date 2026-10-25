@@ -1,7 +1,8 @@
 # Ejecutar sólo en el runner Windows temporal del workflow.
 param(
     [string]$MsiPath = $null,
-    [string]$Msi001Path = $null
+    [string]$Msi001Path = $null,
+    [switch]$RequireUpgrade
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,14 +30,17 @@ $report = [ordered]@{
     upgradeFrom001 = [ordered]@{
         status = 'pendiente'
         reason = $null
+        msi001 = $null
+        detectionOfPreviousVersion = $null
+        replacementAndRegistry = $null
         install001 = $null
         installed001 = $null
         launch001 = $null
         upgrade = $null
-        installed002 = $null
         launch002 = $null
         knowledgeRecovery = $null
-        uninstall002 = $null
+        sqlCipherIntegrity = $null
+        uninstall002Contract = $null
     }
     limitations = @(
         'No se automatizan clics, capturas ni inspeccion visual de la interfaz.',
@@ -310,6 +314,7 @@ try {
     if (-not $Msi001Path) {
         $posibles001 = @(
             (Join-Path $env:RUNNER_TEMP 'Orchestrator''s Brain_0.0.1_x64_en-US.msi'),
+            (Join-Path $env:RUNNER_TEMP 'Orchestrator.s.Brain_0.0.1_x64_en-US.msi'),
             (Join-Path $PSScriptRoot '..\tests\fixtures\msi-0.0.1\Orchestrator''s Brain_0.0.1_x64_en-US.msi')
         )
         foreach ($p in $posibles001) {
@@ -357,12 +362,37 @@ try {
         $env:TMP = $upgradeTemp
         $env:WEBVIEW2_USER_DATA_FOLDER = $upgradeWebview
 
-        # Inicialización de la base sintética usando sólo el comportamiento indexador original de 0.0.1 (sin comandos de respaldo)
+        # Generar conocimiento sintético utilizando EXCLUSIVAMENTE capacidades que existían en 0.0.1:
+        # a) Indexar la biblioteca sintética (11 documentos originales)
         & $cli --db $upgradeDb --sin-modelo indexar $upgradeLib *> $null
         Assert-True ($LASTEXITCODE -eq 0) "Indexación sintética para 0.0.1 falló: $LASTEXITCODE"
-        & $cli --db $upgradeDb clave --guardada *> $null
+        Assert-True (Test-Path -LiteralPath $upgradeDb -PathType Leaf) 'No se creó la base sintética.'
+        Assert-True (Test-Path -LiteralPath ($upgradeDb + '.llave') -PathType Leaf) 'No se creó la llave de la base sintética.'
 
-        # 1. Instalar 0.0.1
+        # b) Marcar carpeta sensible con comando 0.0.1 'sensible'
+        $sensitiveDir = Join-Path $upgradeLib '05 identidad ficticia'
+        & $cli --db $upgradeDb sensible $sensitiveDir *> $null
+        Assert-True ($LASTEXITCODE -eq 0) "Marca sensible sintética falló: $LASTEXITCODE"
+
+        # c) Crear colección y asociar documentos con comando 0.0.1 'coleccion'
+        & $cli --db $upgradeDb coleccion "Tramites Activos" --crear *> $null
+        Assert-True ($LASTEXITCODE -eq 0) "Creación de colección falló: $LASTEXITCODE"
+        $docExpediente = Join-Path $upgradeLib '02 tramites\expediente-AURORA.txt'
+        $docAnexo = Join-Path $upgradeLib '02 tramites\anexo-cita.txt'
+        & $cli --db $upgradeDb coleccion "Tramites Activos" --meter $docExpediente $docAnexo *> $null
+        Assert-True ($LASTEXITCODE -eq 0) "Asociación de documentos a colección falló: $LASTEXITCODE"
+
+        # d) Marcar clave de recuperación como guardada
+        & $cli --db $upgradeDb clave --guardada *> $null
+        Assert-True ($LASTEXITCODE -eq 0) "Confirmación de clave guardada falló: $LASTEXITCODE"
+
+        # Comprobar formato cifrado inicial SQLCipher (primeros 16 bytes no deben ser texto plano SQLite)
+        $headerBytesPre = [System.IO.File]::ReadAllBytes($upgradeDb)[0..15]
+        $headerStringPre = [System.Text.Encoding]::ASCII.GetString($headerBytesPre)
+        $isSqlCipherPre = -not ($headerStringPre.StartsWith('SQLite format 3'))
+        Assert-True $isSqlCipherPre 'La base previa no presenta cabecera cifrada SQLCipher.'
+
+        # Paso 1: Instalar MSI 0.0.1 auténtico
         $log001Install = Join-Path $evidence 'msi001-install.log'
         $installedProductCodesToCleanup += $productCode001
         $code001 = Invoke-Msiexec '/i' $Msi001Path $log001Install
@@ -372,9 +402,13 @@ try {
         $post001Installer = New-Object -ComObject WindowsInstaller.Installer
         $state001 = [int]$post001Installer.ProductState($productCode001)
         Assert-True ($state001 -eq 5) "0.0.1 no figura instalado tras msiexec /i: ProductState=$state001"
-        $report.upgradeFrom001.installed001 = [ordered]@{ productState = $state001; exeExists = (Test-Path -LiteralPath $exe) }
+        $exe001Hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
+        $report.upgradeFrom001.installed001 = [ordered]@{
+            productState = $state001; exeExists = (Test-Path -LiteralPath $exe)
+            exeSha256 = $exe001Hash
+        }
 
-        # 2. Arranque preliminar de 0.0.1
+        # Arranque preliminar de 0.0.1
         $proc001 = Start-Process -FilePath $exe -PassThru
         Start-Sleep -Seconds 10
         $proc001.Refresh()
@@ -383,7 +417,7 @@ try {
         $report.upgradeFrom001.launch001 = [ordered]@{ started = $true; aliveAfter10s = $alive001 }
         Assert-True ($alive001) '0.0.1 no permaneció vivo durante el arranque inicial.'
 
-        # 3. Actualizar a candidato 0.0.2 mediante msiexec /i
+        # Paso 2: Actualizar a candidato 0.0.2 mediante msiexec /i
         $logUpgrade = Join-Path $evidence 'msi-upgrade-to-002.log'
         $installedProductCodesToCleanup += $productCode
         $upgradeCode = Invoke-Msiexec '/i' $msi $logUpgrade
@@ -391,59 +425,176 @@ try {
         Assert-True ($upgradeCode -eq 0) "Actualización a 0.0.2 falló con código $upgradeCode."
 
         Start-Sleep -Seconds 1
+
+        # ---------------------------------------------------------------------
+        # COMPROBACIÓN 1: Detección de la versión anterior por Windows Installer
+        # ---------------------------------------------------------------------
+        $upgradeLogText = Get-Content -LiteralPath $logUpgrade -Raw
+        $detectedOldProductInLog = ($upgradeLogText -match [regex]::Escape($productCode001)) -or ($upgradeLogText -match 'WIX_UPGRADE_DETECTED')
+        $removeExistingInLog = ($upgradeLogText -match 'RemoveExistingProducts')
+        Assert-True ($detectedOldProductInLog) 'Windows Installer no registró la detección de 0.0.1 en el log de actualización.'
+        Assert-True ($removeExistingInLog) 'Windows Installer no ejecutó RemoveExistingProducts en la actualización.'
+
         $postUpgradeInstaller = New-Object -ComObject WindowsInstaller.Installer
         $state002AfterUpgrade = [int]$postUpgradeInstaller.ProductState($productCode)
         $state001AfterUpgrade = [int]$postUpgradeInstaller.ProductState($productCode001)
-        $entry002 = Get-UninstallEntry $productCode
-        $entry001 = Get-UninstallEntry $productCode001
-
-        $report.upgradeFrom001.installed002 = [ordered]@{
-            productState002 = $state002AfterUpgrade
-            productState001 = $state001AfterUpgrade
-            uninstall002Version = $(if ($entry002) { [string]$entry002.DisplayVersion } else { $null })
-            uninstall001Remains = [bool]$entry001
-            exeSha256 = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
-        }
         Assert-True ($state002AfterUpgrade -eq 5) "0.0.2 no figura instalado tras la actualización: ProductState=$state002AfterUpgrade."
         Assert-True ($state001AfterUpgrade -ne 5) "0.0.1 sigue figurando como producto instalado tras la actualización mayor."
-        Assert-True ($report.upgradeFrom001.installed002.uninstall002Version -eq '0.0.2') 'La versión registrada de desinstalación post-actualización no es 0.0.2.'
 
-        # 4. Arranque de la aplicación 0.0.2 tras la actualización
+        $report.upgradeFrom001.detectionOfPreviousVersion = [ordered]@{
+            detectedInLog = $detectedOldProductInLog
+            removeExistingExecuted = $removeExistingInLog
+            productState001Post = $state001AfterUpgrade
+            productState002Post = $state002AfterUpgrade
+        }
+
+        # ---------------------------------------------------------------------
+        # COMPROBACIÓN 2: Sustitución correcta de la instalación y de su registro
+        # ---------------------------------------------------------------------
+        $entry002 = Get-UninstallEntry $productCode
+        $entry001 = Get-UninstallEntry $productCode001
+        $exe002Hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
+        $directMlExistsPost = Test-Path -LiteralPath $directMl -PathType Leaf
+        $appRegistryValuesPost = @{}
+        foreach ($name in @('Desktop Shortcut', 'InstallDir', 'Uninstaller Shortcut', 'Start Menu Shortcut')) {
+            $value = Get-ItemProperty -LiteralPath $appRegistry -Name $name -ErrorAction SilentlyContinue
+            $appRegistryValuesPost[$name] = $(if ($value) { $value.$name } else { $null })
+        }
+
+        Assert-True ($entry001 -eq $null) 'La entrada de desinstalación de 0.0.1 sigue existiendo tras la actualización.'
+        Assert-True ([bool]$entry002) 'Falta la entrada de desinstalación de 0.0.2 tras la actualización.'
+        Assert-True ($entry002.DisplayVersion -eq '0.0.2') "Versión registrada de desinstalación post-actualización ($($entry002.DisplayVersion)) != 0.0.2"
+        Assert-True ($entry002.DisplayName -eq "Orchestrator's Brain") 'Nombre de producto registrado post-actualización inesperado.'
+        Assert-True ($exe002Hash -ne $exe001Hash) 'El hash del ejecutable no cambió tras la actualización.'
+        Assert-True ($directMlExistsPost) 'DirectML.dll no existe en INSTALLDIR post-actualización.'
+        Assert-True (([string]$appRegistryValuesPost['InstallDir']).TrimEnd([char]92) -eq $installDir) 'HKCU InstallDir no apunta al directorio de instalación.'
+
+        $report.upgradeFrom001.replacementAndRegistry = [ordered]@{
+            uninstall001Removed = ($entry001 -eq $null)
+            uninstall002Registered = [bool]$entry002
+            displayVersion002 = $(if ($entry002) { [string]$entry002.DisplayVersion } else { $null })
+            exeUpdated = ($exe002Hash -ne $exe001Hash)
+            exeSha256 = $exe002Hash
+            directMlPresent = $directMlExistsPost
+            registryInstallDir = $appRegistryValuesPost['InstallDir']
+        }
+
+        # ---------------------------------------------------------------------
+        # COMPROBACIÓN 3: Apertura del perfil sintético anterior desde 0.0.2
+        # ---------------------------------------------------------------------
         $proc002 = Start-Process -FilePath $exe -PassThru
         Start-Sleep -Seconds 20
         $proc002.Refresh()
         $alive002 = -not $proc002.HasExited
         if ($proc002 -and -not $proc002.HasExited) { Stop-Process -Id $proc002.Id -Force -ErrorAction SilentlyContinue }
-        $report.upgradeFrom001.launch002 = [ordered]@{ started = $true; aliveAfter20s = $alive002 }
         Assert-True ($alive002) '0.0.2 no permaneció vivo tras la actualización de versión.'
+        Assert-True (-not (Test-Path -LiteralPath $defaultDbDir) -and -not (Test-Path -LiteralPath $oldDbDir)) '0.0.2 escribió en rutas reales de Brain del runner.'
 
-        # 5. Verificación de recuperación de conocimiento y relaciones post-actualización
+        $report.upgradeFrom001.launch002 = [ordered]@{
+            started = $true; aliveAfter20s = $alive002
+            isolatedProfileProtected = $true
+        }
+
+        # ---------------------------------------------------------------------
+        # COMPROBACIÓN 4: Conservación lógica de documentos, aserciones, relaciones, colecciones y marcas
+        # ---------------------------------------------------------------------
         $libsPost = & $cli --db $upgradeDb bibliotecas
         $paquetesPost = & $cli --db $upgradeDb paquetes
         $sensiblesPost = & $cli --db $upgradeDb sensibles
+        $collsPost = & $cli --db $upgradeDb colecciones
+        $collDetailPost = & $cli --db $upgradeDb coleccion "Tramites Activos"
+        $vencPost = & $cli --db $upgradeDb vencimientos
 
         $hasLib = ($libsPost -match [regex]::Escape($upgradeLib)).Count -gt 0
         $hasAurora = ($paquetesPost -match 'expediente-AURORA\.txt').Count -gt 0
         $hasAnexo = ($paquetesPost -match 'anexo-cita\.txt').Count -gt 0
-        $hasPasaporte = ($sensiblesPost -match 'Pasaporte de Lidia Robles\.txt').Count -gt 0
+        $hasSensibleFolder = ($sensiblesPost -match '05 identidad ficticia').Count -gt 0
+        $hasCollection = ($collsPost -match 'Tramites Activos').Count -gt 0
+        $hasDocInCollection = ($collDetailPost -match 'expediente-AURORA\.txt').Count -gt 0
+        $hasVencimientos = ($vencPost -match 'Pasaporte de Lidia Robles\.txt').Count -gt 0
+
+        Assert-True ($hasLib) 'La biblioteca sintética no se conservó tras la actualización.'
+        Assert-True ($hasAurora -and $hasAnexo) 'La relación de contención (part_of) no se conservó tras la actualización.'
+        Assert-True ($hasSensibleFolder) 'La marca de sensibilidad no se conservó tras la actualización.'
+        Assert-True ($hasCollection) 'La colección sintética no se conservó tras la actualización.'
+        Assert-True ($hasDocInCollection) 'Los documentos dentro de la colección no se conservaron tras la actualización.'
+        Assert-True ($hasVencimientos) 'Los vencimientos sintéticos no se conservaron tras la actualización.'
 
         $report.upgradeFrom001.knowledgeRecovery = [ordered]@{
-            bibliotecaRecuperada = $hasLib
-            paqueteAuroraRecuperado = $hasAurora
-            anexoContenidoRecuperado = $hasAnexo
-            sensibilidadRecuperada = $hasPasaporte
+            bibliotecaConservada = $hasLib
+            paqueteAuroraConservado = $hasAurora
+            anexoContenidoConservado = $hasAnexo
+            carpetaSensibleConservada = $hasSensibleFolder
+            coleccionConservada = $hasCollection
+            documentosEnColeccionConservados = $hasDocInCollection
+            vencimientosConservados = $hasVencimientos
         }
-        Assert-True ($hasLib) 'La biblioteca sintética no se recuperó tras la actualización.'
-        Assert-True ($hasAurora -and $hasAnexo) 'La relación de contención (part_of) no se recuperó tras la actualización.'
-        Assert-True ($hasPasaporte) 'La marca de sensibilidad no se recuperó tras la actualización.'
 
-        # 6. Desinstalación final de 0.0.2
+        # ---------------------------------------------------------------------
+        # COMPROBACIÓN 5: Integridad SQLCipher y ausencia de pérdidas inesperadas
+        # ---------------------------------------------------------------------
+        $headerBytesPost = [System.IO.File]::ReadAllBytes($upgradeDb)[0..15]
+        $headerStringPost = [System.Text.Encoding]::ASCII.GetString($headerBytesPost)
+        $isSqlCipherPost = -not ($headerStringPost.StartsWith('SQLite format 3'))
+        Assert-True ($isSqlCipherPost) 'La base perdió el cifrado SQLCipher tras la actualización.'
+
+        $clavePost = & $cli --db $upgradeDb clave
+        $claveRetrieved = ($LASTEXITCODE -eq 0 -and $clavePost -match 'clave de recuperación')
+        Assert-True ($claveRetrieved) 'No se pudo leer la clave de recuperación tras la actualización (posible corrupción SQLCipher).'
+
+        $report.upgradeFrom001.sqlCipherIntegrity = [ordered]@{
+            encryptedHeaderVerified = $isSqlCipherPost
+            keyUnlockSuccessful = $claveRetrieved
+            noDataLoss = ($hasLib -and $hasAurora -and $hasSensibleFolder -and $hasCollection)
+        }
+
+        # ---------------------------------------------------------------------
+        # COMPROBACIÓN 6: Desinstalación del candidato y conservación de datos sintéticos según contrato
+        # ---------------------------------------------------------------------
         $logFinalUninstall = Join-Path $evidence 'msi-final-uninstall.log'
         $finalUninstallCode = Invoke-Msiexec '/x' $productCode $logFinalUninstall
-        $report.upgradeFrom001.uninstall002 = [ordered]@{ exitCode = $finalUninstallCode; log = 'msi-final-uninstall.log' }
         Assert-True ($finalUninstallCode -eq 0) "Desinstalación final falló con código $finalUninstallCode."
+
+        $postUninstallState002 = [int]$installer.ProductState($productCode)
+        $exeRemainsPost = Test-Path -LiteralPath $exe -PathType Leaf
+        $directMlRemainsPost = Test-Path -LiteralPath $directMl -PathType Leaf
+        $entryRemainsPost = [bool](Get-UninstallEntry $productCode)
+
+        Assert-True ($postUninstallState002 -eq -1) "ProductState post-desinstalación no es -1: $postUninstallState002"
+        Assert-True (-not $exeRemainsPost -and -not $directMlRemainsPost) 'Los binarios del producto persisten tras la desinstalación.'
+        Assert-True (-not $entryRemainsPost) 'La entrada de desinstalación persiste tras la desinstalación.'
+
+        # Verificación del contrato de datos de usuario:
+        $dbIntact = Test-Path -LiteralPath $upgradeDb -PathType Leaf
+        $keyIntact = Test-Path -LiteralPath ($upgradeDb + '.llave') -PathType Leaf
+        $libIntact = Test-Path -LiteralPath $upgradeLib -PathType Container
+        $docCountPostUninstall = @(Get-ChildItem -LiteralPath $upgradeLib -Recurse -File).Count
+
+        Assert-True ($dbIntact) 'VIOLACIÓN DE CONTRATO: El instalador eliminó la base de datos de conocimiento durante la desinstalación.'
+        Assert-True ($keyIntact) 'VIOLACIÓN DE CONTRATO: El instalador eliminó la llave de la base de datos durante la desinstalación.'
+        Assert-True ($libIntact -and $docCountPostUninstall -eq 11) 'VIOLACIÓN DE CONTRATO: El instalador modificó o eliminó los documentos de la biblioteca.'
+
+        # Comprobar que la base conservada se puede seguir leyendo y consultando perfectamente
+        $libsFinal = & $cli --db $upgradeDb bibliotecas
+        $collsFinal = & $cli --db $upgradeDb colecciones
+        $canReadPostUninstall = (($libsFinal -match [regex]::Escape($upgradeLib)).Count -gt 0) -and (($collsFinal -match 'Tramites Activos').Count -gt 0)
+        Assert-True ($canReadPostUninstall) 'La base de datos conservada quedó ilegible tras la desinstalación.'
+
+        $report.upgradeFrom001.uninstall002Contract = [ordered]@{
+            uninstallExitCode = $finalUninstallCode
+            binariesRemoved = (-not $exeRemainsPost -and -not $directMlRemainsPost)
+            registryRemoved = (-not $entryRemainsPost)
+            databasePreserved = $dbIntact
+            keyPreserved = $keyIntact
+            documentsPreserved = ($docCountPostUninstall -eq 11)
+            databaseReadablePostUninstall = $canReadPostUninstall
+        }
+
         $report.upgradeFrom001.status = 'completado'
     } else {
+        if ($RequireUpgrade -or ($env:REQUIRE_UPGRADE -eq 'true')) {
+            throw "Se solicitó explícitamente probar la actualización desde 0.0.1, pero no se suministró el paquete MSI auténtico. Ensayo no omitido."
+        }
         $report.upgradeFrom001.status = 'pendiente'
         $report.upgradeFrom001.reason = 'Paquete MSI 0.0.1 auténtico no suministrado en el entorno de ejecución.'
     }

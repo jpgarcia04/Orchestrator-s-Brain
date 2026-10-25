@@ -26,6 +26,10 @@ Thumbs.db
 desktop.ini
 .DS_Store
 
+# ─── WiX / Instaladores temporales ───
+*.wxs
+*.msi
+
 # ─── Editores ───
 .idea/
 .vscode/*
