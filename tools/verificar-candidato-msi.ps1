@@ -29,15 +29,30 @@ function Read-MsiRows($database, [string]$sql, [int]$columns) {
 }
 
 # 1. Localizar candidato MSI 0.0.2
+if (-not $CandidateMsiPath -and $env:OBRAIN_MSI_PATH) {
+    $CandidateMsiPath = $env:OBRAIN_MSI_PATH
+}
 if (-not $CandidateMsiPath) {
-    $searchPaths = @(
+    $searchPaths = @()
+    if ($env:CARGO_TARGET_DIR) {
+        $searchPaths += (Join-Path $env:CARGO_TARGET_DIR 'release\bundle\msi')
+    }
+    if ($env:RUNNER_TEMP) {
+        $searchPaths += (Join-Path $env:RUNNER_TEMP 'obrain-cargo-target\release\bundle\msi')
+    }
+    if ($env:TEMP) {
+        $searchPaths += (Join-Path $env:TEMP 'obrain-cargo-target\release\bundle\msi')
+    }
+    $searchPaths += @(
         'C:\Users\pacox\obrain-target\release\bundle\msi',
-        (Join-Path $env:TEMP 'obrain-cargo-target\release\bundle\msi'),
         (Join-Path $PSScriptRoot '..\ui\src-tauri\target\release\bundle\msi')
     )
     foreach ($dir in $searchPaths) {
-        if (Test-Path -LiteralPath $dir) {
+        if ($dir -and (Test-Path -LiteralPath $dir)) {
             $found = @(Get-ChildItem -LiteralPath $dir -Filter '*0.0.2*.msi' -File)
+            if ($found.Count -eq 0) {
+                $found = @(Get-ChildItem -LiteralPath $dir -Filter '*.msi' -File)
+            }
             if ($found.Count -gt 0) {
                 $CandidateMsiPath = $found[0].FullName
                 break
