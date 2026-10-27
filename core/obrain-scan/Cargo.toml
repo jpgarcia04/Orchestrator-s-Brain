@@ -1,6 +1,6 @@
 [package]
 name = "obrain-scan"
-version = "0.0.1"
+version = "0.0.2"
 description = "Descubrimiento, identidad y triaje de archivos — M1 de Orchestrator's Brain"
 edition.workspace = true
 license.workspace = true

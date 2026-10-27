@@ -1,6 +1,6 @@
 [package]
 name = "obrain-expiry"
-version = "0.0.1"
+version = "0.0.2"
 description = "Vencimientos: la fecha en que deja de valer un documento, leída de su texto — Fase 3.4 de Orchestrator's Brain"
 edition.workspace = true
 license.workspace = true

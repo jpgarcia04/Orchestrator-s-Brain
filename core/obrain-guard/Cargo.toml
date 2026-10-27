@@ -1,6 +1,6 @@
 [package]
 name = "obrain-guard"
-version = "0.0.1"
+version = "0.0.2"
 description = "Clasificación de sensibilidad y puerta de egreso — invariante I11 de Orchestrator's Brain"
 edition.workspace = true
 license.workspace = true

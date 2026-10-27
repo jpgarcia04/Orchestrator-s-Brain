@@ -1,31 +1,44 @@
 name: Validar MSI en Windows temporal
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - '.github/workflows/validar-msi-windows.yml'
-      - 'tools/validar-msi-runner.ps1'
-      - 'ui/**'
-      - 'core/**'
-      - 'tests/fixtures/producto-windows/**'
-      - 'tools/biblioteca-sintetica.ps1'
   workflow_dispatch:
+    inputs:
+      msi_001_url:
+        description: 'URL opcional del paquete MSI 0.0.1 auténtico para prueba de actualización'
+        required: false
+        type: string
+      requerir_actualizacion:
+        description: 'Exigir que la prueba de actualización 0.0.1 -> 0.0.2 se ejecute y falle si falta el MSI'
+        required: false
+        default: true
+        type: boolean
+      forzar_recompilacion:
+        description: 'Ignorar artefactos compilados en caché para el mismo hash de código fuente'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
+concurrency:
+  group: validar-msi-windows-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   instalar-y-desinstalar:
     runs-on: windows-2022
-    timeout-minutes: 90
+    timeout-minutes: 70
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Identificar origen y herramientas
+          fetch-depth: 0
+
+      - name: Identificar origen, variables y verificar política CI
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           "CARGO_TARGET_DIR=$env:RUNNER_TEMP\obrain-cargo-target" >> $env:GITHUB_ENV
           'CARGO_INCREMENTAL=0' >> $env:GITHUB_ENV
           'RUNNER_ENVIRONMENT=${{ runner.environment }}' >> $env:GITHUB_ENV
@@ -35,17 +48,192 @@ jobs:
           rustc --version
           cargo --version
           Get-ComputerInfo | Select-Object WindowsProductName, OsVersion, OsBuildNumber
+          ./tools/verificar-local.ps1 -SoloPoliticaCI
+
+      - name: Preflight y descarga de MSI 0.0.1 antes de compilar
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUIRE_UPGRADE: "${{ inputs.requerir_actualizacion != false }}"
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $commit001 = '5421ceeeb977944edec8406119f504f8c8e0a17a'
+          $resolved = (git rev-parse --verify "$commit001^{commit}").Trim()
+          if ($resolved -ne $commit001) {
+            throw "Preflight fallido: no se localizó el commit histórico 0.0.1 ($commit001) en el clon."
+          }
+          "OBRAIN_CLI_001_COMMIT=$commit001" >> $env:GITHUB_ENV
+
+          $dest = Join-Path $env:RUNNER_TEMP 'Orchestrator''s Brain_0.0.1_x64_en-US.msi'
+          $expectedSha256 = '9AEE1B8125CC19DDBBF124350CD86EB510E77A9313C89094E0797A6AF7E35591'
+          $url = "${{ inputs.msi_001_url }}"
+          if ($url) {
+            Write-Host "Descargando MSI 0.0.1 desde URL suministrada: $url"
+            Invoke-WebRequest -Uri $url -Headers @{ Authorization = "Bearer $env:GH_TOKEN" } -OutFile $dest
+          } else {
+            Write-Host "Descargando asset desde pre-release temporal temp-upgrade-fixture-0.0.1..."
+            gh release download "temp-upgrade-fixture-0.0.1" --repo "${{ github.repository }}" --pattern "*.msi" --dir $env:RUNNER_TEMP --clobber
+            if (-not (Test-Path -LiteralPath $dest)) {
+              $downloaded = Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter '*0.0.1*.msi' -File | Select-Object -First 1
+              if ($downloaded) {
+                Copy-Item -LiteralPath $downloaded.FullName -Destination $dest -Force
+              }
+            }
+          }
+          if (Test-Path -LiteralPath $dest -PathType Leaf) {
+            $dlHash = (Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash
+            if ($dlHash -ne $expectedSha256) {
+              throw "Preflight fallido: el SHA-256 del MSI 0.0.1 ($dlHash) no coincide con el esperado ($expectedSha256)."
+            }
+            "OBRAIN_MSI_001_PATH=$dest" >> $env:GITHUB_ENV
+            Write-Host "Preflight OK: MSI 0.0.1 verificado antes de compilar ($dest, SHA256=$dlHash)"
+          } elseif ($env:REQUIRE_UPGRADE -eq 'true') {
+            throw "Preflight fallido: se requiere actualización desde 0.0.1 pero no se pudo obtener el MSI 0.0.1 antes de iniciar la compilación."
+          }
+
+      - name: Caché de binarios compilados del candidato por hash de código fuente (core + ui)
+        id: cache-candidato
+        if: ${{ inputs.forzar_recompilacion != true }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}\obrain-cargo-target\release\bundle\msi\*.msi
+            ${{ runner.temp }}\obrain-cli-002\obrain.exe
+          key: obrain-candidato-bin-win2022-${{ hashFiles('core/Cargo.toml', 'core/Cargo.lock', 'core/**/*.rs', 'ui/package.json', 'ui/package-lock.json', 'ui/src/**', 'ui/src-tauri/**') }}
+
+      - name: Caché de CLI histórica 0.0.1 inmutable (commit 5421cee)
+        id: cache-cli-001
+        if: ${{ inputs.forzar_recompilacion != true }}
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\obrain-cli-001\obrain.exe
+          key: obrain-cli-001-win2022-5421ceeeb977944edec8406119f504f8c8e0a17a
+
+      - name: Configurar Node.js con caché de npm
+        if: steps.cache-candidato.outputs.cache-hit != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Caché incremental de compilación Rust (Tauri y Core)
+        if: steps.cache-candidato.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ui/src-tauri -> ${{ runner.temp }}/obrain-cargo-target
+            core -> ${{ runner.temp }}/obrain-cargo-target
+
       - name: Instalar dependencias declaradas del frontend
+        if: steps.cache-candidato.outputs.cache-hit != 'true'
         working-directory: ui
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit
+
       - name: Compilar MSI del commit evaluado
+        if: steps.cache-candidato.outputs.cache-hit != 'true'
         working-directory: ui
         run: npm run tauri -- build --ci --no-sign --bundles msi
-      - name: Compilar CLI para preparar la base sintética
-        run: cargo build --manifest-path core/Cargo.toml --locked --release -p obrain-api --bin obrain
-      - name: Inspeccionar, instalar, arrancar y desinstalar
+
+      - name: Compilar o preparar CLI 0.0.2 del candidato evaluado
         shell: pwsh
-        run: ./tools/validar-msi-runner.ps1
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cli002Dir = Join-Path $env:RUNNER_TEMP 'obrain-cli-002'
+          New-Item -ItemType Directory -Force -Path $cli002Dir | Out-Null
+          $cli002 = Join-Path $cli002Dir 'obrain.exe'
+          if (Test-Path -LiteralPath $cli002 -PathType Leaf) {
+            $cli002Hash = (Get-FileHash -LiteralPath $cli002 -Algorithm SHA256).Hash
+            Write-Host "Reutilizando CLI candidata 0.0.2 desde caché ($cli002, SHA256=$cli002Hash)"
+          } else {
+            Write-Host "Compilando CLI candidata 0.0.2..."
+            cargo build --manifest-path core/Cargo.toml --locked --release -p obrain-api --bin obrain
+            if ($LASTEXITCODE -ne 0) { throw "Falló la compilación de la CLI candidata 0.0.2" }
+            $srcCandidate = Join-Path $env:CARGO_TARGET_DIR 'release\obrain.exe'
+            Copy-Item -LiteralPath $srcCandidate -Destination $cli002 -Force
+            $cli002Hash = (Get-FileHash -LiteralPath $cli002 -Algorithm SHA256).Hash
+            Write-Host "CLI candidata 0.0.2 compilada y guardada en $cli002 (SHA256=$cli002Hash)"
+          }
+          $cliAscii = [System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($cli002))
+          if (-not $cliAscii.Contains('obrain respaldar')) {
+            throw "La CLI en $cli002 no corresponde al candidato 0.0.2 (no contiene 'obrain respaldar')."
+          }
+          "OBRAIN_CLI_PATH=$cli002" >> $env:GITHUB_ENV
+
+      - name: Compilar o reutilizar CLI histórica 0.0.1 (commit 5421cee) compartiendo dependencias
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $commit001 = $env:OBRAIN_CLI_001_COMMIT
+          $cli001Dir = Join-Path $env:RUNNER_TEMP 'obrain-cli-001'
+          New-Item -ItemType Directory -Force -Path $cli001Dir | Out-Null
+          $cli001 = Join-Path $cli001Dir 'obrain.exe'
+          if (Test-Path -LiteralPath $cli001 -PathType Leaf) {
+            $cli001Hash = (Get-FileHash -LiteralPath $cli001 -Algorithm SHA256).Hash
+            Write-Host "Reutilizando CLI histórica 0.0.1 desde caché ($cli001, SHA256=$cli001Hash)"
+          } else {
+            $zipPath = Join-Path $env:RUNNER_TEMP 'obrain-001-core.zip'
+            $src001Dir = Join-Path $env:RUNNER_TEMP 'obrain-001-src'
+            if (Test-Path -LiteralPath $src001Dir) { Remove-Item -LiteralPath $src001Dir -Recurse -Force }
+            New-Item -ItemType Directory -Force -Path $src001Dir | Out-Null
+            git archive --format=zip $commit001 core -o $zipPath
+            Expand-Archive -LiteralPath $zipPath -DestinationPath $src001Dir -Force
+            $cargoToml001 = Get-Content -LiteralPath (Join-Path $src001Dir 'core\obrain-api\Cargo.toml') -Raw
+            if ($cargoToml001 -notmatch 'version\s*=\s*"0\.0\.1"') {
+              throw "El Cargo.toml extraído de $commit001 no declara version = 0.0.1"
+            }
+            # Compartir CARGO_TARGET_DIR reutiliza SQLCipher, OpenSSL y ONNX Runtime ya compilados (~30s en vez de ~13m)
+            cargo build --manifest-path (Join-Path $src001Dir 'core\Cargo.toml') --target-dir $env:CARGO_TARGET_DIR --locked --release -p obrain-api --bin obrain
+            if ($LASTEXITCODE -ne 0) {
+              throw "Falló la compilación de la CLI histórica 0.0.1"
+            }
+            Copy-Item -LiteralPath (Join-Path $env:CARGO_TARGET_DIR 'release\obrain.exe') -Destination $cli001 -Force
+            # Restaurar el binario 0.0.2 en target/release/obrain.exe para evitar contaminación
+            $cli002 = Join-Path $env:RUNNER_TEMP 'obrain-cli-002\obrain.exe'
+            if (Test-Path -LiteralPath $cli002 -PathType Leaf) {
+              Copy-Item -LiteralPath $cli002 -Destination (Join-Path $env:CARGO_TARGET_DIR 'release\obrain.exe') -Force
+              Write-Host "target/release/obrain.exe restaurado con el binario 0.0.2 tras compilar 0.0.1."
+            }
+            $cli001Hash = (Get-FileHash -LiteralPath $cli001 -Algorithm SHA256).Hash
+            Write-Host "CLI histórica 0.0.1 compilada desde $commit001 en $cli001 (SHA256=$cli001Hash)"
+          }
+          $cli001Ascii = [System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($cli001))
+          if ($cli001Ascii.Contains('obrain respaldar')) {
+            throw "La CLI en $cli001 contiene 'obrain respaldar', no corresponde a la versión 0.0.1 histórica."
+          }
+          "OBRAIN_CLI_001_PATH=$cli001" >> $env:GITHUB_ENV
+
+      - name: Validar aislamiento e identidades de ambas versiones CLI (0.0.1 vs 0.0.2)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cli001 = $env:OBRAIN_CLI_001_PATH
+          $cli002 = $env:OBRAIN_CLI_PATH
+          if (-not (Test-Path -LiteralPath $cli001 -PathType Leaf)) { throw "Falta el binario de CLI 0.0.1 en $cli001" }
+          if (-not (Test-Path -LiteralPath $cli002 -PathType Leaf)) { throw "Falta el binario de CLI 0.0.2 en $cli002" }
+          $h1 = (Get-FileHash -LiteralPath $cli001 -Algorithm SHA256).Hash
+          $h2 = (Get-FileHash -LiteralPath $cli002 -Algorithm SHA256).Hash
+          if ($h1 -eq $h2) {
+            throw "Error de aislamiento: CLI 0.0.1 y CLI 0.0.2 tienen el mismo hash SHA-256 ($h1). Posible sobrescritura."
+          }
+          $a1 = [System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($cli001))
+          $a2 = [System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($cli002))
+          if ($a1.Contains('obrain respaldar')) { throw "CLI 0.0.1 contiene comando 'obrain respaldar'" }
+          if (-not $a2.Contains('obrain respaldar')) { throw "CLI 0.0.2 no contiene comando 'obrain respaldar'" }
+          Write-Host "Aislamiento verificado exitosamente:"
+          Write-Host "  CLI 0.0.1: $cli001 (SHA256=$h1, sin 'obrain respaldar')"
+          Write-Host "  CLI 0.0.2: $cli002 (SHA256=$h2, con 'obrain respaldar')"
+
+      - name: Verificar estáticamente metadatos del candidato MSI
+        shell: pwsh
+        run: ./tools/verificar-candidato-msi.ps1
+
+      - name: Inspeccionar, instalar limpia, actualizar y desinstalar
+        shell: pwsh
+        env:
+          REQUIRE_UPGRADE: "${{ inputs.requerir_actualizacion != false }}"
+        run: ./tools/validar-msi-runner.ps1 -CliPath "$env:OBRAIN_CLI_PATH" -Cli001Path "$env:OBRAIN_CLI_001_PATH"
+
       - name: Conservar evidencias del runner
         if: always()
         uses: actions/upload-artifact@v4
