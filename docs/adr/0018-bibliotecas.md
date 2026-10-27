@@ -16,14 +16,14 @@ de pintura sino del árbol que produce el núcleo:
 
 1. **El árbol empezaba en la raíz del disco.** M3 encadena cada carpeta con su
    madre hasta el volumen, así que para llegar a la bóveda había que bajar por
-   `C:\Users › Users\pacox › pacox\OneDrive › OneDrive\Documentos…`. En el
+   `C:\Users › Users\usuario › usuario\OneDrive › OneDrive\Documentos…`. En el
    banco de pruebas, trece niveles hasta la primera carpeta con documentos.
 2. **Todas las carpetas se llamaban con dos segmentos.** `obrain-link` nombraba
    `padre/hoja` para que cinco carpetas `src` de un repositorio no fueran cinco
    nodos idénticos. El remedio lo pagaban todas: el cielo decía
-   `Users/pacox (resto)` y `OneDrive/Documentos`, y las migas repetían el padre
+   `Users/usuario (resto)` y `OneDrive/Documentos`, y las migas repetían el padre
    en cada escalón. El usuario: *«de nada me sirve que todos los nodos se llamen
-   pacox/documentos… no es intuitivo y se ve mal»*.
+   usuario/documentos… no es intuitivo y se ve mal»*.
 
 ## Decisión
 
@@ -70,3 +70,4 @@ en ella.**
 - **Lo que no cubre:** quitar una biblioteca. Hoy una carpeta que desaparece del
   disco se informa (`missing`) y se deja como estaba en el log. Retirarla de
   verdad es una retractación de la faceta y necesita su gesto en la interfaz.
+

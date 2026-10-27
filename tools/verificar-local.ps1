@@ -119,7 +119,11 @@ try {
 if ($Completo) {
     Write-Host "==> [Nivel A Completo] Ejecutando pruebas de coherencia Rust..."
     if (-not $env:CARGO_TARGET_DIR) {
-        $env:CARGO_TARGET_DIR = 'C:\Users\pacox\obrain-target'
+        if ($env:USERPROFILE) {
+            $env:CARGO_TARGET_DIR = Join-Path $env:USERPROFILE 'obrain-target'
+        } else {
+            $env:CARGO_TARGET_DIR = Join-Path $env:TEMP 'obrain-target'
+        }
     }
     cargo test --manifest-path (Join-Path $repoRoot 'core/Cargo.toml') --locked -p obrain-api --test version_coherente
     Assert-Check ($LASTEXITCODE -eq 0) 'Prueba version_coherente fallo.'

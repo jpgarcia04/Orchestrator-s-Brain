@@ -3,7 +3,7 @@
 //! Lo que antes eran cinco programas en orden y una variable de entorno:
 //!
 //! ```text
-//! obrain indexar "C:\Users\pacox\Segundo Cerebro"
+//! obrain indexar "C:\Users\usuario\Segundo Cerebro"
 //! ```
 //!
 //! y la aplicación lo ve al abrirse, porque las dos usan la misma base

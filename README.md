@@ -4,14 +4,15 @@
 
 **Tu segundo cerebro. El que no olvida.**
 
-*Un sistema de conocimiento personal que no solo guarda tus archivos —entiende qué significan, cómo se relacionan y dónde encajan en tu vida.*
+*Una aplicación de escritorio local-first de conocimiento personal que no solo guarda tus archivos —entiende qué significan, cómo se relacionan y protege estrictamente tu privacidad.*
 
 ---
 
-[![Estado](https://img.shields.io/badge/estado-en%20desarrollo%20activo-brightgreen?style=for-the-badge)](#-estado-actual)
 [![Licencia](https://img.shields.io/badge/licencia-MIT-blue?style=for-the-badge)](LICENSE)
-[![Rust](https://img.shields.io/badge/núcleo-Rust-orange?style=for-the-badge)](#)
-[![Local First](https://img.shields.io/badge/tus%20datos-nunca%20salen-purple?style=for-the-badge)](#-privacidad-como-principio)
+[![Versión](https://img.shields.io/badge/versión-0.0.2-orange?style=for-the-badge)](#-estado-actual)
+[![Núcleo](https://img.shields.io/badge/núcleo-Rust%202024-red?style=for-the-badge)](#-arquitectura-técnica)
+[![Frontend](https://img.shields.io/badge/interfaz-Tauri%20v2%20%7C%20Svelte%205-purple?style=for-the-badge)](#-arquitectura-técnica)
+[![Local First](https://img.shields.io/badge/privacidad-100%25%20local%20%7C%20SQLCipher-green?style=for-the-badge)](#-privacidad-como-principio-no-negociable)
 
 </div>
 
@@ -21,262 +22,240 @@
 
 > *«¿Dónde estaba el documento que usé para demostrar ingresos durante mi trámite de visa?»*
 
-Esa pregunta no contiene el nombre del archivo, ni su carpeta, ni su fecha. Contiene una **relación** entre cosas que viviste: un documento, un trámite y un propósito. Ningún buscador de archivos puede responderla. **Orchestrator's Brain sí.**
+Esa pregunta no contiene necesariamente el nombre del archivo, ni su carpeta, ni su fecha exacta. Contiene una **relación** entre cosas que viviste: un documento, un trámite y un propósito.
+
+Ningún explorador de archivos convencional responde a eso. **Orchestrator's Brain está diseñado para resolverlo.**
 
 ---
 
 ## 🤔 El problema
 
-Piensa en todos los archivos que tienes en tu computadora. PDFs de trámites, fotos de viajes, documentos de trabajo, facturas, recibos, notas. Miles de archivos acumulados a lo largo de años.
+En tu computadora se acumulan cientos o miles de archivos: comprobantes, trámites, pólizas de seguro, facturas, recibos, notas, certificados y contratos.
 
-Ahora piensa en lo que **sabes** sobre esos archivos que ningún sistema conoce:
+Las herramientas actuales te permiten buscar por nombre de archivo o buscar por palabras sueltas si recuerdas el término exacto. Pero **todo el conocimiento contextual vive únicamente en tu cabeza**:
 
-- Ese PDF era parte de un trámite de visa
-- Esas 340 fotos son de un viaje a Barcelona en 2019
-- Ese documento Word fue la versión final de un presupuesto que pasó por 4 revisiones
-- Ese recibo lo descargaste de una página web específica para justificar un gasto
+- Qué documento estaba dentro de un paquete PDF que presentaste en una cita consular.
+- Qué recibos son copias idénticas guardadas en carpetas distintas.
+- Qué póliza o documento de identidad está próximo a caducar.
+- Qué archivos contienen contraseñas o datos bancarios y jamás deberían compartirse.
 
-**Todo ese conocimiento vive solo en tu cabeza.** Y tu cabeza olvida.
+Si dependes de servicios en la nube para organizar esa información, tienes que ceder tu privacidad entregando tus documentos más delicados a servidores de terceros.
 
-Las herramientas actuales te permiten buscar por nombre de archivo, por fecha, quizás por alguna palabra dentro del documento. Pero no pueden responder preguntas sobre el **significado** de tus archivos ni las **relaciones** entre ellos.
-
-Orchestrator's Brain existe para resolver eso.
+**Orchestrator's Brain nace para que tu propia computadora entienda tus documentos sin que ninguno de tus datos personales salga de tu máquina.**
 
 ---
 
-## 🌌 La visión: un mapa de tu conocimiento
+## 🔒 Privacidad como principio no negociable
 
-Imagina abrir una aplicación y ver algo parecido a una constelación: puntos de luz conectados entre sí, unos más brillantes que otros, algunos agrupados en racimos densos, otros aislados en la periferia.
+La arquitectura de Brain está diseñada desde el primer día para proteger datos reales de alta sensibilidad:
 
-Cada punto es algo que el sistema conoce: un archivo, una persona, un trámite, un evento. Las conexiones entre ellos son relaciones que el sistema descubrió: este documento pertenece a ese trámite, fue escrito por esta persona, se descargó de aquella página.
-
-- **Las zonas brillantes** son donde tu vida está activa ahora mismo
-- **Las zonas tenues** son tu pasado — quieto pero intacto, listo para cuando lo necesites
-- **Las conexiones punteadas** son cosas que el sistema *cree* pero no está seguro — y tú puedes confirmar o corregir con un clic
-
-No es un salvapantallas bonito. Es un **mapa funcional de tu conocimiento** que se va haciendo más rico con el tiempo.
-
----
-
-## ✨ Qué hace (y qué lo hace diferente)
-
-### 🔍 Encuentra lo que no recuerdas que tienes
-
-No necesitas recordar el nombre del archivo. Ni la carpeta. Ni la fecha exacta. Puedes buscar por **significado**: "el documento que usé para demostrar ingresos" es una búsqueda válida.
-
-### 🕸️ Descubre relaciones que tú no le dijiste
-
-El sistema conecta tus archivos automáticamente usando señales que ya existen en tu computadora: metadatos, fechas, contenido, estructura de carpetas, incluso la URL de donde descargaste algo. No inventa — descubre.
-
-### 🧩 Reconstruye procesos completos
-
-Un trámite de visa no es un archivo: es un conjunto de documentos, fechas, personas y pasos. Orchestrator's Brain puede identificar estos **procesos** y reconstruirlos como una historia coherente.
-
-### 🫥 Nunca inventa
-
-Si no sabe algo, dice "no lo sé" y te muestra qué buscó y por qué no encontró nada. Una respuesta inventada es peor que ninguna respuesta.
-
-### ✅ Tú siempre tienes la última palabra
-
-Si el sistema infiere algo incorrecto, lo corriges con un clic. Tu corrección queda **grabada permanentemente** y nunca será sobreescrita. Tu conocimiento manda sobre cualquier inferencia.
+| Principio | Implementación real en Brain |
+|---|---|
+| **Local-first absoluto** | Todo el procesamiento (indexación, extracción, OCR, cálculo de relaciones y búsqueda) ocurre en tu máquina. |
+| **Cifrado en reposo (SQLCipher)** | La base de conocimiento (`brain.obrain`) está cifrada en disco con AES-256 (SQLCipher). La llave se custodia mediante **Windows DPAPI** para tu usuario y se provee una **clave de recuperación** de 24 palabras por si reinstalas el sistema. |
+| **Protección mediante PIN** | Puedes configurar un PIN de seguridad. Si el PIN está activo, el contenido sensible y sus fragmentos no se descifran ni se exponen en búsquedas o vistas previas hasta introducirlo. El núcleo revoca inmediatamente el acceso al bloquearse o tras 5 minutos de inactividad. |
+| **Respaldos y restauración controlada** | Mecanismo integrado de copias de seguridad cifradas atómicas, verificación criptográfica (`PRAGMA integrity_check`, `PRAGMA cipher_integrity_check`) y restauración reversible con ensayo previo. |
+| **Protección contra la nube** | Respeta archivos deshidratados de OneDrive/nube: detecta atributos de almacenamiento remoto y **nunca descarga archivos sin tu autorización expresa**. |
+| **Sin telemetría ni cuentas** | Cero cuentas de usuario, cero servidores remotos, cero analíticas. |
 
 ---
 
-## 🔒 Privacidad como principio
+## ✨ Capacidades del sistema
 
-Esto no es negociable:
+### 1. 🔍 Observar e identificar sin depender de nombres
+El motor recorre las carpetas que indiques como **bibliotecas** e identifica cada archivo mediante su identidad física y hash de contenido. Si mueves un archivo de carpeta o lo renombras, Brain sabe que es el mismo y conserva todo lo que sabía sobre él. Y si borras un archivo, pasa a la **Papelera** de Brain durante 30 días antes de olvidar su texto, manteniéndose recuperable si lo restauras.
 
-| Principio | Lo que significa |
-|-----------|-----------------|
-| **Local primero** | Tus datos viven en tu computadora. El procesamiento ocurre en tu máquina. |
-| **Nada sale sin tu permiso** | Cada archivo tiene un nivel de sensibilidad. Los documentos sensibles nunca se envían a ningún servicio externo. |
-| **Cifrado en reposo** | Tu base de conocimiento está cifrada en tu disco (SQLCipher), y la llave la guarda Windows para tu cuenta. Una copia de la base no se puede leer. Te damos una clave de recuperación por si Windows pierde la llave. **No cifra tus archivos originales**: para eso está el Cifrado de dispositivo de Windows. |
-| **Un PIN para ver** | Si pones un PIN, lo sensible no se enseña —ni en la vista previa ni en la búsqueda— hasta escribirlo. Lo impone el núcleo, no la ventana. |
-| **Sin cuenta, sin nube obligatoria** | Funciona completamente offline. La sincronización entre dispositivos es opcional y cifrada de extremo a extremo. |
+### 2. 📖 Extracción de texto y OCR local
+- Extrae texto de archivos PDF, documentos de Office (OOXML), HTML y texto plano.
+- **OCR 100 % local en Windows:** Para fotos, identificaciones y PDFs escaneados, utiliza el reconocedor nativo del sistema operativo (`Windows.Media.Ocr`). Ninguna imagen se envía a APIs externas.
 
-Si vas a guardar tu pasaporte, tus contratos y tus documentos médicos en un sistema, ese sistema **no puede tener acceso a tus datos**. Esta es la razón por la que el procesamiento es local — no por dogma, sino por responsabilidad.
+### 3. ⏰ Detección y seguimiento de vencimientos
+Detecta automáticamente fechas de caducidad en el texto (pólizas, identificaciones, pasaportes, contratos) analizando formatos de fecha, zonas MRZ (`P<MEX<<…`) y períodos de vigencia. El panel de Inicio te avisa en **«Caduca pronto»** de los documentos que vencen en los próximos 90 días o que ya han expirado, permitiéndote corregir o fijar fechas manualmente.
 
----
+### 4. 🔗 Relaciones deterministas (sin alucinaciones de IA)
+Antes de invocar modelos probabilísticos, el sistema descubre relaciones reales basadas en evidencia demostrable:
+- **Duplicados exactos (`duplicate_of`):** Archivos idénticos con diferente nombre o ubicación.
+- **Documento contenido dentro de otro (`part_of`):** Detecta cuando los párrafos de un archivo suelto forman parte integral de un PDF recopilatorio (por ejemplo, estados de cuenta dentro de un expediente de trámite), vinculando el origen con el paquete.
+- **Sesiones de trabajo y versiones:** Documentos editados en ventanas de tiempo correlacionadas o con sufijos evolutivos.
 
-## 🗺️ Cómo funciona (sin tecnicismos)
+### 5. 🗂️ Colecciones dinámicas y arrastre
+Agrupa documentos en colecciones temáticas (como listas de reproducción) sin mover ni duplicar los archivos en tu disco. Puedes arrastrar documentos directamente a la barra lateral, buscar dentro de una colección y resaltar sus elementos en el mapa espacial.
 
-Orchestrator's Brain trabaja en capas, como un cerebro real:
+### 6. 🛡️ Puerta de sensibilidad y clasificación
+Clasifica automáticamente cada archivo en tres niveles:
+- **Normal:** Documentos ordinarios.
+- **Sensible:** Documentos con datos personales (identificaciones, contratos, datos financieros).
+- **Bóveda:** Archivos con credenciales, claves privadas o secretos técnicos.
 
-### 1. 👀 Observar — *Ver tu disco*
-El sistema recorre las carpetas que le indiques y **reconoce** cada archivo — no por su nombre o ubicación (que pueden cambiar), sino por su **contenido**. Si mueves o renombras un archivo, sigue siendo el mismo.
-
-> Y si **borras** un documento, sale de todas partes y pasa a la **Papelera** de la app durante 30 días; después se olvida lo que se leyó de él (o antes, si la vacías). Tus archivos no se tocan: la papelera de obrain sólo guarda lo que obrain leyó. Si lo sacas de la Papelera de Windows, vuelve con todo lo que sabías.
-
-> Inteligencia incluida: detecta archivos que están "en la nube" y no los descarga sin tu permiso. No va a llenar tu disco ni saturar tu internet.
-
-### 2. 📖 Leer — *Entender el contenido*
-Extrae el texto de cada documento (PDFs, documentos de Office, notas, código) y lo organiza para poder buscarlo.
-
-> Las **fotos y los PDF escaneados** —la foto de tu TIE, el pasaporte escaneado— se leen con el reconocedor de texto (OCR) que **ya trae Windows**, sin conexión: nada sale de tu computadora.
-
-> Y de ese texto saca **cuándo caduca** cada documento —«VALIDEZ 15 11 2026» en la TIE, «vigencia hasta el 31 de agosto de 2027» en la póliza, las líneas `P<MEX<<…` del pasaporte, o la expedición más diez años aunque el OCR no haya leído la palabra «caducidad»—: el Inicio te avisa en **«Caduca pronto»** de lo que vence en los próximos 90 días. Cada fecha dice por qué la leyó, y si se equivoca la corriges en un clic —o se la pones tú si el documento no la dice—; lo que digas tú gana siempre.
-
-### 3. 🔗 Relacionar — *Conectar sin adivinar*
-Antes de usar cualquier inteligencia artificial, el sistema ya puede descubrir **miles de relaciones** usando solo señales que existen en tus archivos:
-
-| Lo que encuentra | Cómo lo sabe |
-|------------------|--------------|
-| Archivos duplicados | Mismo contenido, aunque tengan diferente nombre |
-| Un documento dentro de otro | Sus párrafos aparecen seguidos dentro de otro: el PDF que armaste para un trámite juntando tus estados de cuenta (y si tienes copias con el mismo texto, cuentan todas) |
-| Versiones de un documento | Nombres similares con marcadores como "v2", "final", "rev" |
-| Sesiones de trabajo | Archivos modificados en la misma ventana de tiempo |
-| Origen web | La URL de donde descargaste un archivo (sí, Windows guarda eso) |
-| Estructura lógica | Las carpetas que tú mismo organizaste son una señal muy fuerte |
-
-### 4. 🧠 Entender — *Buscar por significado*
-Con un modelo de inteligencia artificial **que corre en tu máquina** —se descarga una vez y después funciona sin conexión—, el sistema busca por significado: encuentra documentos relevantes aunque no contengan las palabras exactas que buscaste.
-
-> Ejemplo real de este disco: buscar **"universidad"** devuelve un formulario de matrícula que **no contiene esa palabra** en ningún sitio. Dice "Titulación", "Centro Docente", "Año académico". La búsqueda por texto no puede encontrarlo; ésta sí.
->
-> Y lo que marcaste como privado **no entra** en el índice de significado. Eso no es una opción de configuración: es una comprobación que el sistema aplica y que tiene tests.
->
-> Puedes marcar **una carpeta entera** —por ejemplo, la de tus documentos de identidad— y todo lo que tenga dentro será sensible, también lo que metas después: la foto de tu TIE no necesita tener texto ni un nombre que la delate. Si luego la renombras o la mueves a otro sitio del mismo disco, la marca va con ella.
-
-### 🗂️ Y tú también relacionas: *tus colecciones*
-Junta a mano lo que va junto aunque viva en carpetas distintas —**«Trámite de la visa»**: el pasaporte, la póliza, la matrícula y los estados de cuenta— sin mover nada de su sitio. Un documento puede estar en varias, sigue en ellas aunque lo muevas o lo renombres, y si lo borras y lo recuperas, vuelve solo. Puedes buscar sólo dentro de una colección, y en el mapa se encienden las estrellas donde están sus documentos, sin mover ninguna. Para juntar, **arrastra**: suelta un documento (o varios elegidos) en una colección de la barra lateral, o en «Nueva colección». De una colección a otra se mueve —con Ctrl, se queda en las dos—, y en tus carpetas de Windows no cambia nada: una colección es como una playlist.
-
-### 5. 🌌 Visualizar — *El mapa*
-Todo ese conocimiento cobra vida en una visualización interactiva — tu galaxia personal de conocimiento, donde puedes explorar, navegar y descubrir conexiones que habías olvidado.
-
-Y cuando llegas a un archivo, **lo ves**: el texto que ya se había extraído —con el párrafo que explica *por qué* apareció, resaltado—, o la imagen si es una foto. Al lado, lo que el sistema sabe de él separado en dos bloques que no se pueden confundir: lo que es un hecho y lo que es una sospecha, cada sospecha con su «¿por qué?» y con un botón para corregirla.
-
-> Lo que está en tu nube **no se toca**. Un archivo de OneDrive que aún no se ha descargado se marca con ☁ y su previsualización no se genera, porque generarla lo bajaría a tu disco sin que lo hubieras pedido. Si quieres abrirlo, el botón te dice con todas las letras que hacerlo lo descargará.
+Puedes marcar carpetas enteras (como `Documentos de Identidad`) para que todo su contenido herede de forma permanente la etiqueta sensible. Lo que sea sensible no se expone sin PIN y lo que sea bóveda jamás entra a ningún índice derivado.
 
 ---
 
-## 📈 Estado actual
+## 📈 Estado actual del producto
 
-El proyecto está en desarrollo activo. Cada hito se valida contra la pregunta del inicio: *"¿Puede responder dónde estaba el documento de la visa?"*
+Orchestrator's Brain es un proyecto real, en desarrollo activo y con arquitectura formal documentada. Distinguimos de forma transparente lo implementado de lo planificado:
 
-> **2026-09-22 — replanteamiento.** El objetivo inmediato deja de ser *entender todo el disco* y pasa a ser **una bóveda de documentos personales que eliges tú**: pasaporte, seguros, matrícula, contratos. Dónde está todo y cómo usarlo hoy: [`docs/ESTADO.md`](docs/ESTADO.md).
+### ✅ Implementado y verificado (Versión 0.0.2)
+- [x] Modelo de datos bitemporal inmutable basado en un log maestro de aserciones.
+- [x] Cifrado en reposo con SQLCipher, protección de llaves con Windows DPAPI y clave mnemónica de recuperación.
+- [x] Bloqueo por PIN con revocación inmediata en memoria y en consultas del núcleo.
+- [x] Extracción documental y OCR local en Windows (`Windows.Media.Ocr`).
+- [x] Búsqueda léxica de alto rendimiento (BM25) con evidencia de pasajes verificables.
+- [x] Detección determinista de duplicados, paquetes (`part_of`), sesiones y vencimientos.
+- [x] Interfaz de escritorio en Tauri v2 + Svelte 5 (escritorio por columnas, vista previa plegable, modo oscuro y claro, colecciones con arrastre y papelera).
+- [x] Respaldos cifrados consistentes, verificación de integridad física y restauración controlada y reversible.
+- [x] Rechazo de bases incompletas antes de escribir (`apertura_segura`).
+- [x] Suite de más de 450 pruebas automatizadas en Rust y TypeScript.
+- [x] Política permanente de CI en 3 niveles con verificaciones ligeras en Linux.
 
-| Hito | Descripción | Estado |
-|------|-------------|--------|
-| **M0** — Cimientos | Modelo de datos y almacenamiento | ✅ Completo |
-| **M1** — Ver el disco | Escaneo inteligente de archivos | ✅ Completo |
-| **M2** — Leer el disco | Extracción de texto y búsqueda | ✅ Completo |
-| **M3** — Relacionar | Conexiones automáticas sin IA | ✅ Completo |
-| **Privacidad** — La puerta | Clasificación de sensibilidad y control de egreso | ✅ Completo |
-| **M4** — Entender | Búsqueda por significado con IA local | ✅ Completo |
-| **M5a** — La barra | Buscar desde una barra, con el mapa vivo detrás | ✅ Completo |
-| **M5b** — Llegar y ver | Explorador por columnas y panel de entidad con previsualización | ✅ Completo |
-| **M5d** — Manejarlo | Cámara del mapa —zoom y arrastre— y saber qué nodo vas a abrir antes de abrirlo | ✅ Completo |
-| **Fase 1** — Tu bóveda | Bibliotecas: el explorador empieza en tu carpeta, nombres limpios, `obrain indexar`, la app se pone al día sola | ✅ Completo |
-| **M5c** — Enterarse | Lo nuevo aparece sin lanzar nada | ✅ Completo: al abrir la app, con «actualizar» y vigilando tus carpetas en vivo |
-| **Fase 2** — La interfaz nueva | Svelte 5: escritorio tipo sistema operativo con vista previa (cada apartado se pliega desde su título y se queda como lo dejaste), buscador `Ctrl K`, la galaxia como vista «Mapa» enlazada, aspecto de noche y de día | ✅ Completo |
-| **Fase 3** — Documentos personales | Sensibilidad por carpeta ✅ · cifrado en reposo y PIN ✅ · OCR ✅ · vencimientos ✅ · vigilar la carpeta en vivo ✅ · papelera ✅ | ✅ Completo y probado en Windows (2026-09-23) |
-| **Después de la 3** — Tu bóveda, relacionada | Un documento dentro de otro ✅: el paquete dice qué lleva, cada documento suelto en qué paquete está, el paquete hereda la sensibilidad de lo que lleva (de todas sus copias) y la búsqueda los agrupa · tus colecciones ✅: juntar a mano sin mover nada, buscar dentro, verlas en el mapa, y arrastrando a la barra lateral | ✅ Hecho en el banco de pruebas (2026-09-25); falta verlo en Windows |
-| **M6** — Construir conocimiento | Inferencia de procesos y enriquecimiento | ⏳ Planificado |
-| **M7** — La pregunta | Responder la pregunta de la visa | 🎯 Meta final |
+### ⚠️ Implementado con limitaciones conocidas
+- **Búsqueda semántica vectorial:** El crate `core/obrain-embed` implementa la vectorización y búsqueda por significado con modelos ONNX (`multilingual-e5-small`). Funciona de forma totalmente local, pero requiere descargar previamente el modelo ONNX a `%USERPROFILE%\.obrain\models`.
+- **Firma digital del instalador Windows (MSI):** El paquete MSI se compila con WiX Toolset y ha sido verificado en pruebas de instalación limpia y actualización desde 0.0.1. Actualmente se genera sin certificado comercial Authenticode (`--no-sign`), por lo que Windows SmartScreen puede mostrar una advertencia informativa durante la instalación manual.
 
-### Números reales del último escaneo
-
-Medidos el **2026-08-17** sobre el perfil real del usuario —OneDrive, descargas, capturas y documentos de vida personal—, con las herramientas del propio proyecto:
-
-- **3,821** archivos recorridos y **46 directorios podados** en **0.66 segundos**
-- **1,130** archivos en el índice, **1,429 entidades**, **16,424 aserciones** en el log
-- **2,410 relaciones** vivas descubiertas — sin una sola llamada a inteligencia artificial
-- **4,533 fragmentos** de texto indexados y buscables
-- **4,501 vectores** de significado (los otros **32 son privados** y se quedan fuera a propósito)
-- Búsqueda por significado sobre los 4,501 vectores en **8.21 ms** — el recorrido lineal aguanta hasta **~27,400** antes de necesitar otra cosa
-- **0 archivos** descargados innecesariamente de la nube
-
-> El 86 % de lo indexable del perfil no era del usuario: eran **22,000 archivos de estado de herramientas** —`.codex`, `.vscode`, `.gemini`, `.m2`— dentro de la propia carpeta personal. La corrección no fue alargar la lista de exclusiones, que vuelve a romperse con la herramienta del mes que viene, sino añadir una señal: *un directorio con punto que cuelga de la raíz del perfil es estado de un programa, no contenido tuyo*. Un buscador que compite contra la basura del disco no es un buscador.
+### ⏳ Planificado en el Roadmap
+- **M6 — Inferencia de procesos:** Agrupación autónoma de secuencias de trámites e hitos de vida a partir de grafos de relaciones.
+- **M7 — Síntesis de respuestas con evidencia:** Responder preguntas abiertas complejas sintetizando fragmentos verificables («la pregunta de la visa»).
+- **Sincronización multi-dispositivo:** Cifrada de extremo a extremo entre equipos personales.
 
 ---
 
-## 🌱 Cómo evoluciona con el tiempo
+## 🏗️ Arquitectura técnica
 
-Esta es la parte que más importa. Orchestrator's Brain no es una herramienta que instalas y funciona igual para siempre. Es un sistema que **crece contigo**:
+Brain separa estrictamente la superficie de persistencia, la lógica de negocio y la interfaz gráfica:
 
-### Semana 1 — *El archipiélago*
-> Islas de archivos agrupados. Ya encuentras duplicados, versiones y sesiones de trabajo. Ya sirve.
+```mermaid
+flowchart TD
+    subgraph UI["Capa de Usuario (ui/)"]
+        TAURI["Tauri v2 (Rust IPC Nativo)"]
+        SVELTE["Svelte 5 + TypeScript (Escritorio, Vista Previa, Colecciones)"]
+        PIXI["PixiJS WebGL2 (Mapa Espacial de Conocimiento)"]
+        SVELTE <--> TAURI
+        PIXI <--> TAURI
+    end
 
-### Meses 1 a 3 — *Los puentes*
-> La inteligencia artificial empieza a conectar las islas. Aparecen los primeros procesos reconstruidos. El momento *"¿cómo supo eso?"*
+    subgraph CORE["Núcleo del Sistema (core/)"]
+        API["obrain-api (Superficie de consulta y coordinación)"]
+        SCAN["obrain-scan (Identidad NTFS y escaneo seguro)"]
+        EXTRACT["obrain-extract & obrain-ocr (Extracción y OCR Windows)"]
+        LINK["obrain-link (Relaciones: duplicate_of, part_of, sesiones)"]
+        GUARD["obrain-guard (Sensibilidad, reglas y control de egreso)"]
+        KEYS["obrain-keys (DPAPI y clave de recuperación)"]
+        EXPIRY["obrain-expiry (Vencimientos y análisis de caducidad)"]
+        EMBED["obrain-embed (Vectores E5 locales y ONNX Runtime)"]
+        CORE_STORE["obrain-core (Log maestro de aserciones bitemporal)"]
 
-### Año 1 — *El relieve*
-> Se forma una topografía estable. Las zonas activas de tu vida brillan; el pasado está quieto pero accesible. Empiezas a redescubrir cosas que habías olvidado.
+        API --> SCAN
+        API --> EXTRACT
+        API --> LINK
+        API --> GUARD
+        API --> KEYS
+        API --> EXPIRY
+        API --> EMBED
+        API --> CORE_STORE
+    end
 
-### Año 3+ — *La memoria*
-> Más historia que presente. Patrones que se repiten, hilos que quedaron abiertos, contradicciones a lo largo de los años. Ya no es una herramienta — es una **biografía viva**.
+    subgraph STORAGE["Persistencia Local (%USERPROFILE%/.obrain)"]
+        DB[("brain.obrain<br/>(Cifrado AES-256 SQLCipher)")]
+        BACKUPS[("backups/<br/>(Copias consistentes verificables)")]
+        MODELS[("models/<br/>(Modelo ONNX multilingual-e5)")]
+        CORE_STORE --> DB
+        CORE_STORE --> BACKUPS
+        EMBED --> MODELS
+    end
 
----
-
-## 🏗️ Arquitectura (para los curiosos)
-
-<details>
-<summary>Clic para expandir los detalles técnicos</summary>
-
-### Stack
-
-- **Núcleo:** Rust — rendimiento predecible, memoria controlada, sin pausa de recolector de basura. Ideal para un proceso que corre todo el día en segundo plano.
-- **Persistencia:** SQLite — un solo archivo, cero instalación. Todo índice es una proyección reconstruible desde un log maestro.
-- **Interfaz:** Tauri v2 + Svelte 5 + TypeScript — ~10 MB contra ~150 MB de Electron, usa el webview del sistema. Tipografías e iconos van dentro de la app: funciona sin conexión.
-- **Visualización:** PixiJS (WebGL2) — renderizado verificado a 0.6 ms para 500 nodos en GPU integrada Intel.
-
-### Modelo de datos
-
-La unidad fundamental no es el archivo ni el nodo: es la **aserción** — *alguien afirmó algo, en un momento, con una confianza, basándose en una evidencia*. Los nodos y las relaciones son vistas derivadas del log de aserciones.
-
-Esto hace que la auditoría, el deshacer, la sincronización y la detección de contradicciones salgan gratis del modelo, en vez de ser features que se parchean después.
-
-### Decisiones de diseño documentadas
-
-El repositorio contiene un registro formal de decisiones arquitectónicas (ADRs) en [`docs/adr/`](docs/adr/) que explican el *porqué* de cada elección fundamental.
-
-</details>
-
----
-
-## 📂 Estructura del repositorio
-
+    TAURI <--> API
 ```
-Orchestrator's-Brain/
-├── core/                          # Núcleo del sistema (Rust)
-│   ├── obrain-keys/               #   La llave de la base (DPAPI) y la clave de recuperación
-│   ├── obrain-core/               #   Modelo de datos y almacenamiento (cifrado con SQLCipher)
-│   ├── obrain-scan/               #   Descubrimiento e identidad de archivos
-│   ├── obrain-ocr/                #   Leer fotos y escaneos con el OCR de Windows
-│   ├── obrain-extract/            #   Extracción de texto y búsqueda léxica
-│   ├── obrain-link/               #   Relaciones automáticas entre archivos
-│   ├── obrain-guard/              #   Sensibilidad y control de egreso
-│   ├── obrain-expiry/             #   Vencimientos: la fecha de caducidad, leída del texto
-│   ├── obrain-embed/              #   Embeddings locales y búsqueda semántica
-│   └── obrain-api/                #   La superficie: buscar, mirar y recorrer
-├── ui/                            # Aplicación de escritorio (Tauri + Svelte 5)
-│   ├── src/
-│   │   ├── vistas/                #   Inicio, Carpeta, Mapa, Colecciones, Sensibles y Papelera
-│   │   ├── componentes/           #   Barra lateral, cabecera, buscador, vista previa…
-│   │   ├── lib/                   #   Estado de la app, nombres legibles, el mapa (PixiJS)
-│   │   └── estilos/               #   El tema: noche y día
-│   └── src-tauri/                 #   El puente al núcleo
-├── docs/                          # Documentación de diseño
-│   ├── ESTADO.md                  #   Empieza aquí: dónde estamos y cómo usarlo
-│   ├── PROJECT-MASTER.md          #   Documento maestro del proyecto
-│   ├── EXPERIENCE.md              #   Diseño de experiencia y lenguaje visual
-│   ├── adr/                       #   Registro de decisiones arquitectónicas
-│   └── archivo/                   #   Bitácora de agosto y prompts de diseño
-└── prototypes/                    # Prototipos y pruebas de concepto
-    └── 01-graph-render/           #   Benchmark de renderizado WebGL
+
+### Registro de decisiones de diseño (ADRs)
+El repositorio cuenta con 36 decisiones formales de arquitectura registradas en [`docs/adr/`](docs/adr/), detallando el razonamiento técnico detrás de cada componente (elección de SQLite/SQLCipher, OCR local, diseño de aserciones, mitigaciones de AppData en Windows, etc.).
+
+---
+
+## 🛠️ Guía de inicio para desarrolladores
+
+### Requisitos previos
+- **Sistema operativo:** Windows 10/11 x64 (recomendado para la experiencia completa con OCR nativo y DPAPI). *El núcleo de Rust compila y pasa suites de prueba también en Linux.*
+- **Rust:** Versión 1.80 o superior (edición 2024).
+- **Node.js:** Versión 20 o 22 LTS y `npm`.
+- **Strawberry Perl (en Windows):** Necesario para compilar OpenSSL embebido dentro de SQLCipher (`libsqlite3-sys`).
+  ```powershell
+  winget install StrawberryPerl.StrawberryPerl
+  ```
+
+### Clonación y configuración del entorno
+
+```powershell
+# 1. Clonar el repositorio
+git clone https://github.com/jpgarcia04/Orchestrator-s-Brain.git
+cd Orchestrator-s-Brain
+
+# 2. Configurar el directorio de compilación recomendado
+# Por el apóstrofo en el nombre del repositorio, se recomienda compilar fuera de la carpeta:
+$env:CARGO_TARGET_DIR = "$env:USERPROFILE\obrain-target"
+```
+
+### Ejecutar la aplicación en desarrollo
+
+```powershell
+# Instalar dependencias del frontend
+cd ui
+npm install
+
+# Lanzar la aplicación en modo desarrollo (Tauri + Vite)
+npm run app
+```
+
+### Ejecutar la CLI de Brain
+
+```powershell
+# Desde la raíz del repositorio:
+cargo run --manifest-path core/Cargo.toml --release -p obrain-api --bin obrain -- --help
+
+# Indexar una carpeta de prueba:
+cargo run --manifest-path core/Cargo.toml --release -p obrain-api --bin obrain -- indexar "C:\Ruta\A\Tu\Carpeta"
+```
+
+### Verificaciones y pruebas locales
+
+El repositorio incluye un script unificado de verificación local que respeta la política de eficiencia de CI sin alterar tu base de datos personal:
+
+```powershell
+# Verificación rápida de política CI y coherencia de versiones (< 5 segundos):
+./tools/verificar-local.ps1 -SoloPoliticaCI
+
+# Verificación estándar de desarrollo (formato Rust, svelte-check, tests unitarios de UI y build Vite):
+./tools/verificar-local.ps1
+
+# Verificación completa (incluye pruebas de coherencia en Rust):
+./tools/verificar-local.ps1 -Completo
 ```
 
 ---
 
-## 🤝 Sobre el proyecto
+## 🖼️ Demostración visual
 
-Orchestrator's Brain es un proyecto personal en desarrollo activo. Nació de una frustración concreta: tener miles de archivos acumulados durante años y no poder preguntarle a la computadora nada que no sea "¿cómo se llama?" o "¿cuándo lo modificaste?".
+> **Nota sobre privacidad:** Para garantizar la protección de datos personales, cualquier material gráfico de Brain se genera exclusivamente a partir de la biblioteca de pruebas sintética ([`tests/fixtures/producto-windows/`](tests/fixtures/producto-windows/README.md)).
 
-La ambición es construir algo que funcione como un segundo cerebro real: que recuerde lo que tú olvidaste, que vea conexiones que tú no ves, que organice tu conocimiento sin pedirte que lo organices tú — y que lo haga sin que tus datos salgan de tu máquina.
+```
+[Próximamente: Capturas de la interfaz con datos sintéticos]
+1. Escritorio principal con colecciones, barra lateral y tarjetas de caducidad.
+2. Vista previa de documentos con relaciones detectadas (part_of y duplicados).
+3. Buscador por significado y pasajes verificables.
+4. Mapa espacial interactivo (PixiJS).
+```
 
-No es un proyecto terminado. Es un proyecto que se va a ir perfeccionando con el tiempo, hito por hito, validando cada paso contra una pregunta real: *¿puede encontrar aquel documento de la visa?*
+---
 
-Y el día que pueda, la arquitectura habrá demostrado que funciona.
+## 📄 Licencia y Atribuciones
+
+Este proyecto se distribuye bajo la licencia **MIT**. Consulta el archivo [`LICENSE`](LICENSE) para más detalles.
+
+### Componentes de terceros y agradecimientos
+- **[Tauri](https://tauri.app/):** Marco de trabajo para aplicaciones de escritorio ligeras y seguras.
+- **[SQLCipher](https://www.zetetic.net/sqlcipher/) / [rusqlite](https://github.com/rusqlite/rusqlite):** Motor de base de datos cifrado en reposo mediante AES-256.
+- **[Svelte](https://svelte.dev/):** Entorno reactivo para la interfaz de usuario.
+- **[PixiJS](https://pixijs.com/):** Motor de renderizado acelerado por WebGL2 para el mapa de conocimiento.
+- **[ONNX Runtime](https://onnxruntime.ai/) & [multilingual-e5-small](https://huggingface.co/intfloat/multilingual-e5-small):** Motor de inferencia y modelo de embeddings semánticos locales.
 
 ---
 
@@ -284,6 +263,6 @@ Y el día que pueda, la arquitectura habrá demostrado que funciona.
 
 *Construido con la convicción de que tu computadora debería conocerte mejor — sin necesidad de contarle nada a nadie más.*
 
-**[🧭 Estado](docs/ESTADO.md)** · **[📖 Documento Maestro](docs/PROJECT-MASTER.md)** · **[🎨 Diseño de Experiencia](docs/EXPERIENCE.md)** · **[📋 Decisiones Arquitectónicas](docs/adr/)**
+**[🧭 Estado del Proyecto](docs/ESTADO.md)** · **[📖 Documento Maestro](docs/PROJECT-MASTER.md)** · **[📋 Decisiones Arquitectónicas (ADRs)](docs/adr/)** · **[⚙️ Política de CI](docs/POLITICA-CI.md)**
 
 </div>

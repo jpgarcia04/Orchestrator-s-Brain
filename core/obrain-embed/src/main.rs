@@ -282,9 +282,18 @@ fn buscar(
 }
 
 fn corto(path: &str) -> String {
-    let p = path
-        .replace("C:/Users/pacox/OneDrive\\", "")
-        .replace("C:\\Users\\pacox\\OneDrive\\", "");
+    let mut p = path.to_string();
+    if let Ok(home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
+        let home_fwd = home.replace('\\', "/");
+        let home_bwd = home.replace('/', "\\");
+        if let Some(rest) = p
+            .strip_prefix(&home_fwd)
+            .or_else(|| p.strip_prefix(&home_bwd))
+        {
+            let trimmed = rest.trim_start_matches(['/', '\\']);
+            p = format!("~/{trimmed}");
+        }
+    }
     if p.chars().count() > 92 {
         let tail: String = p.chars().skip(p.chars().count() - 89).collect();
         format!("...{tail}")

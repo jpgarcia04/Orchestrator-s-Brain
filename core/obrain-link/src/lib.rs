@@ -187,7 +187,7 @@ fn de_ruta(t: &str) -> String {
 
 /// El nombre de una carpeta: **su nombre**, y nada más.
 ///
-/// Durante M3–M5 fueron dos segmentos (`pacox/Documentos`) para que cinco
+/// Durante M3–M5 fueron dos segmentos (`usuario/Documentos`) para que cinco
 /// carpetas llamadas `src` no fueran cinco nodos indistinguibles. El remedio
 /// era peor que la enfermedad: pagaban el prefijo **todas** las carpetas para
 /// arreglar las pocas que chocan, y el mapa, las migas y el explorador

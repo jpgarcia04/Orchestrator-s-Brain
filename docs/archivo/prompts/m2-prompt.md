@@ -52,7 +52,7 @@ En M3 hubo tres defectos reales que los contadores no mostraban y que sólo apar
 
 Para M2, eso significa:
 
-1. **Ejecuta contra el corpus real de esta máquina** (`C:\Users\pacox\OneDrive`, ya indexado — puedes reescanear con `obrain-scan` si hace falta una base fresca), no sólo contra datos sintéticos de test.
+1. **Ejecuta contra el corpus real de esta máquina** (`%USERPROFILE%\OneDrive`, ya indexado — puedes reescanear con `obrain-scan` si hace falta una base fresca), no sólo contra datos sintéticos de test.
 2. Añade un modo `--sample` al CLI que muestre extracciones reales (texto extraído de 5-10 archivos variados, snippets de búsquedas de prueba) para poder juzgar la calidad a ojo, no sólo contar bytes.
 3. Si encuentras basura en la extracción (texto ilegible de un PDF escaneado, ruido de un HTML con mucho boilerplate, etc.), no lo escondas: repórtalo igual que se reportó lo de las cachés de Chromium en M1, y decide si se filtra o se deja para un hito posterior con justificación explícita.
 4. Verifica la aritmética de lo que reportes (como se hizo con "35.583 − 33.517 podados = 2.066 vistos" en M1): si el informe dice "N archivos con texto extraído", comprueba que N tiene sentido contra el total y contra cuántos son de formatos soportados.

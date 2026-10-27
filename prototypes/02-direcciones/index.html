@@ -100,44 +100,40 @@
 "use strict";
 
 /* ════════════════════════════════════════════════════════════════════════
-   DATOS — regiones reales del corpus del usuario (2026-08-10, 1.042
-   archivos). Los nombres y los pesos NO son inventados: salen de
-   `obrain-api --cielo` sobre `vida.obrain`. Lo sintético es únicamente
-   la posición de cada archivo dentro de su región y el multiplicador de
-   densidad, que existe para juzgar el render a la escala que tendrá el
-   corpus cuando llegue el contenido del móvil.
+   DATOS DEL CORPUS — distribución sintética de demostración basada en 29
+   regiones para validar el algoritmo de empaquetado y la densidad espacial.
    ════════════════════════════════════════════════════════════════════════ */
 
 const REGIONES = [
   ["Imágenes/Capturas de pantalla", 229, 4, 0],
-  ["pacox/Downloads",               183, 2, 1],
-  ["GitHub/losFrutosDeMaria",       103, 5, 0],
-  ["ClipOps/src",                    81, 6, 0],
+  ["Descargas/General",             183, 2, 1],
+  ["GitHub/Proyecto-Web",           103, 5, 0],
+  ["Proyectos/App/src",              81, 6, 0],
   ["Orchestrator's-Brain/core",      63, 6, 1],
-  ["GitHub/Cheddar-Chase",           59, 5, 0],
-  ["Documentos/Rockstar Games",      58, 4, 0],
-  ["GitHub/Triplets_redesign",       54, 5, 0],
-  ["GitHub/Martian-Roulette",        47, 5, 0],
-  ["GitHub/ClipOps",                 23, 5, 1],
+  ["GitHub/Simulador-2D",            59, 5, 0],
+  ["Documentos/Contratos",           58, 4, 0],
+  ["GitHub/Diseno-UI",               54, 5, 0],
+  ["GitHub/Motor-Grafos",            47, 5, 0],
+  ["GitHub/Herramientas",            23, 5, 1],
   ["GitHub/Orchestrator's-Brain",    23, 5, 1],
   ["Orchestrator's-Brain/ui",        22, 6, 0],
-  ["OneDrive/Escritorio",            18, 3, 1],
-  ["Documentos/Battlefield 1",       18, 4, 0],
-  ["OneDrive/Documentos",            12, 3, 0],
-  ["ClipOps/public",                  8, 6, 0],
-  ["Documentos/Clansoft",             7, 4, 0],
-  ["Documentos/My Games",             6, 4, 0],
-  ["pacox/Videos",                    6, 2, 0],
-  ["ClipOps/scripts",                 3, 6, 0],
+  ["Escritorio/Trabajo",             18, 3, 1],
+  ["Documentos/Facturas",            18, 4, 0],
+  ["Documentos/Archivo",             12, 3, 0],
+  ["Proyectos/App/public",            8, 6, 0],
+  ["Documentos/Consultoria",          7, 4, 0],
+  ["Documentos/Recibos",              6, 4, 0],
+  ["Videos/Tutoriales",               6, 2, 0],
+  ["Proyectos/App/scripts",           3, 6, 0],
   ["Imágenes/Álbum de cámara",        3, 4, 0],
-  ["pacox/OneDrive",                  3, 2, 0],
-  ["ClipOps/prisma",                  2, 6, 0],
-  ["Imágenes/Nitro",                  2, 4, 0],
-  ["OneDrive/Datos adjuntos",         2, 3, 0],
-  ["Downloads/JPGM",                  2, 3, 0],
-  ["Documentos/Blocs de notas",       1, 4, 0],
-  ["OneDrive/Imágenes",               1, 3, 0],
-  ["Documentos/Vps",                  1, 4, 1],
+  ["Nube/Compartido",                 3, 2, 0],
+  ["Proyectos/App/prisma",            2, 6, 0],
+  ["Imágenes/Disenos",                2, 4, 0],
+  ["Documentos/Adjuntos",             2, 3, 0],
+  ["Descargas/Software",              2, 3, 0],
+  ["Documentos/Notas",                1, 4, 0],
+  ["Imágenes/Referencia",             1, 3, 0],
+  ["Documentos/Servidores",           1, 4, 1],
 ].map(([label, weight, depth, sens]) => ({ label, weight, depth, sens }));
 
 /* Puentes reales: sesiones de trabajo que cruzaron dos regiones. */
@@ -218,7 +214,7 @@ function construir(multiplicador) {
   };
   const familia = (l) =>
     /Imágenes|Capturas|Álbum/.test(l) ? "img"
-    : /GitHub|ClipOps|Brain|src|ui|core/.test(l) ? "codigo"
+    : /GitHub|Proyectos|Brain|src|ui|core/.test(l) ? "codigo"
     : /Documentos|OneDrive|Downloads|Datos/.test(l) ? "docs" : "gen";
 
   for (const reg of R) {

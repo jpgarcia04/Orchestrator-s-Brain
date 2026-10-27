@@ -142,8 +142,8 @@ pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport)
     //
     // **Salvo en una biblioteca.** Por encima de la carpeta que el usuario
     // eligió indexar no hay conocimiento suyo, sólo el camino del disco hasta
-    // ella (`C:\Users\pacox\OneDrive\…`). Encadenar hasta ahí era lo que
-    // llenaba las migas de `Users/pacox › pacox/OneDrive › …` y obligaba a
+    // ella (`C:\Users\usuario\OneDrive\…`). Encadenar hasta ahí era lo que
+    // llenaba las migas de `Users/usuario › usuario/OneDrive › …` y obligaba a
     // bajar diez niveles para llegar a la bóveda.
     let bibliotecas: HashSet<String> = crate::libraries(store, TimePoint::at(at))?
         .into_iter()

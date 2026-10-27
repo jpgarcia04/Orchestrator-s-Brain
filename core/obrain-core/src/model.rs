@@ -273,7 +273,7 @@ pub enum Facet {
     Project,
     /// Una carpeta que el usuario **eligió** indexar: la raíz de su bóveda.
     ///
-    /// Lo que hay por encima de ella —`C:\Users\pacox\OneDrive`…— no es
+    /// Lo que hay por encima de ella —`C:\Users\usuario\OneDrive`…— no es
     /// conocimiento del usuario sino el camino hasta él. Por eso el árbol de
     /// contención se corta aquí: el explorador empieza en la biblioteca y las
     /// migas no arrastran la ruta entera del disco.
