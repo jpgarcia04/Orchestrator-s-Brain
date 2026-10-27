@@ -2,6 +2,7 @@
 param(
     [string]$MsiPath = $null,
     [string]$Msi001Path = $null,
+    [string]$Cli001Path = $null,
     [switch]$RequireUpgrade
 )
 
@@ -31,6 +32,7 @@ $report = [ordered]@{
         status = 'pendiente'
         reason = $null
         msi001 = $null
+        cli001 = $null
         detectionOfPreviousVersion = $null
         replacementAndRegistry = $null
         install001 = $null
@@ -340,6 +342,26 @@ try {
             upgradeCode = $props001['UpgradeCode']; productVersion = $props001['ProductVersion']
         }
 
+        # Resolver y verificar la CLI histórica auténtica de 0.0.1 (commit 5421cee)
+        if (-not $Cli001Path -and $env:OBRAIN_CLI_001_PATH) { $Cli001Path = $env:OBRAIN_CLI_001_PATH }
+        Assert-True ([bool]$Cli001Path -and (Test-Path -LiteralPath $Cli001Path -PathType Leaf)) "Falta la CLI histórica 0.0.1 compilada para generar la base pre-actualización. Ruta evaluada: $Cli001Path"
+        $cli001Hash = (Get-FileHash -LiteralPath $Cli001Path -Algorithm SHA256).Hash
+        $cli002Hash = (Get-FileHash -LiteralPath $cli -Algorithm SHA256).Hash
+        Assert-True ($cli001Hash -ne $cli002Hash) 'La CLI histórica 0.0.1 tiene el mismo hash que la CLI 0.0.2; se requiere el binario histórico auténtico.'
+        $cli001Ascii = [System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($Cli001Path))
+        $cli002Ascii = [System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($cli))
+        $cli001HasRespaldar = $cli001Ascii.Contains('obrain respaldar')
+        $cli002HasRespaldar = $cli002Ascii.Contains('obrain respaldar')
+        Assert-True (-not $cli001HasRespaldar -and $cli002HasRespaldar) 'La verificación de superficie histórica de CLI 0.0.1 frente a 0.0.2 no coincide con lo esperado.'
+        $report.upgradeFrom001.cli001 = [ordered]@{
+            path = $Cli001Path
+            sha256 = $cli001Hash
+            cli002Sha256 = $cli002Hash
+            sourceCommit = $(if ($env:OBRAIN_CLI_001_COMMIT) { $env:OBRAIN_CLI_001_COMMIT } else { '5421ceeeb977944edec8406119f504f8c8e0a17a' })
+            verifiedDistinctFrom002 = ($cli001Hash -ne $cli002Hash)
+            verifiedHistoricalSurfaceWithoutRespaldar = (-not $cli001HasRespaldar)
+        }
+
         # Preparar entorno aislado para la actualización
         $upgradeRoot = Join-Path $env:TEMP ('obrain-upgrade-' + [guid]::NewGuid().ToString('N'))
         $upgradeLib = Join-Path $upgradeRoot 'biblioteca'
@@ -362,35 +384,38 @@ try {
         $env:TMP = $upgradeTemp
         $env:WEBVIEW2_USER_DATA_FOLDER = $upgradeWebview
 
-        # Generar conocimiento sintético utilizando EXCLUSIVAMENTE capacidades que existían en 0.0.1:
-        # a) Indexar la biblioteca sintética (11 documentos originales)
-        & $cli --db $upgradeDb --sin-modelo indexar $upgradeLib *> $null
-        Assert-True ($LASTEXITCODE -eq 0) "Indexación sintética para 0.0.1 falló: $LASTEXITCODE"
-        Assert-True (Test-Path -LiteralPath $upgradeDb -PathType Leaf) 'No se creó la base sintética.'
-        Assert-True (Test-Path -LiteralPath ($upgradeDb + '.llave') -PathType Leaf) 'No se creó la llave de la base sintética.'
+        # Generar conocimiento sintético utilizando EXCLUSIVAMENTE la CLI histórica 0.0.1 ($Cli001Path):
+        # a) Indexar la biblioteca sintética (11 documentos originales) con 0.0.1
+        & $Cli001Path --db $upgradeDb --sin-modelo indexar $upgradeLib *> $null
+        Assert-True ($LASTEXITCODE -eq 0) "Indexación sintética con CLI 0.0.1 falló: $LASTEXITCODE"
+        Assert-True (Test-Path -LiteralPath $upgradeDb -PathType Leaf) 'No se creó la base sintética con CLI 0.0.1.'
+        Assert-True (Test-Path -LiteralPath ($upgradeDb + '.llave') -PathType Leaf) 'No se creó la llave de la base sintética con CLI 0.0.1.'
 
-        # b) Marcar carpeta sensible con comando 0.0.1 'sensible'
+        # b) Marcar carpeta sensible con CLI 0.0.1 'sensible'
         $sensitiveDir = Join-Path $upgradeLib '05 identidad ficticia'
-        & $cli --db $upgradeDb sensible $sensitiveDir *> $null
-        Assert-True ($LASTEXITCODE -eq 0) "Marca sensible sintética falló: $LASTEXITCODE"
+        & $Cli001Path --db $upgradeDb sensible $sensitiveDir *> $null
+        Assert-True ($LASTEXITCODE -eq 0) "Marca sensible sintética con CLI 0.0.1 falló: $LASTEXITCODE"
 
-        # c) Crear colección y asociar documentos con comando 0.0.1 'coleccion'
-        & $cli --db $upgradeDb coleccion "Tramites Activos" --crear *> $null
-        Assert-True ($LASTEXITCODE -eq 0) "Creación de colección falló: $LASTEXITCODE"
+        # c) Crear colección y asociar documentos con CLI 0.0.1 'coleccion'
+        & $Cli001Path --db $upgradeDb coleccion "Tramites Activos" --crear *> $null
+        Assert-True ($LASTEXITCODE -eq 0) "Creación de colección con CLI 0.0.1 falló: $LASTEXITCODE"
         $docExpediente = Join-Path $upgradeLib '02 tramites\expediente-AURORA.txt'
         $docAnexo = Join-Path $upgradeLib '02 tramites\anexo-cita.txt'
-        & $cli --db $upgradeDb coleccion "Tramites Activos" --meter $docExpediente $docAnexo *> $null
-        Assert-True ($LASTEXITCODE -eq 0) "Asociación de documentos a colección falló: $LASTEXITCODE"
+        & $Cli001Path --db $upgradeDb coleccion "Tramites Activos" --meter $docExpediente $docAnexo *> $null
+        Assert-True ($LASTEXITCODE -eq 0) "Asociación de documentos a colección con CLI 0.0.1 falló: $LASTEXITCODE"
 
-        # d) Marcar clave de recuperación como guardada
-        & $cli --db $upgradeDb clave --guardada *> $null
-        Assert-True ($LASTEXITCODE -eq 0) "Confirmación de clave guardada falló: $LASTEXITCODE"
+        # d) Marcar clave de recuperación como guardada con CLI 0.0.1
+        & $Cli001Path --db $upgradeDb clave --guardada *> $null
+        Assert-True ($LASTEXITCODE -eq 0) "Confirmación de clave guardada con CLI 0.0.1 falló: $LASTEXITCODE"
 
-        # Comprobar formato cifrado inicial SQLCipher (primeros 16 bytes no deben ser texto plano SQLite)
+        # Comprobar formato cifrado inicial SQLCipher creado por 0.0.1 (primeros 16 bytes no deben ser texto plano SQLite)
         $headerBytesPre = [System.IO.File]::ReadAllBytes($upgradeDb)[0..15]
         $headerStringPre = [System.Text.Encoding]::ASCII.GetString($headerBytesPre)
         $isSqlCipherPre = -not ($headerStringPre.StartsWith('SQLite format 3'))
-        Assert-True $isSqlCipherPre 'La base previa no presenta cabecera cifrada SQLCipher.'
+        Assert-True $isSqlCipherPre 'La base previa creada por 0.0.1 no presenta cabecera cifrada SQLCipher.'
+        $db001BytesPre = (Get-Item -LiteralPath $upgradeDb).Length
+        $db001Sha256Pre = (Get-FileHash -LiteralPath $upgradeDb -Algorithm SHA256).Hash
+        $llave001Sha256Pre = (Get-FileHash -LiteralPath ($upgradeDb + '.llave') -Algorithm SHA256).Hash
 
         # Paso 1: Instalar MSI 0.0.1 auténtico
         $log001Install = Join-Path $evidence 'msi001-install.log'
@@ -539,12 +564,52 @@ try {
         Assert-True ($isSqlCipherPost) 'La base perdió el cifrado SQLCipher tras la actualización.'
 
         $clavePost = & $cli --db $upgradeDb clave
-        $claveRetrieved = ($LASTEXITCODE -eq 0 -and $clavePost -match 'clave de recuperación')
+        $claveRetrieved = [bool]($LASTEXITCODE -eq 0 -and ($clavePost -match 'clave de recuperación'))
         Assert-True ($claveRetrieved) 'No se pudo leer la clave de recuperación tras la actualización (posible corrupción SQLCipher).'
 
+        # Verificación profunda de integridad SQLCipher (PRAGMA quick_check, PRAGMA foreign_key_check,
+        # PRAGMA cipher_integrity_check y PRAGMA integrity_check en core/obrain-core/src/opening.rs::validate_integrity)
+        # más correspondencia criptográfica entre brain.obrain, brain.obrain.llave y clave de recuperación:
+        $verifyBackupDir = Join-Path $upgradeRoot 'respaldo-verificacion-002'
+        $respaldarOut = & $cli --db $upgradeDb respaldar $verifyBackupDir
+        $respaldarExit = $LASTEXITCODE
+        Assert-True ($respaldarExit -eq 0) "obrain respaldar sobre la base migrada de 0.0.1 falló con código $respaldarExit."
+        $verificarOut = & $cli --db $upgradeDb respaldo $verifyBackupDir --verificar
+        $verificarExit = $LASTEXITCODE
+        Assert-True ($verificarExit -eq 0) "obrain respaldo --verificar sobre la base migrada de 0.0.1 falló con código $verificarExit."
+        $manifiestoPath = Join-Path $verifyBackupDir 'manifiesto.json'
+        Assert-True (Test-Path -LiteralPath $manifiestoPath -PathType Leaf) 'No se generó manifiesto.json en la verificación de integridad SQLCipher.'
+        $manifiesto = Get-Content -LiteralPath $manifiestoPath -Raw | ConvertFrom-Json
+        Assert-True ($manifiesto.instantanea.esquema_version -eq 2) "Versión de esquema inesperada tras abrir con 0.0.2: $($manifiesto.instantanea.esquema_version)"
+        Assert-True ($manifiesto.instantanea.entidades -gt 0 -and $manifiesto.instantanea.aserciones_vigentes -gt 0) 'La instantánea verificada no contiene entidades o aserciones vigentes.'
+
         $report.upgradeFrom001.sqlCipherIntegrity = [ordered]@{
-            encryptedHeaderVerified = $isSqlCipherPost
+            encryptedHeaderVerifiedPre = $isSqlCipherPre
+            encryptedHeaderVerifiedPost = $isSqlCipherPost
+            db001BytesPre = $db001BytesPre
+            db001Sha256Pre = $db001Sha256Pre
+            llave001Sha256Pre = $llave001Sha256Pre
             keyUnlockSuccessful = $claveRetrieved
+            respaldarExitCode = $respaldarExit
+            verificarExitCode = $verificarExit
+            pragmasExecutedByVerifySnapshot = @(
+                'PRAGMA quick_check',
+                'PRAGMA foreign_key_check',
+                'PRAGMA cipher_integrity_check',
+                'PRAGMA integrity_check'
+            )
+            verifiedSnapshot = [ordered]@{
+                esquemaVersion = $manifiesto.instantanea.esquema_version
+                entidades = $manifiesto.instantanea.entidades
+                aserciones = $manifiesto.instantanea.aserciones
+                asercionesVigentes = $manifiesto.instantanea.aserciones_vigentes
+                fragmentos = $manifiesto.instantanea.fragmentos
+                vectores = $manifiesto.instantanea.vectores
+                huellaContenido = $manifiesto.instantanea.huella_contenido
+                baseBlake3 = $manifiesto.base.blake3
+                llaveBlake3 = $manifiesto.llave.blake3
+                huellaRecuperacion = $manifiesto.llave.huella_recuperacion
+            }
             noDataLoss = ($hasLib -and $hasAurora -and $hasSensibleFolder -and $hasCollection)
         }
 
