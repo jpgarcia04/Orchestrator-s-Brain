@@ -86,8 +86,8 @@ Assert-True ($candidateProps['ProductCode'] -match '^\{[0-9A-Fa-f-]{36}\}$') "Pr
 Assert-True ($candidateProps['UpgradeCode'] -eq '{50BDD96E-CF12-59A7-A2F3-980F1F41BC95}') "UpgradeCode no coincide con el identificador del producto Brain"
 Assert-True ($candidateProps['ALLUSERS'] -eq '1') 'ALLUSERS debe ser 1 (instalación por máquina)'
 Assert-True ($tables -notcontains 'ServiceInstall') 'El paquete no debe declarar ServiceInstall'
-Assert-True (($files -match 'obrain-app\.exe').Count -eq 1) 'obrain-app.exe debe figurar exactamente una vez'
-Assert-True (($files -match 'DirectML\.dll').Count -eq 1) 'DirectML.dll debe figurar exactamente una vez'
+Assert-True (@($files -match 'obrain-app\.exe').Count -eq 1) 'obrain-app.exe debe figurar exactamente una vez'
+Assert-True (@($files -match 'DirectML\.dll').Count -eq 1) 'DirectML.dll debe figurar exactamente una vez'
 Assert-True ($upgradeRows.Count -gt 0) 'La tabla Upgrade debe declarar al menos una regla de actualización mayor'
 
 # 3. Comprobar compatibilidad con MSI 0.0.1 auténtico

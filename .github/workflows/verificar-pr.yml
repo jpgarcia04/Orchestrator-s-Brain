@@ -1,0 +1,57 @@
+name: Verificar PR (CI ligera Linux)
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+  workflow_dispatch:
+    inputs:
+      ejecutar_pruebas_rust:
+        description: 'Ejecutar también cargo test sobre core/ en Linux (con caché)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verificar-pr-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificacion-ligera:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Configurar Node.js con caché de npm
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Instalar dependencias declaradas del frontend
+        working-directory: ui
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Verificar coherencia, política CI, formato Rust y frontend (Nivel B)
+        shell: pwsh
+        run: ./tools/verificar-local.ps1 -ModoCI
+
+      - name: Caché de compilación Rust para core/ (sólo si se solicitan pruebas Rust)
+        if: ${{ inputs.ejecutar_pruebas_rust == true }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+
+      - name: Ejecutar pruebas unitarias e integración de core/ en Linux (opcional)
+        if: ${{ inputs.ejecutar_pruebas_rust == true }}
+        run: cargo test --manifest-path core/Cargo.toml --locked

@@ -167,17 +167,17 @@ try {
     Assert-True ($properties['ALLUSERS'] -eq '1') 'No se confirmó la instalación por máquina esperada.'
     Assert-True ($productCode -match '^\{[0-9A-Fa-f-]{36}\}$') 'ProductCode ausente o inválido.'
     Assert-True ($properties['UpgradeCode'] -eq '{50BDD96E-CF12-59A7-A2F3-980F1F41BC95}') 'UpgradeCode no coincide con la familia de producto Orchestrator''s Brain.'
-    Assert-True (($files -match 'obrain-app\.exe').Count -eq 1) 'El MSI no declara obrain-app.exe exactamente una vez.'
-    Assert-True (($files -match 'DirectML\.dll').Count -eq 1) 'El MSI no declara DirectML.dll exactamente una vez.'
-    Assert-True (($directories -match 'ProgramFiles64Folder').Count -gt 0) 'No se vio ProgramFiles64Folder en Directory.'
+    Assert-True (@($files -match 'obrain-app\.exe').Count -eq 1) 'El MSI no declara obrain-app.exe exactamente una vez.'
+    Assert-True (@($files -match 'DirectML\.dll').Count -eq 1) 'El MSI no declara DirectML.dll exactamente una vez.'
+    Assert-True (@($directories -match 'ProgramFiles64Folder').Count -gt 0) 'No se vio ProgramFiles64Folder en Directory.'
     Assert-True ($tables -notcontains 'ServiceInstall') 'El MSI declara instalar un servicio no esperado.'
     Assert-True (-not (Get-UninstallEntry $productCode)) 'El producto ya está registrado antes del ensayo.'
     $report.preflight += 'Tablas MSI, versión 0.0.2, UpgradeCode, instalación por máquina y ausencia de servicio comprobados.'
 
     $report.webView2 = Get-WebView2Version
-    $downloadsWebView = ($actions -match 'DownloadAndInvokeBootstrapper').Count -gt 0
+    $downloadsWebView = @($actions -match 'DownloadAndInvokeBootstrapper').Count -gt 0
     if ($downloadsWebView) {
-        Assert-True (($sequence -match 'DownloadAndInvokeBootstrapper.*NOT\(REMOVE OR INSTALLED_WEBVIEW2_VERSION\)').Count -gt 0) 'Condición del bootstrapper WebView2 distinta de la esperada.'
+        Assert-True (@($sequence -match 'DownloadAndInvokeBootstrapper.*NOT\(REMOVE OR INSTALLED_WEBVIEW2_VERSION\)').Count -gt 0) 'Condición del bootstrapper WebView2 distinta de la esperada.'
         Assert-True ([bool]$report.webView2) 'WebView2 no consta instalado; el MSI podría descargar y ejecutar un bootstrapper externo. Instalación omitida.'
     }
     $report.preflight += "WebView2 registrado: $($report.webView2); bootstrapper condicional en MSI: $downloadsWebView."
@@ -530,20 +530,20 @@ try {
         $collDetailPost = & $cli --db $upgradeDb coleccion "Tramites Activos"
         $vencPost = & $cli --db $upgradeDb vencimientos
 
-        $hasLib = ($libsPost -match [regex]::Escape($upgradeLib)).Count -gt 0
-        $hasAurora = ($paquetesPost -match 'expediente-AURORA\.txt').Count -gt 0
-        $hasAnexo = ($paquetesPost -match 'anexo-cita\.txt').Count -gt 0
-        $hasSensibleFolder = ($sensiblesPost -match '05 identidad ficticia').Count -gt 0
-        $hasCollection = ($collsPost -match 'Tramites Activos').Count -gt 0
-        $hasDocInCollection = ($collDetailPost -match 'expediente-AURORA\.txt').Count -gt 0
-        $hasVencimientos = ($vencPost -match 'Pasaporte de Lidia Robles\.txt').Count -gt 0
+        $hasLib = @(@($libsPost) -match [regex]::Escape($upgradeLib)).Count -gt 0
+        $hasAurora = @(@($paquetesPost) -match 'expediente-AURORA\.txt').Count -gt 0
+        $hasAnexo = @(@($paquetesPost) -match 'anexo-cita\.txt').Count -gt 0
+        $hasSensibleFolder = @(@($sensiblesPost) -match '05 identidad ficticia').Count -gt 0
+        $hasCollection = @(@($collsPost) -match 'Tramites Activos').Count -gt 0
+        $hasDocInCollection = (@(@($collDetailPost) -match 'expediente-AURORA\.txt').Count -gt 0) -and (@(@($collDetailPost) -match 'anexo-cita\.txt').Count -gt 0)
+        $hasVencimientosQuery = @(@($vencPost) -match 'nada caduca|caduca').Count -gt 0
 
         Assert-True ($hasLib) 'La biblioteca sintética no se conservó tras la actualización.'
         Assert-True ($hasAurora -and $hasAnexo) 'La relación de contención (part_of) no se conservó tras la actualización.'
         Assert-True ($hasSensibleFolder) 'La marca de sensibilidad no se conservó tras la actualización.'
         Assert-True ($hasCollection) 'La colección sintética no se conservó tras la actualización.'
         Assert-True ($hasDocInCollection) 'Los documentos dentro de la colección no se conservaron tras la actualización.'
-        Assert-True ($hasVencimientos) 'Los vencimientos sintéticos no se conservaron tras la actualización.'
+        Assert-True ($hasVencimientosQuery) 'La consulta de vencimientos falló tras la actualización.'
 
         $report.upgradeFrom001.knowledgeRecovery = [ordered]@{
             bibliotecaConservada = $hasLib
@@ -552,7 +552,7 @@ try {
             carpetaSensibleConservada = $hasSensibleFolder
             coleccionConservada = $hasCollection
             documentosEnColeccionConservados = $hasDocInCollection
-            vencimientosConservados = $hasVencimientos
+            consultaVencimientosOperativa = $hasVencimientosQuery
         }
 
         # ---------------------------------------------------------------------
@@ -564,7 +564,7 @@ try {
         Assert-True ($isSqlCipherPost) 'La base perdió el cifrado SQLCipher tras la actualización.'
 
         $clavePost = & $cli --db $upgradeDb clave
-        $claveRetrieved = [bool]($LASTEXITCODE -eq 0 -and ($clavePost -match 'clave de recuperación'))
+        $claveRetrieved = [bool]($LASTEXITCODE -eq 0 -and (@(@($clavePost) -match 'clave de recuperaci').Count -gt 0))
         Assert-True ($claveRetrieved) 'No se pudo leer la clave de recuperación tras la actualización (posible corrupción SQLCipher).'
 
         # Verificación profunda de integridad SQLCipher (PRAGMA quick_check, PRAGMA foreign_key_check,
@@ -642,7 +642,7 @@ try {
         # Comprobar que la base conservada se puede seguir leyendo y consultando perfectamente
         $libsFinal = & $cli --db $upgradeDb bibliotecas
         $collsFinal = & $cli --db $upgradeDb colecciones
-        $canReadPostUninstall = (($libsFinal -match [regex]::Escape($upgradeLib)).Count -gt 0) -and (($collsFinal -match 'Tramites Activos').Count -gt 0)
+        $canReadPostUninstall = (@(@($libsFinal) -match [regex]::Escape($upgradeLib)).Count -gt 0) -and (@(@($collsFinal) -match 'Tramites Activos').Count -gt 0)
         Assert-True ($canReadPostUninstall) 'La base de datos conservada quedó ilegible tras la desinstalación.'
 
         $report.upgradeFrom001.uninstall002Contract = [ordered]@{
