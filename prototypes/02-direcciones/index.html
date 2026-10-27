@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Orchestrator's Brain — tres direcciones visuales</title>
+<title>Orchestrator's Brain — tres direcciones visuales (demostración sintética)</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
@@ -84,63 +84,79 @@
 <div id="buscar">
   <input id="q" placeholder="escribe y mira el mapa encenderse…" autocomplete="off" spellcheck="false">
   <div id="pistas">
-    <span>capturas</span><span>clipops</span><span>visa</span><span>github</span><span>onedrive</span>
+    <span>atlas</span><span>finanzas</span><span>contratos</span><span>marketing</span><span>auditoria</span>
   </div>
 </div>
 
 <div id="hud"></div>
 
 <div id="densidad">
-  <span>densidad</span>
+  <span style="opacity: .6; margin-right: 4px;">[corpus sintético]</span><span>densidad</span>
   <input type="range" id="dens" min="1" max="20" step="1" value="1">
-  <span id="densTxt">1.042</span>
+  <span id="densTxt">1.000</span>
 </div>
 
 <script>
 "use strict";
 
 /* ════════════════════════════════════════════════════════════════════════
-   DATOS DEL CORPUS — distribución sintética de demostración basada en 29
-   regiones para validar el algoritmo de empaquetado y la densidad espacial.
+   DATOS DEL CORPUS — conjunto 100% sintético y ficticio para la evaluación
+   técnica de los algoritmos de empaquetado, densidad espacial y navegación.
+   Ningún nombre, peso, profundidad, sensibilidad o conexión proviene de un
+   entorno real ni del corpus personal del autor.
    ════════════════════════════════════════════════════════════════════════ */
 
 const REGIONES = [
-  ["Imágenes/Capturas de pantalla", 229, 4, 0],
-  ["Descargas/General",             183, 2, 1],
-  ["GitHub/Proyecto-Web",           103, 5, 0],
-  ["Proyectos/App/src",              81, 6, 0],
-  ["Orchestrator's-Brain/core",      63, 6, 1],
-  ["GitHub/Simulador-2D",            59, 5, 0],
-  ["Documentos/Contratos",           58, 4, 0],
-  ["GitHub/Diseno-UI",               54, 5, 0],
-  ["GitHub/Motor-Grafos",            47, 5, 0],
-  ["GitHub/Herramientas",            23, 5, 1],
-  ["GitHub/Orchestrator's-Brain",    23, 5, 1],
-  ["Orchestrator's-Brain/ui",        22, 6, 0],
-  ["Escritorio/Trabajo",             18, 3, 1],
-  ["Documentos/Facturas",            18, 4, 0],
-  ["Documentos/Archivo",             12, 3, 0],
-  ["Proyectos/App/public",            8, 6, 0],
-  ["Documentos/Consultoria",          7, 4, 0],
-  ["Documentos/Recibos",              6, 4, 0],
-  ["Videos/Tutoriales",               6, 2, 0],
-  ["Proyectos/App/scripts",           3, 6, 0],
-  ["Imágenes/Álbum de cámara",        3, 4, 0],
-  ["Nube/Compartido",                 3, 2, 0],
-  ["Proyectos/App/prisma",            2, 6, 0],
-  ["Imágenes/Disenos",                2, 4, 0],
-  ["Documentos/Adjuntos",             2, 3, 0],
-  ["Descargas/Software",              2, 3, 0],
-  ["Documentos/Notas",                1, 4, 0],
-  ["Imágenes/Referencia",             1, 3, 0],
-  ["Documentos/Servidores",           1, 4, 1],
+  ["Proyectos/Motor-Atlas",              180, 4, 0],
+  ["Documentos/Finanzas-2026",           145, 3, 1],
+  ["Descargas/Paquetes-Distribución",    105, 2, 0],
+  ["Proyectos/Plataforma-Web/src",        90, 5, 0],
+  ["Servicios/API-Gateway",               75, 4, 1],
+  ["Imágenes/Activos-Marketing",          65, 3, 0],
+  ["Documentos/Contratos-Proveedores",    55, 4, 1],
+  ["Proyectos/Simulador-Física",          50, 5, 0],
+  ["Documentos/Auditoría-Externa",        45, 4, 1],
+  ["Proyectos/Librería-UI/componentes",   40, 5, 0],
+  ["Servicios/Procesador-Eventos",        35, 4, 0],
+  ["Documentos/Recursos-Humanos",         25, 3, 1],
+  ["Imágenes/Capturas-Referencia",        20, 3, 0],
+  ["Proyectos/Herramientas-CLI",          15, 4, 0],
+  ["Datos/Esquemas-DB",                   10, 4, 1],
+  ["Documentos/Presupuestos-2026",         8, 4, 1],
+  ["Descargas/Documentación-Técnica",     7, 3, 0],
+  ["Proyectos/Plataforma-Web/docs",       6, 5, 0],
+  ["Documentos/Certificados-Cumplimiento", 5, 4, 1],
+  ["Imágenes/Diagramas-Arquitectura",      4, 3, 0],
+  ["Archivos/Plantillas-Corporativas",     3, 3, 0],
+  ["Servicios/Cola-Mensajería",            3, 4, 0],
+  ["Documentos/Políticas-Internas",        2, 3, 1],
+  ["Proyectos/Motor-Atlas/benchmarks",     3, 5, 0],
+  ["Imágenes/Logos-Vectoriales",           1, 3, 0],
+  ["Descargas/Firmware-Pruebas",           1, 2, 0],
+  ["Documentos/Notas-Estrategia",          1, 3, 1],
+  ["Servicios/Telemetría-Local",           1, 4, 0],
 ].map(([label, weight, depth, sens]) => ({ label, weight, depth, sens }));
 
-/* Puentes reales: sesiones de trabajo que cruzaron dos regiones. */
+/* Conexiones sintéticas entre proyectos, bibliotecas y departamentos. */
 const PUENTES = [
-  [1, 0, 7], [4, 10, 5], [1, 3, 4], [9, 3, 4], [0, 12, 4], [0, 3, 4],
-  [7, 0, 3], [1, 9, 3], [1, 15, 3], [9, 0, 3], [2, 0, 2], [5, 1, 2],
-  [6, 13, 2], [11, 4, 2], [8, 1, 2], [14, 12, 1], [16, 6, 1], [18, 1, 1],
+  [0, 23, 5],
+  [0, 4, 4],
+  [3, 9, 6],
+  [3, 17, 4],
+  [4, 10, 4],
+  [4, 14, 4],
+  [1, 15, 5],
+  [1, 6, 4],
+  [1, 8, 3],
+  [5, 24, 4],
+  [5, 12, 3],
+  [6, 18, 3],
+  [8, 18, 4],
+  [10, 21, 3],
+  [13, 0, 3],
+  [16, 17, 2],
+  [19, 0, 2],
+  [20, 22, 2],
 ];
 
 /* ── azar reproducible: el layout tiene que ser el mismo dos veces ── */
@@ -209,13 +225,13 @@ function construir(multiplicador) {
   const SUBS = {
     img:    ["2026-08", "2026-07", "2026-06", "2025", "sin fecha", "editadas"],
     codigo: ["src", "docs", "tests", "assets", "config", "scripts"],
-    docs:   ["2026", "2025", "trámites", "banco", "escaneados", "recibos"],
+    docs:   ["2026", "2025", "informes", "certificados", "auditorias", "plantillas"],
     gen:    ["reciente", "archivo", "varios", "pendiente", "revisado", "copias"],
   };
   const familia = (l) =>
-    /Imágenes|Capturas|Álbum/.test(l) ? "img"
-    : /GitHub|Proyectos|Brain|src|ui|core/.test(l) ? "codigo"
-    : /Documentos|OneDrive|Downloads|Datos/.test(l) ? "docs" : "gen";
+    /Imágenes|Capturas|Activos|Logos|Diagramas/.test(l) ? "img"
+    : /Proyectos|Servicios|Motor|Atlas|Plataforma|Gateway|UI|CLI|src|docs|benchmarks/.test(l) ? "codigo"
+    : /Documentos|Finanzas|Contratos|Auditoría|Presupuestos|Certificados|Políticas/.test(l) ? "docs" : "gen";
 
   for (const reg of R) {
     const n = Math.max(1, Math.round(reg.peso));
@@ -592,9 +608,9 @@ function buscar(q) {
         : (consulta.length > 2 && reg.label.toLowerCase().split(/[\/\s.-]+/)
             .some(t => t.startsWith(consulta.slice(0, 4))) ? .55 : 0));
   }
-  // «visa» no es el nombre de ninguna carpeta: está en el contenido.
-  if (consulta && "visa comprobante ingresos".includes(consulta) && consulta.length > 2) {
-    R[1].objetivo = 1; R[12].objetivo = .7; R[14].objetivo = .8;
+  // Búsqueda sintética por contenido dentro de documentos ficticios
+  if (consulta && "auditoria balance fiscal".includes(consulta) && consulta.length > 2) {
+    R[1].objetivo = 1; R[8].objetivo = .8; R[15].objetivo = .7;
   }
 }
 
@@ -691,7 +707,7 @@ function frame(ahora) {
   nota.style.opacity = (foco === null && cam.z <= zBase * 1.05) ? "1" : "0";
 
   hud.innerHTML =
-    `<b>${DIR[dir]}</b><br>` +
+    `<b>${DIR[dir]} · Demostración sintética</b><br>` +
     `${N.length.toLocaleString("es")} nodos · ${R.length} regiones · ${PUENTES.length} puentes<br>` +
     `${fps.toFixed(0)} fps` + (activa ? " · encendido" : " · reposo");
 
@@ -823,6 +839,6 @@ addEventListener("keydown", e => {
 });
 
 addEventListener("resize", medir);
-construir(1); medir(); elegir(0); pintarRuta();
+construir(1); densTxt.textContent = N.length.toLocaleString("es"); medir(); elegir(0); pintarRuta();
 requestAnimationFrame(t => { ultimo = t; frame(t); });
 </script>

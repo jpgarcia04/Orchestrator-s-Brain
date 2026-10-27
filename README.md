@@ -9,10 +9,10 @@
 ---
 
 [![Licencia](https://img.shields.io/badge/licencia-MIT-blue?style=for-the-badge)](LICENSE)
-[![Versión](https://img.shields.io/badge/versión-0.0.2-orange?style=for-the-badge)](#-estado-actual)
-[![Núcleo](https://img.shields.io/badge/núcleo-Rust%202024-red?style=for-the-badge)](#-arquitectura-técnica)
-[![Frontend](https://img.shields.io/badge/interfaz-Tauri%20v2%20%7C%20Svelte%205-purple?style=for-the-badge)](#-arquitectura-técnica)
-[![Local First](https://img.shields.io/badge/privacidad-100%25%20local%20%7C%20SQLCipher-green?style=for-the-badge)](#-privacidad-como-principio-no-negociable)
+[![Versión](https://img.shields.io/badge/versión-0.0.2-orange?style=for-the-badge)](#estado-actual-del-producto)
+[![Núcleo](https://img.shields.io/badge/núcleo-Rust%202024-red?style=for-the-badge)](#arquitectura-técnica)
+[![Frontend](https://img.shields.io/badge/interfaz-Tauri%20v2%20%7C%20Svelte%205-purple?style=for-the-badge)](#arquitectura-técnica)
+[![Local First](https://img.shields.io/badge/privacidad-100%25%20local%20%7C%20SQLCipher-green?style=for-the-badge)](#privacidad-como-principio-no-negociable)
 
 </div>
 
@@ -53,7 +53,7 @@ La arquitectura de Brain está diseñada desde el primer día para proteger dato
 |---|---|
 | **Local-first absoluto** | Todo el procesamiento (indexación, extracción, OCR, cálculo de relaciones y búsqueda) ocurre en tu máquina. |
 | **Cifrado en reposo (SQLCipher)** | La base de conocimiento (`brain.obrain`) está cifrada en disco con AES-256 (SQLCipher). La llave se custodia mediante **Windows DPAPI** para tu usuario y se provee una **clave de recuperación** de 24 palabras por si reinstalas el sistema. |
-| **Protección mediante PIN** | Puedes configurar un PIN de seguridad. Si el PIN está activo, el contenido sensible y sus fragmentos no se descifran ni se exponen en búsquedas o vistas previas hasta introducirlo. El núcleo revoca inmediatamente el acceso al bloquearse o tras 5 minutos de inactividad. |
+| **Protección mediante PIN** | Puedes configurar un PIN de seguridad. Si el PIN está activo, el núcleo retiene y controla la exposición del contenido sensible y sus fragmentos (en búsquedas, vistas previas, detalles de entidad o apertura externa) hasta introducirlo. El acceso se revoca inmediatamente al bloquear la sesión de forma manual o transcurridos 5 minutos desde la autenticación (las lecturas no renuevan el plazo). |
 | **Respaldos y restauración controlada** | Mecanismo integrado de copias de seguridad cifradas atómicas, verificación criptográfica (`PRAGMA integrity_check`, `PRAGMA cipher_integrity_check`) y restauración reversible con ensayo previo. |
 | **Protección contra la nube** | Respeta archivos deshidratados de OneDrive/nube: detecta atributos de almacenamiento remoto y **nunca descarga archivos sin tu autorización expresa**. |
 | **Sin telemetría ni cuentas** | Cero cuentas de usuario, cero servidores remotos, cero analíticas. |
@@ -175,7 +175,7 @@ El repositorio cuenta con 36 decisiones formales de arquitectura registradas en 
 
 ### Requisitos previos
 - **Sistema operativo:** Windows 10/11 x64 (recomendado para la experiencia completa con OCR nativo y DPAPI). *El núcleo de Rust compila y pasa suites de prueba también en Linux.*
-- **Rust:** Versión 1.80 o superior (edición 2024).
+- **Rust:** Versión 1.85 o superior (edición 2024).
 - **Node.js:** Versión 20 o 22 LTS y `npm`.
 - **Strawberry Perl (en Windows):** Necesario para compilar OpenSSL embebido dentro de SQLCipher (`libsqlite3-sys`).
   ```powershell
