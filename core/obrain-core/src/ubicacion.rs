@@ -1,7 +1,7 @@
 //! **Dónde viven los datos de obrain**: la base, su llave y el modelo de la
 //! búsqueda por significado ([ADR-0029]).
 //!
-//! En Windows, en `%USERPROFILE%\.obrain` —`C:\Users\pacox\.obrain`—, y **no**
+//! En Windows, en `%USERPROFILE%\.obrain` —`C:\Users\usuario\.obrain`—, y **no**
 //! en `%LOCALAPPDATA%\obrain`, que es donde vivían hasta el 2026-09-23.
 //!
 //! El porqué es un truco de Windows: a cada aplicación empaquetada (la app de

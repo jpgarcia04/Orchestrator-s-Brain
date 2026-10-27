@@ -193,10 +193,12 @@ try {
         if ($env:CARGO_TARGET_DIR) {
             $posiblesCli += (Join-Path $env:CARGO_TARGET_DIR 'release\obrain.exe')
         }
-        $posiblesCli += @(
-            'C:\Users\pacox\obrain-target\release\obrain.exe',
-            'C:\Users\pacox\obrain-target\debug\obrain.exe'
-        )
+        if ($env:USERPROFILE) {
+            $posiblesCli += @(
+                (Join-Path $env:USERPROFILE 'obrain-target\release\obrain.exe'),
+                (Join-Path $env:USERPROFILE 'obrain-target\debug\obrain.exe')
+            )
+        }
         foreach ($p in $posiblesCli) {
             if ($p -and (Test-Path -LiteralPath $p -PathType Leaf)) { $CliPath = $p; break }
         }

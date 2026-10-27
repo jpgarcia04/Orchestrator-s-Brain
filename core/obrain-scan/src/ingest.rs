@@ -592,7 +592,7 @@ mod tests {
     /// editar `search.rs` para redactar un NIE y volver a escanear.
     const ID_ANTES: [u8; 16] = [0xb6, 0x70, 0, 0, 0, 0, 0, 0x55, 0x01, 0, 0, 0, 0, 0, 0, 0];
     const ID_DESPUES: [u8; 16] = [0xe3, 0x32, 0x02, 0, 0, 0, 0, 0x22, 0, 0, 0, 0, 0, 0, 0, 0];
-    const RUTA: &str = r"C:\Users\pacox\OneDrive\Documentos\GitHub\proyecto\src\search.rs";
+    const RUTA: &str = r"C:\Users\usuario\OneDrive\Documentos\GitHub\proyecto\src\search.rs";
 
     fn candidato(path: &str, file_id: [u8; 16], hash: &str) -> Candidate {
         Candidate {

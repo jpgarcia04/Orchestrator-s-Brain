@@ -2299,7 +2299,10 @@ fn salvaguarda_previa_se_reconoce_y_explica_sin_modificar_archivos() {
     assert!(msg.contains("salvaguarda"), "mensaje: {msg}");
     assert!(msg.contains("info.json"), "mensaje: {msg}");
     assert!(msg.contains("manifiesto.json"), "mensaje: {msg}");
-    assert!(!msg.contains("archivo auxiliar o desconocido"), "mensaje: {msg}");
+    assert!(
+        !msg.contains("archivo auxiliar o desconocido"),
+        "mensaje: {msg}"
+    );
 
     assert!(matches!(
         respaldo::ensayar(&salv_dir, None, None, None),
@@ -2336,7 +2339,10 @@ fn salvaguarda_previa_se_reconoce_y_explica_sin_modificar_archivos() {
     assert!(!out_cli.status.success());
     let stderr_cli = String::from_utf8_lossy(&out_cli.stderr);
     assert!(stderr_cli.contains("salvaguarda"), "stderr: {stderr_cli}");
-    assert!(!stderr_cli.contains("archivo auxiliar o desconocido"), "stderr: {stderr_cli}");
+    assert!(
+        !stderr_cli.contains("archivo auxiliar o desconocido"),
+        "stderr: {stderr_cli}"
+    );
 
     // 4. Ningún archivo de la salvaguarda fue convertido ni alterado.
     assert_eq!(antes, instantanea_archivos(&salv_dir));

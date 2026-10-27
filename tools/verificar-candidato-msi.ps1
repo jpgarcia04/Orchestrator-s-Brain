@@ -43,9 +43,12 @@ if (-not $CandidateMsiPath) {
     if ($env:TEMP) {
         $searchPaths += (Join-Path $env:TEMP 'obrain-cargo-target\release\bundle\msi')
     }
+    if ($env:USERPROFILE) {
+        $searchPaths += (Join-Path $env:USERPROFILE 'obrain-target\release\bundle\msi')
+    }
     $searchPaths += @(
-        'C:\Users\pacox\obrain-target\release\bundle\msi',
-        (Join-Path $PSScriptRoot '..\ui\src-tauri\target\release\bundle\msi')
+        (Join-Path $PSScriptRoot '..\ui\src-tauri\target\release\bundle\msi'),
+        (Join-Path $PSScriptRoot '..\target\release\bundle\msi')
     )
     foreach ($dir in $searchPaths) {
         if ($dir -and (Test-Path -LiteralPath $dir)) {
@@ -103,13 +106,22 @@ $msi001Report = [ordered]@{
     actualizacionMayorValida = $false
 }
 
+if (-not $Msi001Path -and $env:OBRAIN_MSI_001_PATH) {
+    $Msi001Path = $env:OBRAIN_MSI_001_PATH
+}
 if (-not $Msi001Path) {
-    $posibles001 = @(
-        'C:\Users\pacox\obrain-msi-0.0.1\Orchestrator''s Brain_0.0.1_x64_en-US.msi',
-        'C:\Users\pacox\obrain-target\release\bundle\msi\Orchestrator''s Brain_0.0.1_x64_en-US.msi',
-        (Join-Path $env:TEMP 'Orchestrator''s Brain_0.0.1_x64_en-US.msi'),
-        (Join-Path $PSScriptRoot '..\tests\fixtures\msi-0.0.1\Orchestrator''s Brain_0.0.1_x64_en-US.msi')
-    )
+    $posibles001 = @()
+    if ($env:USERPROFILE) {
+        $posibles001 += (Join-Path $env:USERPROFILE 'obrain-msi-0.0.1\Orchestrator''s Brain_0.0.1_x64_en-US.msi')
+        $posibles001 += (Join-Path $env:USERPROFILE 'obrain-target\release\bundle\msi\Orchestrator''s Brain_0.0.1_x64_en-US.msi')
+    }
+    if ($env:RUNNER_TEMP) {
+        $posibles001 += (Join-Path $env:RUNNER_TEMP 'Orchestrator''s Brain_0.0.1_x64_en-US.msi')
+    }
+    if ($env:TEMP) {
+        $posibles001 += (Join-Path $env:TEMP 'Orchestrator''s Brain_0.0.1_x64_en-US.msi')
+    }
+    $posibles001 += (Join-Path $PSScriptRoot '..\tests\fixtures\msi-0.0.1\Orchestrator''s Brain_0.0.1_x64_en-US.msi')
     foreach ($p in $posibles001) {
         if (Test-Path -LiteralPath $p -PathType Leaf) {
             $Msi001Path = $p

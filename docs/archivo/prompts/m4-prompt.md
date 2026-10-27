@@ -130,7 +130,7 @@ En M1, M2, M3 y en la puerta, los defectos reales **no aparecieron en los contad
 
 Para M4 eso significa:
 
-1. **Ejecuta contra el corpus real de esta máquina** (`C:\Users\pacox\OneDrive`), no sólo contra datos sintéticos.
+1. **Ejecuta contra el corpus real de esta máquina** (`%USERPROFILE%\OneDrive`), no sólo contra datos sintéticos.
 2. **`--sample` es parte del hito.** Como mínimo tiene que enseñar: los vecinos más cercanos de un puñado de documentos reales; los fragmentos que aparecen como vecinos de demasiadas cosas (los *hubs*, que son la patología clásica de un espacio vectorial y que ningún contador delata); y la comparación lado a lado de BM25, kNN y RRF para la misma consulta.
 3. **Verifica la aritmética** como en los cuatro informes anteriores: si dices «N fragmentos vectorizados», comprueba que N cuadra con los fragmentos elegibles menos los retenidos por la puerta (hoy 5.229 − 28).
 4. **Si la calidad es mala, dilo con ejemplos.** Un informe que diga «la búsqueda semántica funciona» sin enseñar una consulta que falla no es un informe, es una nota de prensa.

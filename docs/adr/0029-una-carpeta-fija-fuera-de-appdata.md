@@ -45,7 +45,7 @@ lugar fijo que la app siempre lo pueda encontrar»*.
 ## Decisión
 
 1. **Los datos de obrain viven en `%USERPROFILE%\.obrain`**
-   (`C:\Users\pacox\.obrain`): la base, su llave y `models\`. Fuera de
+   (`%USERPROFILE%\.obrain`): la base, su llave y `models\`. Fuera de
    `AppData` Windows no hace copias por aplicación: se comprobó escribiendo
    desde Claude en el perfil y leyendo desde fuera. **Fuera de OneDrive**: una
    base viva no se sincroniza, y nada sale de la computadora.
@@ -72,7 +72,7 @@ lugar fijo que la app siempre lo pueda encontrar»*.
    (`ExclusionSet::cuelga_de_dotdir_del_perfil`). Sin esto, cada pasada
    escribiría en la base y se despertaría a sí misma.
 5. **El modelo del usuario se movió a mano** (2026-09-23) de la copia privada
-   de Claude a `C:\Users\pacox\.obrain\models`: desde una PowerShell normal,
+   de Claude a `%USERPROFILE%\.obrain\models`: desde una PowerShell normal,
    la mudanza automática no lo habría visto nunca.
 
 ## Alternativas consideradas

@@ -71,13 +71,21 @@ jobs:
             Write-Host "Descargando MSI 0.0.1 desde URL suministrada: $url"
             Invoke-WebRequest -Uri $url -Headers @{ Authorization = "Bearer $env:GH_TOKEN" } -OutFile $dest
           } else {
-            Write-Host "Descargando asset desde pre-release temporal temp-upgrade-fixture-0.0.1..."
-            gh release download "temp-upgrade-fixture-0.0.1" --repo "${{ github.repository }}" --pattern "*.msi" --dir $env:RUNNER_TEMP --clobber
-            if (-not (Test-Path -LiteralPath $dest)) {
-              $downloaded = Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter '*0.0.1*.msi' -File | Select-Object -First 1
-              if ($downloaded) {
-                Copy-Item -LiteralPath $downloaded.FullName -Destination $dest -Force
-              }
+            # Intentar descarga desde tag formal de fixture o compatibilidad con pre-release
+            $tagsToTry = @('fixture-msi-0.0.1', 'v0.0.1', 'temp-upgrade-fixture-0.0.1')
+            $downloadedOk = $false
+            foreach ($t in $tagsToTry) {
+              Write-Host "Intentando descargar asset MSI 0.0.1 desde tag/release: $t..."
+              try {
+                gh release download $t --repo "${{ github.repository }}" --pattern "*.msi" --dir $env:RUNNER_TEMP --clobber 2>$null
+                if (Test-Path -LiteralPath $dest) { $downloadedOk = $true; break }
+                $downloaded = Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter '*0.0.1*.msi' -File | Select-Object -First 1
+                if ($downloaded) {
+                  Copy-Item -LiteralPath $downloaded.FullName -Destination $dest -Force
+                  $downloadedOk = $true
+                  break
+                }
+              } catch {}
             }
           }
           if (Test-Path -LiteralPath $dest -PathType Leaf) {

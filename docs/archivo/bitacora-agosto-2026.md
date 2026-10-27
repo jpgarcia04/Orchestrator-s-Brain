@@ -69,7 +69,7 @@ Va **detrás** de M5b y no delante porque hasta que el mapa no esté de frente n
 
 ### Informe de M1 — escaneo real (2026-08-07)
 
-`obrain-scan C:\Users\pacox\OneDrive --verify`, build release.
+`obrain-scan %USERPROFILE%\OneDrive --verify`, build release.
 
 | | |
 |---|---|
@@ -1596,3 +1596,4 @@ sesenta líneas, sin abrir la ventana.
 cerró, se abrió la aplicación, y de ahí salió este hito entero — incluida la
 única cosa que ningún informe habría encontrado, que era que el mapa no tenía
 nodos que picar sino un montón.
+

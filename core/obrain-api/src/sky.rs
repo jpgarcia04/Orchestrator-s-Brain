@@ -346,7 +346,7 @@ impl Tree {
     /// Las raíces que **tienen algo dentro**, ordenadas.
     ///
     /// Con bibliotecas, el camino del disco que quedaba por encima de ellas
-    /// (`C:\Users`, `Users\pacox`…) sigue en el log pero ya no cuelga nada de
+    /// (`C:\Users`, `Users\usuario`…) sigue en el log pero ya no cuelga nada de
     /// él: son raíces vacías, y enseñarlas sería volver a poner el disco donde
     /// tiene que estar tu bóveda.
     fn roots(&self) -> Vec<EntityId> {

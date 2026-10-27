@@ -376,7 +376,7 @@ impl ExclusionSet {
 /// `PathBuf::eq` compara componente a componente —lo cual ya resuelve el
 /// separador— pero **distingue mayúsculas**, y aquí un lado sale de
 /// `%USERPROFILE%` y el otro de la ruta que escribió quien lanzó el escaneo.
-/// `C:\Users\pacox` y `C:\USERS\pacox` son el mismo sitio.
+/// `C:\Users\Usuario` y `C:\USERS\Usuario` son el mismo sitio.
 fn misma_ruta(a: &Path, b: &Path) -> bool {
     let (mut ca, mut cb) = (a.components(), b.components());
     loop {
@@ -541,9 +541,9 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn la_raiz_del_perfil_se_compara_como_lo_hace_windows() {
-        let e = con_perfil("C:\\Users\\Pacox");
+        let e = con_perfil("C:\\Users\\Usuario");
         assert_eq!(
-            e.skip_dir(&d("c:/users/pacox/.codex"), attr::DIRECTORY),
+            e.skip_dir(&d("c:/users/usuario/.codex"), attr::DIRECTORY),
             Some(SkipReason::ToolInternal)
         );
     }

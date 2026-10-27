@@ -33,7 +33,7 @@ espaldo-cifrado-a-medias-20260923\` (`cifrada-de-hoy\` con su llave y su WAL, `e
 
 ## En mi laptop (Windows)
 
-- Compilar necesita **Strawberry Perl** (ya instalado) y, por el apóstrofo de `Orchestrator's-Brain`, compilar **fuera** de la carpeta: `CARGO_TARGET_DIR=C:/Users/pacox/obrain-target` (en Git Bash, además `PATH=/c/Strawberry/perl/bin:$PATH`, porque el Perl de Git no sirve). Sin eso, OpenSSL falla con `Unknown regexp modifier` en `configdata.pm`.
+- Compilar necesita **Strawberry Perl** (ya instalado) y, por el apóstrofo de `Orchestrator's-Brain`, compilar **fuera** de la carpeta: `CARGO_TARGET_DIR=$env:USERPROFILE/obrain-target` (en Git Bash, además `PATH=/c/Strawberry/perl/bin:$PATH`, porque el Perl de Git no sirve). Sin eso, OpenSSL falla con `Unknown regexp modifier` en `configdata.pm`.
 - Aquí sí se puede comprobar el código de Windows de verdad: `cargo test --workspace` corre en NTFS.
 
 ## Entorno en la nube
