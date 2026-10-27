@@ -28,7 +28,7 @@ concurrency:
 jobs:
   instalar-y-desinstalar:
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 70
     steps:
       - uses: actions/checkout@v4
         with:
@@ -98,7 +98,7 @@ jobs:
         with:
           path: |
             ${{ runner.temp }}\obrain-cargo-target\release\bundle\msi\*.msi
-            ${{ runner.temp }}\obrain-cargo-target\release\obrain.exe
+            ${{ runner.temp }}\obrain-cli-002\obrain.exe
           key: obrain-candidato-bin-win2022-${{ hashFiles('core/Cargo.toml', 'core/Cargo.lock', 'core/**/*.rs', 'ui/package.json', 'ui/package-lock.json', 'ui/src/**', 'ui/src-tauri/**') }}
 
       - name: Caché de CLI histórica 0.0.1 inmutable (commit 5421cee)
@@ -135,6 +135,31 @@ jobs:
         working-directory: ui
         run: npm run tauri -- build --ci --no-sign --bundles msi
 
+      - name: Compilar o preparar CLI 0.0.2 del candidato evaluado
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cli002Dir = Join-Path $env:RUNNER_TEMP 'obrain-cli-002'
+          New-Item -ItemType Directory -Force -Path $cli002Dir | Out-Null
+          $cli002 = Join-Path $cli002Dir 'obrain.exe'
+          if (Test-Path -LiteralPath $cli002 -PathType Leaf) {
+            $cli002Hash = (Get-FileHash -LiteralPath $cli002 -Algorithm SHA256).Hash
+            Write-Host "Reutilizando CLI candidata 0.0.2 desde caché ($cli002, SHA256=$cli002Hash)"
+          } else {
+            Write-Host "Compilando CLI candidata 0.0.2..."
+            cargo build --manifest-path core/Cargo.toml --locked --release -p obrain-api --bin obrain
+            if ($LASTEXITCODE -ne 0) { throw "Falló la compilación de la CLI candidata 0.0.2" }
+            $srcCandidate = Join-Path $env:CARGO_TARGET_DIR 'release\obrain.exe'
+            Copy-Item -LiteralPath $srcCandidate -Destination $cli002 -Force
+            $cli002Hash = (Get-FileHash -LiteralPath $cli002 -Algorithm SHA256).Hash
+            Write-Host "CLI candidata 0.0.2 compilada y guardada en $cli002 (SHA256=$cli002Hash)"
+          }
+          $cliAscii = [System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($cli002))
+          if (-not $cliAscii.Contains('obrain respaldar')) {
+            throw "La CLI en $cli002 no corresponde al candidato 0.0.2 (no contiene 'obrain respaldar')."
+          }
+          "OBRAIN_CLI_PATH=$cli002" >> $env:GITHUB_ENV
+
       - name: Compilar o reutilizar CLI histórica 0.0.1 (commit 5421cee) compartiendo dependencias
         shell: pwsh
         run: |
@@ -163,14 +188,41 @@ jobs:
               throw "Falló la compilación de la CLI histórica 0.0.1"
             }
             Copy-Item -LiteralPath (Join-Path $env:CARGO_TARGET_DIR 'release\obrain.exe') -Destination $cli001 -Force
+            # Restaurar el binario 0.0.2 en target/release/obrain.exe para evitar contaminación
+            $cli002 = Join-Path $env:RUNNER_TEMP 'obrain-cli-002\obrain.exe'
+            if (Test-Path -LiteralPath $cli002 -PathType Leaf) {
+              Copy-Item -LiteralPath $cli002 -Destination (Join-Path $env:CARGO_TARGET_DIR 'release\obrain.exe') -Force
+              Write-Host "target/release/obrain.exe restaurado con el binario 0.0.2 tras compilar 0.0.1."
+            }
             $cli001Hash = (Get-FileHash -LiteralPath $cli001 -Algorithm SHA256).Hash
             Write-Host "CLI histórica 0.0.1 compilada desde $commit001 en $cli001 (SHA256=$cli001Hash)"
           }
+          $cli001Ascii = [System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($cli001))
+          if ($cli001Ascii.Contains('obrain respaldar')) {
+            throw "La CLI en $cli001 contiene 'obrain respaldar', no corresponde a la versión 0.0.1 histórica."
+          }
           "OBRAIN_CLI_001_PATH=$cli001" >> $env:GITHUB_ENV
 
-      - name: Compilar CLI del candidato evaluado
-        if: steps.cache-candidato.outputs.cache-hit != 'true'
-        run: cargo build --manifest-path core/Cargo.toml --locked --release -p obrain-api --bin obrain
+      - name: Validar aislamiento e identidades de ambas versiones CLI (0.0.1 vs 0.0.2)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cli001 = $env:OBRAIN_CLI_001_PATH
+          $cli002 = $env:OBRAIN_CLI_PATH
+          if (-not (Test-Path -LiteralPath $cli001 -PathType Leaf)) { throw "Falta el binario de CLI 0.0.1 en $cli001" }
+          if (-not (Test-Path -LiteralPath $cli002 -PathType Leaf)) { throw "Falta el binario de CLI 0.0.2 en $cli002" }
+          $h1 = (Get-FileHash -LiteralPath $cli001 -Algorithm SHA256).Hash
+          $h2 = (Get-FileHash -LiteralPath $cli002 -Algorithm SHA256).Hash
+          if ($h1 -eq $h2) {
+            throw "Error de aislamiento: CLI 0.0.1 y CLI 0.0.2 tienen el mismo hash SHA-256 ($h1). Posible sobrescritura."
+          }
+          $a1 = [System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($cli001))
+          $a2 = [System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($cli002))
+          if ($a1.Contains('obrain respaldar')) { throw "CLI 0.0.1 contiene comando 'obrain respaldar'" }
+          if (-not $a2.Contains('obrain respaldar')) { throw "CLI 0.0.2 no contiene comando 'obrain respaldar'" }
+          Write-Host "Aislamiento verificado exitosamente:"
+          Write-Host "  CLI 0.0.1: $cli001 (SHA256=$h1, sin 'obrain respaldar')"
+          Write-Host "  CLI 0.0.2: $cli002 (SHA256=$h2, con 'obrain respaldar')"
 
       - name: Verificar estáticamente metadatos del candidato MSI
         shell: pwsh
@@ -180,7 +232,7 @@ jobs:
         shell: pwsh
         env:
           REQUIRE_UPGRADE: "${{ inputs.requerir_actualizacion != false }}"
-        run: ./tools/validar-msi-runner.ps1
+        run: ./tools/validar-msi-runner.ps1 -CliPath "$env:OBRAIN_CLI_PATH" -Cli001Path "$env:OBRAIN_CLI_001_PATH"
 
       - name: Conservar evidencias del runner
         if: always()

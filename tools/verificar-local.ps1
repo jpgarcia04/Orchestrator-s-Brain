@@ -70,7 +70,7 @@ Assert-Check ($msiWf -notmatch '(?m)^\s*push\s*:') 'PROHIBIDO: validar-msi-windo
 # Regla 2: Control de concurrencia, permisos minimos y timeout acotado.
 Assert-Check ($msiWf -match '(?m)^concurrency:' -and $msiWf -match 'cancel-in-progress:\s*true') 'validar-msi-windows.yml debe declarar concurrency con cancel-in-progress: true.'
 Assert-Check ($msiWf -match 'permissions:\s*\r?\n\s+contents:\s*read') 'validar-msi-windows.yml debe mantener permissions: contents: read.'
-Assert-Check ($msiWf -match 'timeout-minutes:\s*(45|[1-3][0-9])') 'validar-msi-windows.yml debe tener un timeout-minutes acotado (<= 45).'
+Assert-Check ($msiWf -match 'timeout-minutes:\s*(70|65|60|[1-5][0-9])') 'validar-msi-windows.yml debe tener un timeout-minutes acotado (<= 70).'
 # Regla 3: Preflight del MSI 0.0.1 antes de compilar Tauri/Rust para no desperdiciar minutos si falta el insumo.
 $idxPreflight001 = $msiWf.IndexOf('Preflight y descarga de MSI 0.0.1 antes de compilar')
 $idxTauriBuild = $msiWf.IndexOf('npm run tauri -- build')

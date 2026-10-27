@@ -2,6 +2,7 @@
 param(
     [string]$MsiPath = $null,
     [string]$Msi001Path = $null,
+    [string]$CliPath = $null,
     [string]$Cli001Path = $null,
     [switch]$RequireUpgrade
 )
@@ -182,8 +183,28 @@ try {
     }
     $report.preflight += "WebView2 registrado: $($report.webView2); bootstrapper condicional en MSI: $downloadsWebView."
 
-    $cli = Join-Path $env:CARGO_TARGET_DIR 'release\obrain.exe'
-    Assert-True (Test-Path -LiteralPath $cli -PathType Leaf) 'Falta la CLI compilada.'
+    # Identificar y verificar la CLI candidata 0.0.2
+    if (-not $CliPath -and $env:OBRAIN_CLI_PATH) { $CliPath = $env:OBRAIN_CLI_PATH }
+    if (-not $CliPath) {
+        $posiblesCli = @()
+        if ($env:RUNNER_TEMP) {
+            $posiblesCli += (Join-Path $env:RUNNER_TEMP 'obrain-cli-002\obrain.exe')
+        }
+        if ($env:CARGO_TARGET_DIR) {
+            $posiblesCli += (Join-Path $env:CARGO_TARGET_DIR 'release\obrain.exe')
+        }
+        $posiblesCli += @(
+            'C:\Users\pacox\obrain-target\release\obrain.exe',
+            'C:\Users\pacox\obrain-target\debug\obrain.exe'
+        )
+        foreach ($p in $posiblesCli) {
+            if ($p -and (Test-Path -LiteralPath $p -PathType Leaf)) { $CliPath = $p; break }
+        }
+    }
+    Assert-True ([bool]$CliPath -and (Test-Path -LiteralPath $CliPath -PathType Leaf)) "No se localizó la CLI candidata 0.0.2. Ruta evaluada: $CliPath"
+    $cli = $CliPath
+    $cliAscii = [System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($cli))
+    Assert-True ($cliAscii.Contains('obrain respaldar')) "La CLI candidata en $cli no presenta la superficie de versión 0.0.2 esperada (falta 'obrain respaldar')."
 
     # =========================================================================
     # FASE 1: Instalación limpia, arranque y desinstalación de 0.0.2

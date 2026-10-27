@@ -70,6 +70,10 @@ Ejecutada con el bloque corregido de `tools/validar-msi-runner.ps1` bajo `Set-St
   - `respaldarExitCode = 0` y `verificarExitCode = 0` (`Store::verify_snapshot` -> `opening::validate_integrity` ejecutó `PRAGMA quick_check`, `PRAGMA foreign_key_check`, `PRAGMA cipher_integrity_check` y `PRAGMA integrity_check` sin errores).
   - Instantánea verificada (`manifiesto.json`): `esquemaVersion = 2`, `entidades = 19`, `aserciones = 215` (`215` vigentes), `fragmentos = 11`, `vectores = 0`, `huellaContenido = 8076b2a035b7a19063866e4b9a8fd8cc2a34e2f5b274975d1d92e26f9eb2a345`.
 
+### 3.4. Robustecimiento y garantías de CI (PR #16)
+- **Aislamiento e identidad estricta de binarios CLI:** Se eliminó el riesgo de sobrescritura de `obrain.exe` en `CARGO_TARGET_DIR` garantizando que la CLI candidata se preserve en `obrain-cli-002\obrain.exe` y la CLI histórica en `obrain-cli-001\obrain.exe`. Un paso explícito de verificación en el workflow comprueba que ambos binarios existan, que sus hashes SHA-256 difieran y que su superficie de comandos (`obrain respaldar` ausente en 0.0.1 y presente en 0.0.2) sea exacta antes de iniciar la validación.
+- **Calibración de timeout:** Se fijó `timeout-minutes: 70` en `.github/workflows/validar-msi-windows.yml` tras constatar que las compilaciones en frío completas de Tauri, Rust, WiX y SQLite en runners Windows 2022 tardan ~50 min, otorgando un margen prudencial de ~20 min que previene cancelaciones espurias en ejecuciones manuales autorizadas.
+
 ---
 
 ## 4. Salvaguarda de la instalación y perfil personal

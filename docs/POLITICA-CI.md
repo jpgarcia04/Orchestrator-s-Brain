@@ -50,7 +50,8 @@ Por tanto, **está prohibido utilizar runners Windows o compilaciones completas 
   2. **Reutilización de binarios del candidato por hash de código fuente:** Cachea el MSI y `obrain.exe` generados bajo la clave `hashFiles('core/**', 'ui/**')`. Si se reejecuta el workflow tras ajustar únicamente scripts de prueba (`tools/*.ps1`) o configuración del workflow, se reutilizan los binarios exactos del commit sin recompilar Tauri ni Rust.
   3. **Caché inmutable de la CLI histórica `0.0.1`:** El binario `obrain.exe` compilado desde el commit fijo `5421ceeeb977944edec8406119f504f8c8e0a17a` se conserva en caché por su SHA inmutable, evitando recompilar `0.0.1` (~10 min) en cada ensayo.
   4. **Caché incremental de Rust (`Swatinem/rust-cache@v2`) y npm:** Reduce el tiempo de compilación cuando cambia el código de `core/` o `ui/`.
-  5. **Concurrencia y límite:** `cancel-in-progress: true` y `timeout-minutes: 45`.
+  5. **Concurrencia y límite:** `cancel-in-progress: true` y `timeout-minutes: 70` (límite acotado que proporciona ~20 min de margen frente a compilaciones en frío de ~50 min en runners Windows sin caché, previniendo cancelaciones accidentales de ensayos manuales).
+  6. **Aislamiento e identidad estricta de binarios CLI (0.0.1 vs 0.0.2):** Aunque ambas versiones comparten `CARGO_TARGET_DIR` para reutilizar dependencias C y acelerar compilaciones históricas de ~13 min a ~35 s, cada CLI se almacena y ejecuta desde rutas aisladas e inmutables (`obrain-cli-002\obrain.exe` y `obrain-cli-001\obrain.exe`). Un paso de verificación previo confirma que los hashes SHA-256 difieren y que la superficie de comandos (ej. `obrain respaldar`) corresponde fielmente a su respectiva versión, evitando sobrescrituras en caso de aciertos o fallos parciales de caché.
 
 ---
 
