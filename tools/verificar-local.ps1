@@ -17,7 +17,7 @@ function Assert-Check([bool]$condition, [string]$message) {
     }
 }
 
-Write-Host "==> [1/4] Verificando coherencia de versiones entre core/, ui/ y tauri.conf.json..."
+Write-Host "==> [1/5] Verificando coherencia de versiones entre core/, ui/ y tauri.conf.json..."
 $tauriConf = Get-Content -LiteralPath (Join-Path $repoRoot 'ui/src-tauri/tauri.conf.json') -Encoding UTF8 -Raw | ConvertFrom-Json
 $expectedVersion = [string]$tauriConf.version
 Assert-Check (-not [string]::IsNullOrWhiteSpace($expectedVersion)) 'ui/src-tauri/tauri.conf.json no define version.'
@@ -38,7 +38,7 @@ foreach ($toml in $cargoTomls) {
 }
 Write-Host "    OK: Version coherente ($expectedVersion) en todos los manifiestos."
 
-Write-Host "==> [2/4] Verificando sintaxis AST de scripts PowerShell en tools/..."
+Write-Host "==> [2/5] Verificando sintaxis AST de scripts PowerShell en tools/..."
 $psScripts = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'tools') -Filter '*.ps1' -File)
 Assert-Check ($psScripts.Count -gt 0) 'No se encontraron scripts .ps1 en tools/.'
 foreach ($script in $psScripts) {
@@ -55,7 +55,7 @@ foreach ($script in $psScripts) {
 }
 Write-Host "    OK: $($psScripts.Count) scripts PowerShell analizados sin errores de sintaxis."
 
-Write-Host "==> [3/4] Verificando politica de eficiencia de GitHub Actions (.github/workflows/)..."
+Write-Host "==> [3/5] Verificando politica de eficiencia de GitHub Actions (.github/workflows/)..."
 $workflowsDir = Join-Path $repoRoot '.github/workflows'
 $msiWorkflowPath = Join-Path $workflowsDir 'validar-msi-windows.yml'
 $prWorkflowPath = Join-Path $workflowsDir 'verificar-pr.yml'
@@ -83,12 +83,47 @@ Assert-Check ($prWf -match '(?m)^concurrency:' -and $prWf -match 'cancel-in-prog
 Assert-Check ($prWf -match 'timeout-minutes:\s*(10|[1-9])\b') 'verificar-pr.yml debe tener un timeout-minutes <= 10.'
 Write-Host "    OK: Politica de eficiencia de CI verificada en los workflows."
 
+Write-Host "==> [4/5] Verificando salvaguarda de datos personales y archivos privados en git..."
+$stagedFiles = @()
+$unstagedFiles = @()
+try {
+    $stagedFiles += @(git -C $repoRoot diff --cached --name-only 2>$null)
+    $unstagedFiles += @(git -C $repoRoot diff --name-only 2>$null)
+    $unstagedFiles += @(git -C $repoRoot diff --name-only origin/main...HEAD 2>$null)
+} catch {}
+$filesToCheck = @($stagedFiles + $unstagedFiles | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+
+$forbiddenExtRegex = '(?i)\.(llave|obrain|sqlite|db|onnx|log)$'
+$forbiddenPathRegex = '(?i)(\.obrain([\\/]|$)|^obrain-respaldo|^obrain-ensayo|^obrain-salvaguarda|\.transicion\.json$)'
+
+foreach ($f in $filesToCheck) {
+    if ($f -match $forbiddenExtRegex -or $f -match $forbiddenPathRegex) {
+        throw "SALVAGUARDA DE PRIVACIDAD: El archivo '$f' corresponde a datos privados, llaves o artefactos de ejecucion y no debe ser incorporado a Git."
+    }
+}
+
+$textFilesToCheck = @($filesToCheck | Where-Object { $_ -notmatch '(?i)\.(png|ico|jpg|jpeg|gif|webp|woff2?|exe|dll|msi|cab|zip|pdf)$' -and $_ -notmatch '(?i)^docs/archivo/' })
+$personalPathPattern = '(?i)[a-z]:\\users\\pacox'
+
+foreach ($tf in $textFilesToCheck) {
+    $fullPath = Join-Path $repoRoot $tf
+    if (Test-Path -LiteralPath $fullPath -PathType Leaf) {
+        $content = [System.IO.File]::ReadAllText($fullPath, [System.Text.Encoding]::UTF8)
+        if ($content -match $personalPathPattern) {
+            if ($tf -ne 'core/obrain-scan/src/exclude.rs') {
+                throw "SALVAGUARDA DE PRIVACIDAD: El archivo '$tf' contiene una ruta personal anfitriona no permitida. Usa resolucion dinamica con variables de entorno."
+            }
+        }
+    }
+}
+Write-Host "    OK: Salvaguarda de datos personales verificada ($($filesToCheck.Count) archivos analizados, 0 datos privados detectados)."
+
 if ($SoloPoliticaCI) {
-    Write-Host "Verificacion rapida de politica CI y coherencia completada."
+    Write-Host "Verificacion rapida de politica CI, salvaguarda de datos y coherencia completada."
     exit 0
 }
 
-Write-Host "==> [4/4] Verificando formato de archivos Rust modificados y tipado/pruebas de interfaz..."
+Write-Host "==> [5/5] Verificando formato de archivos Rust modificados y tipado/pruebas de interfaz..."
 $changedRs = @()
 try {
     $changedRs += @(git -C $repoRoot diff --name-only origin/main...HEAD -- "*.rs" 2>$null)

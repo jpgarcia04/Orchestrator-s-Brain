@@ -52,6 +52,7 @@ La arquitectura de Brain está diseñada desde el primer día para proteger dato
 | Principio | Implementación real en Brain |
 |---|---|
 | **Local-first absoluto** | Todo el procesamiento (indexación, extracción, OCR, cálculo de relaciones y búsqueda) ocurre en tu máquina. |
+| **Separación estricta de datos** | El repositorio público contiene únicamente código y pruebas sintéticas. Los datos reales viven en `%USERPROFILE%\.obrain` protegidos por exclusiones de Git y salvaguardas locales (ver [Política de Separación de Datos](docs/POLITICA-DATOS.md)). |
 | **Cifrado en reposo (SQLCipher)** | La base de conocimiento (`brain.obrain`) está cifrada en disco con AES-256 (SQLCipher). La llave se custodia mediante **Windows DPAPI** para tu usuario y se provee una **clave de recuperación** de 24 palabras por si reinstalas el sistema. |
 | **Protección mediante PIN** | Puedes configurar un PIN de seguridad. Si el PIN está activo, el núcleo retiene y controla la exposición del contenido sensible y sus fragmentos (en búsquedas, vistas previas, detalles de entidad o apertura externa) hasta introducirlo. El acceso se revoca inmediatamente al bloquear la sesión de forma manual o transcurridos 5 minutos desde la autenticación (las lecturas no renuevan el plazo). |
 | **Respaldos y restauración controlada** | Mecanismo integrado de copias de seguridad cifradas atómicas, verificación criptográfica (`PRAGMA integrity_check`, `PRAGMA cipher_integrity_check`) y restauración reversible con ensayo previo. |
@@ -263,6 +264,6 @@ Este proyecto se distribuye bajo la licencia **MIT**. Consulta el archivo [`LICE
 
 *Construido con la convicción de que tu computadora debería conocerte mejor — sin necesidad de contarle nada a nadie más.*
 
-**[🧭 Estado del Proyecto](docs/ESTADO.md)** · **[📖 Documento Maestro](docs/PROJECT-MASTER.md)** · **[📋 Decisiones Arquitectónicas (ADRs)](docs/adr/)** · **[⚙️ Política de CI](docs/POLITICA-CI.md)**
+**[🧭 Estado del Proyecto](docs/ESTADO.md)** · **[📖 Documento Maestro](docs/PROJECT-MASTER.md)** · **[📋 Decisiones Arquitectónicas (ADRs)](docs/adr/)** · **[⚙️ Política de CI](docs/POLITICA-CI.md)** · **[🛡️ Política de Datos](docs/POLITICA-DATOS.md)**
 
 </div>

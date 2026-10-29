@@ -8,18 +8,43 @@ dist/
 .vite/
 
 # ─── Tauri ───
-# Los esquemas de capacidades los regenera `tauri-build` en cada compilación.
+# Los esquemas de capacidades los regenera `tauri-build` en cada compilacion.
 ui/src-tauri/gen/schemas/
 
-# ─── Bases de datos locales del propio sistema ───
-# El índice de un usuario NUNCA debe acabar en el repo: contiene su vida.
+# ─── Bases de datos locales, llaves y perfiles del sistema ───
+# Los datos privados y llaves de un usuario NUNCA deben acabar en el repo: contienen su vida.
 *.obrain
-*.obrain-wal
-*.obrain-shm
+*.obrain-*
+*.obrain.*
+*.llave
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
 *.db
+.obrain/
+.obrain-*/
+
+# ─── Respaldos y transiciones locales ───
+# Carpetas y recibos generados por `obrain respaldar` o transiciones de recuperacion.
+*obrain-respaldo*
+*obrain-ensayo*
+*obrain-salvaguarda*
+*.transicion.json
+
+# ─── Modelos de IA locales ───
+# Los pesos ONNX y modelos descargados viven en el perfil, nunca en git.
+*.onnx
+/models/
+
+# ─── Compilacion y directorios de trabajo externos ───
+obrain-target/
+
+# ─── Registros de ejecucion y depuracion ───
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 # ─── Sistema operativo ───
 Thumbs.db
