@@ -24,8 +24,8 @@
 //! nada: cada etapa compara con lo que ya sabía (ADR-0001). Por eso la
 //! aplicación puede hacerlo al arrancar sin coste.
 
-use crate::{Result, publication};
-use obrain_core::{Store, TimePoint};
+use crate::{Error, Result, publication};
+use obrain_core::{EntityId, Facet, Method, Store, TimePoint};
 use obrain_embed::embedder::Embedder;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -328,6 +328,194 @@ pub fn libraries(store: &Store) -> Result<Vec<String>> {
         .into_iter()
         .map(|(_, ruta)| ruta)
         .collect())
+}
+
+/// Informe de retiro de una biblioteca registrada.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct InformeRetiroBiblioteca {
+    /// La ruta canónica de la biblioteca retirada.
+    pub ruta: String,
+    /// Documentos exclusivos que se retiraron del índice.
+    pub documentos_retirados: usize,
+    /// Documentos preservados por pertenecer también a otra biblioteca activa.
+    pub documentos_conservados: usize,
+    /// Si la desuscripción de la vigilancia en segundo plano se confirmó con éxito.
+    pub vigilancia_desactivada: bool,
+    /// Detalle si la desuscripción de vigilancia requirió atención o notificación.
+    pub aviso_vigilancia: Option<String>,
+}
+
+/// Retira una biblioteca registrada de la base de datos sin tocar ningún archivo del disco.
+///
+/// 1. Retracta la faceta `has_facet = "library"` de la entidad.
+/// 2. Si hay documentos dentro de la ruta:
+///    - Aquellos que pertenezcan también a otra biblioteca activa se conservan.
+///    - Aquellos exclusivos de esta biblioteca se retiran del índice (se retractan
+///      sus predicados de ubicación, pertenencia y se purgan sus proyecciones derivadas).
+/// 3. Las subcarpetas exclusivas y la propia entidad de biblioteca se retiran del árbol
+///    (salvo que estén contenidas dentro de otra biblioteca activa).
+pub fn unregister_library(
+    store: &Store,
+    root_or_id: &str,
+    now: i64,
+) -> Result<InformeRetiroBiblioteca> {
+    let tp = TimePoint::at(now);
+    let todas = obrain_link::libraries(store, tp)?;
+
+    // Localizar la biblioteca a retirar por ID de entidad o coincidencia de ruta
+    let target = todas.iter().find(|(id, p)| {
+        id.as_str() == root_or_id
+            || (obrain_core::sensitivity::path_within(p, root_or_id)
+                && obrain_core::sensitivity::path_within(root_or_id, p))
+    });
+
+    let Some((lib_entity, lib_canonical_path)) = target else {
+        return Err(Error::BibliotecaNoEncontrada(root_or_id.to_string()));
+    };
+
+    let lib_entity = lib_entity.clone();
+    let lib_canonical_path = lib_canonical_path.clone();
+
+    // Las demás bibliotecas que siguen activas
+    let otras_bibliotecas: Vec<String> = todas
+        .into_iter()
+        .filter(|(e, _)| e != &lib_entity)
+        .map(|(_, p)| p)
+        .collect();
+
+    // 1. Retractar la faceta de biblioteca
+    for a in store.query(Some(&lib_entity), Some("has_facet"), tp)? {
+        if a.object.as_text() == Some(Facet::Library.as_str()) {
+            store.retract(&a.id, now)?;
+        }
+    }
+
+    // 2. Comprobar migraciones para asegurar que las tablas derivadas existen
+    obrain_extract::index::migrate(store.conn())?;
+    obrain_embed::index::migrate(store.conn())?;
+
+    // 3. Identificar documentos bajo esta ruta
+    let mut docs_retirados = 0;
+    let mut docs_conservados = 0;
+    let mut doc_entities_to_remove: Vec<EntityId> = Vec::new();
+
+    for a in store.query(None, Some("path_observed_at"), tp)? {
+        let Some(doc_path) = a.object.as_text() else {
+            continue;
+        };
+        if !obrain_core::sensitivity::path_within(doc_path, &lib_canonical_path) {
+            continue;
+        }
+        let en_otra = otras_bibliotecas
+            .iter()
+            .any(|otra| obrain_core::sensitivity::path_within(doc_path, otra));
+        if en_otra {
+            docs_conservados += 1;
+        } else {
+            docs_retirados += 1;
+            doc_entities_to_remove.push(a.subject.clone());
+        }
+    }
+    doc_entities_to_remove.sort();
+    doc_entities_to_remove.dedup();
+
+    // 4. Retirar los documentos exclusivos
+    for doc_entity in &doc_entities_to_remove {
+        for pred in [
+            "path_observed_at",
+            "identity_pending_path",
+            "contained_by",
+            "missing_since",
+            "forgotten_at",
+        ] {
+            for a in store.query(Some(doc_entity), Some(pred), tp)? {
+                if a.method != Method::User {
+                    store.retract(&a.id, now)?;
+                }
+            }
+        }
+        for a in store.query(Some(doc_entity), Some("member_of"), tp)? {
+            store.retract(&a.id, now)?;
+        }
+
+        crate::papelera::purge(store, doc_entity)?;
+    }
+
+    // 5. Retirar subcarpetas exclusivas bajo esta biblioteca
+    let mut folder_entities_to_remove: Vec<EntityId> = Vec::new();
+    for a in store.query(None, Some("folder_path"), tp)? {
+        let Some(f_path) = a.object.as_text() else {
+            continue;
+        };
+        if !obrain_core::sensitivity::path_within(f_path, &lib_canonical_path) {
+            continue;
+        }
+        if obrain_core::sensitivity::path_within(f_path, &lib_canonical_path)
+            && obrain_core::sensitivity::path_within(&lib_canonical_path, f_path)
+        {
+            continue;
+        }
+        let en_otra = otras_bibliotecas
+            .iter()
+            .any(|otra| obrain_core::sensitivity::path_within(f_path, otra));
+        if !en_otra {
+            folder_entities_to_remove.push(a.subject.clone());
+        }
+    }
+    folder_entities_to_remove.sort();
+    folder_entities_to_remove.dedup();
+
+    for f_entity in folder_entities_to_remove {
+        for pred in [
+            "folder_path",
+            "contained_by",
+            "folder_id",
+            "contents_sensitivity",
+        ] {
+            for a in store.query(Some(&f_entity), Some(pred), tp)? {
+                if a.method != Method::User {
+                    store.retract(&a.id, now)?;
+                }
+            }
+        }
+        for a in store.query(Some(&f_entity), Some("has_facet"), tp)? {
+            if a.object.as_text() == Some(Facet::Container.as_str()) {
+                store.retract(&a.id, now)?;
+            }
+        }
+    }
+
+    // 6. Retirar la carpeta de la propia biblioteca si no está dentro de otra biblioteca activa
+    let lib_dentro_de_otra = otras_bibliotecas
+        .iter()
+        .any(|otra| obrain_core::sensitivity::path_within(&lib_canonical_path, otra));
+    if !lib_dentro_de_otra {
+        for pred in [
+            "folder_path",
+            "contained_by",
+            "folder_id",
+            "contents_sensitivity",
+        ] {
+            for a in store.query(Some(&lib_entity), Some(pred), tp)? {
+                if a.method != Method::User {
+                    store.retract(&a.id, now)?;
+                }
+            }
+        }
+        for a in store.query(Some(&lib_entity), Some("has_facet"), tp)? {
+            if a.object.as_text() == Some(Facet::Container.as_str()) {
+                store.retract(&a.id, now)?;
+            }
+        }
+    }
+
+    Ok(InformeRetiroBiblioteca {
+        ruta: lib_canonical_path,
+        documentos_retirados: docs_retirados,
+        documentos_conservados: docs_conservados,
+        vigilancia_desactivada: true,
+        aviso_vigilancia: None,
+    })
 }
 
 /// Absoluta y sin resolver enlaces: `.\docs` y `C:\…\docs` tienen que ser la

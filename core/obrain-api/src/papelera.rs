@@ -170,7 +170,7 @@ pub fn expire(store: &Store, now: i64) -> crate::Result<usize> {
 /// Borra las proyecciones de una entidad: vectores, fragmentos (y con ellos el
 /// índice de palabras, por sus triggers) y el registro de lectura. Sin el
 /// registro, si el archivo vuelve se lee otra vez desde cero.
-fn purge(store: &Store, e: &EntityId) -> obrain_core::Result<()> {
+pub(crate) fn purge(store: &Store, e: &EntityId) -> obrain_core::Result<()> {
     let c = store.conn();
     c.execute("DELETE FROM vectors WHERE entity = ?1", [e.as_str()])?;
     c.execute("DELETE FROM chunks WHERE entity = ?1", [e.as_str()])?;

@@ -117,10 +117,15 @@ pub fn importa(
             if poda.cuelga_de_dotdir_del_perfil(p) {
                 return false;
             }
-            let debajo = raices
-                .iter()
-                .find_map(|r| p.strip_prefix(r).ok())
-                .unwrap_or(p);
+            let debajo = match raices.iter().find_map(|r| p.strip_prefix(r).ok()) {
+                Some(sub) => sub,
+                None => {
+                    if !raices.is_empty() {
+                        return false;
+                    }
+                    p
+                }
+            };
             ruta_importa(debajo, poda)
         })
 }
@@ -207,14 +212,24 @@ impl Vigia {
     /// Vigila exactamente estas carpetas: empieza con las nuevas y deja las
     /// que ya no están. Una que no existe en el disco (un USB desconectado) se
     /// salta sin error: `indexar` ya la cuenta como ausente.
-    pub fn sincronizar(&self, raices: &[PathBuf]) {
+    pub fn sincronizar(&self, raices: &[PathBuf]) -> Result<(), notify::Error> {
         let (Ok(mut w), Ok(mut vigiladas)) = (self.watcher.lock(), self.raices.lock()) else {
-            return;
+            return Err(notify::Error::generic(
+                "no se pudo acceder al estado del vigía",
+            ));
         };
+        let mut primer_error = None;
         vigiladas.retain(|r| {
             let sigue = raices.contains(r) && r.is_dir();
             if !sigue {
-                let _ = w.unwatch(r);
+                if let Err(e) = w.unwatch(r) {
+                    if !matches!(e.kind, notify::ErrorKind::WatchNotFound) && r.exists() {
+                        if primer_error.is_none() {
+                            primer_error = Some(e);
+                        }
+                        return true;
+                    }
+                }
             }
             sigue
         });
@@ -223,6 +238,11 @@ impl Vigia {
             {
                 vigiladas.push(r.clone());
             }
+        }
+        if let Some(e) = primer_error {
+            Err(e)
+        } else {
+            Ok(())
         }
     }
 

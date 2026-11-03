@@ -56,7 +56,7 @@ use obrain_api::seguridad::{self, Estado as EstadoSeguridad};
 use obrain_api::vigilar::{self, Vigia};
 use obrain_api::{
     Abierta, Brain, Coleccion, Embedder, EnPapelera, EntityView, Expiring, FolderMarked, Glance,
-    IndexReport, Lens, Listing, MarkedFolder, Preview, Row, Sky, default_db_path,
+    IndexReport, InformeRetiroBiblioteca, Lens, Listing, MarkedFolder, Preview, Row, Sky, default_db_path,
 };
 use obrain_core::{EntityId, Sensitivity, Store};
 use std::path::PathBuf;
@@ -970,7 +970,7 @@ fn reiniciar_vigia(app: &AppHandle, vigilante: &State<'_, Vigilante>) {
             ) {
                 if let Some(vigia) = v.as_ref() {
                     let b_paths: Vec<PathBuf> = bibliotecas.into_iter().map(PathBuf::from).collect();
-                    vigia.sincronizar(&b_paths);
+                    let _ = vigia.sincronizar(&b_paths);
                 }
             }
         }
@@ -1113,6 +1113,83 @@ async fn anadir_biblioteca(app: AppHandle) -> Result<bool, String> {
     Ok(true)
 }
 
+/// Retira una biblioteca registrada de la bóveda sin tocar ningún archivo del disco.
+///
+/// Retracta la faceta de biblioteca, retira los documentos exclusivos y sincroniza
+/// el vigía para que deje de vigilar la carpeta en segundo plano.
+#[tauri::command]
+fn retirar_biblioteca(
+    ruta: String,
+    app: AppHandle,
+    cerebro: State<'_, Cerebro>,
+    vigilante: State<'_, Vigilante>,
+    indexando: State<'_, Indexando>,
+) -> Result<InformeRetiroBiblioteca, String> {
+    if app
+        .state::<EstadoRespaldo>()
+        .restaurando
+        .load(Ordering::SeqCst)
+    {
+        return Err("hay una restauración en curso".to_string());
+    }
+    if indexando.0.load(Ordering::SeqCst) {
+        return Err("hay una indexación en marcha; espera a que termine".to_string());
+    }
+
+    let mut informe = con(&cerebro, |b| b.unregister_library(&ruta))?;
+
+    // Sincronizar el vigía para que deje de vigilar la carpeta retirada.
+    // Si la desuscripción de vigilancia encuentra dificultades en el sistema,
+    // se comunica explícitamente en el informe en lugar de asumirla como dada.
+    match vigilante.0.lock() {
+        Ok(vigia_guarda) => {
+            if let Some(v) = vigia_guarda.as_ref() {
+                match con(&cerebro, |b| obrain_api::indexar::libraries(b.store())) {
+                    Ok(bibliotecas) => {
+                        let raices: Vec<PathBuf> =
+                            bibliotecas.into_iter().map(PathBuf::from).collect();
+                        if let Err(e) = v.sincronizar(&raices) {
+                            eprintln!("aviso al desvigilar carpeta: {e}");
+                            informe.vigilancia_desactivada = false;
+                            informe.aviso_vigilancia = Some(format!(
+                                "No se pudo desuscribir la vigilancia activa en el sistema ({e}). Reinicia Brain si la carpeta continúa recibiendo cambios."
+                            ));
+                        } else {
+                            informe.vigilancia_desactivada = true;
+                        }
+                    }
+                    Err(e) => {
+                        informe.vigilancia_desactivada = false;
+                        informe.aviso_vigilancia = Some(format!(
+                            "No se pudo consultar la lista de bibliotecas activas para el monitor: {e}"
+                        ));
+                    }
+                }
+            } else {
+                informe.vigilancia_desactivada = true;
+            }
+        }
+        Err(_) => {
+            informe.vigilancia_desactivada = false;
+            informe.aviso_vigilancia = Some(
+                "El monitor de carpetas no estuvo disponible para confirmar la desuscripción."
+                    .to_string(),
+            );
+        }
+    }
+
+    let _ = app.emit(
+        "indexado",
+        Indexado {
+            report: None,
+            error: None,
+            live: false,
+        },
+    );
+
+    Ok(informe)
+}
+
 /// El indexado de verdad. Siempre en un hilo aparte, con su propia conexión.
 ///
 /// `raices` a `None` vuelve a leer todas las bibliotecas; con carpetas, las
@@ -1142,7 +1219,7 @@ fn indexar_en_fondo(
             {
                 if let Some(v) = vigia.as_ref() {
                     let b: Vec<PathBuf> = bibliotecas.into_iter().map(PathBuf::from).collect();
-                    v.sincronizar(&b);
+                    let _ = v.sincronizar(&b);
                 }
             }
             Ok(r)
@@ -1340,6 +1417,7 @@ fn main() {
             pin_restablecer,
             actualizar,
             anadir_biblioteca,
+            retirar_biblioteca,
             respaldo_crear,
             respaldo_seleccionar,
             respaldo_comprobar,
