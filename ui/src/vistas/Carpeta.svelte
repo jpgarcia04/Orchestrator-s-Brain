@@ -1,4 +1,4 @@
-<!--
+﻿<!--
   Una carpeta de la bóveda, como la enseña un sistema operativo: sus carpetas
   arriba, sus documentos debajo, en cuadrícula o en lista.
 
@@ -13,6 +13,8 @@
 <script lang="ts">
   import Cloud from "@lucide/svelte/icons/cloud";
   import Folder from "@lucide/svelte/icons/folder";
+  import FolderMinus from "@lucide/svelte/icons/folder-minus";
+  import Modal from "../componentes/Modal.svelte";
   import Lock from "@lucide/svelte/icons/lock";
   import Miniatura from "../componentes/Miniatura.svelte";
   import Tipo from "../componentes/Tipo.svelte";
@@ -29,6 +31,30 @@
   const elegida = (id: string) => app.seleccion === id || app.elegidos.includes(id);
   /** Lo que va en el arrastre en curso se atenúa (ADR-0033). */
   const llevado = (id: string) => !!app.arrastre?.docs.includes(id);
+
+  const esBiblioteca = $derived.by(() => {
+    if (!listado?.path) return false;
+    const p = listado.path.replace(/[\\/]+$/, "").toLowerCase();
+    return (app.info?.libraries ?? []).some(
+      (lib) => lib.replace(/[\\/]+$/, "").toLowerCase() === p
+    );
+  });
+
+  let modalRetiro = $state(false);
+  let retirando = $state(false);
+
+  async function confirmarRetiro(): Promise<void> {
+    if (!listado?.path || retirando) return;
+    retirando = true;
+    const ruta = listado.path;
+    const nombre = nombreBonito(listado.label);
+    const inf = await app.retirarCarpeta(ruta);
+    retirando = false;
+    modalRetiro = false;
+    if (inf) {
+      app.avisar(`Biblioteca «${nombre}» retirada de tu bóveda (${inf.documentos_retirados} documentos desvinculados).`);
+    }
+  }
 
   const resumen = $derived.by(() => {
     const partes: string[] = [];
@@ -58,9 +84,21 @@
 
 {#if listado}
   <div class="carpeta entra">
-    <div class="titulo">
-      <h1 class="titular">{nombreBonito(listado.label)}</h1>
-      <p>{resumen}</p>
+    <div class="cabecera-carpeta">
+      <div class="titulo">
+        <h1 class="titular">{nombreBonito(listado.label)}</h1>
+        <p>{resumen}</p>
+      </div>
+      {#if esBiblioteca}
+        <button
+          class="boton-retirar hov"
+          onclick={() => (modalRetiro = true)}
+          title="Retirar esta biblioteca de tu bóveda"
+        >
+          <FolderMinus size={15} />
+          <span>Retirar biblioteca</span>
+        </button>
+      {/if}
     </div>
 
     {#if carpetas.length > 0}
@@ -140,6 +178,38 @@
       </div>
     {/if}
   </div>
+{/if}
+
+{#if modalRetiro && listado}
+  <Modal titulo="Retirar biblioteca" cerrar={() => (modalRetiro = false)}>
+    <div class="modal-retiro">
+      <p class="pregunta">
+        ¿Quieres retirar <strong>«{nombreBonito(listado.label)}»</strong> de tu bóveda?
+      </p>
+      <div class="ruta-destacada">{listado.path}</div>
+
+      <ul class="advertencias">
+        <li>
+          <strong>Tus archivos en Windows no se tocan:</strong> Los archivos originales de tu equipo no se borrarán ni modificarán en ningún momento.
+        </li>
+        <li>
+          <strong>Dejar de vigilar e indexar:</strong> Brain dejará de observar esta carpeta en segundo plano y no volverá a sincronizarla.
+        </li>
+        <li>
+          <strong>Limpieza del índice:</strong> Los documentos, fragmentos de búsqueda y vectores asociados exclusivamente a esta carpeta se retirarán de tu base de conocimiento.
+        </li>
+      </ul>
+
+      <div class="acciones-modal">
+        <button class="boton-sec hov" onclick={() => (modalRetiro = false)} disabled={retirando}>
+          Cancelar
+        </button>
+        <button class="boton-peligro hov" onclick={confirmarRetiro} disabled={retirando}>
+          {retirando ? "Retirando…" : "Retirar biblioteca"}
+        </button>
+      </div>
+    </div>
+  </Modal>
 {/if}
 
 <style>
@@ -293,5 +363,108 @@
     gap: 6px;
     justify-content: flex-end;
     color: var(--tenue);
+  }
+  .cabecera-carpeta {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .boton-retirar {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    background: transparent;
+    border: 1px solid var(--linea);
+    color: var(--tenue);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    margin-top: 4px;
+  }
+
+  .boton-retirar:hover {
+    color: var(--peligro);
+    border-color: var(--peligro);
+    background: rgba(238, 85, 85, 0.08);
+  }
+
+  .modal-retiro {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
+
+  .modal-retiro .pregunta {
+    margin: 0;
+    color: var(--texto);
+  }
+
+  .ruta-destacada {
+    font-family: var(--mono, monospace);
+    font-size: 12px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: var(--chip);
+    border: 1px solid var(--linea);
+    word-break: break-all;
+    color: var(--texto);
+  }
+
+  .advertencias {
+    margin: 0;
+    padding-left: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    color: var(--tenue);
+  }
+
+  .advertencias li strong {
+    color: var(--texto);
+  }
+
+  .acciones-modal {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  .boton-sec {
+    background: var(--tarjeta);
+    border: 1px solid var(--linea);
+    color: var(--texto);
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .boton-peligro {
+    background: var(--peligro);
+    color: white;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .boton-peligro:hover:not(:disabled) {
+    opacity: 0.9;
+  }
+
+  .boton-peligro:disabled,
+  .boton-sec:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 </style>

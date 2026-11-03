@@ -728,6 +728,20 @@ export const actualizar = () => invoke<boolean>("actualizar");
  */
 export const anadirBiblioteca = () => invoke<boolean>("anadir_biblioteca");
 
+/** Lo que hizo el retiro de una biblioteca registrada. */
+export interface InformeRetiroBiblioteca {
+  ruta: string;
+  documentos_retirados: number;
+  documentos_conservados: number;
+}
+
+/**
+ * Retira una biblioteca registrada de la bóveda sin tocar ningún archivo del disco.
+ * Brain dejará de vigilarla e indexarla, y desvinculará sus documentos exclusivos.
+ */
+export const retirarBiblioteca = (ruta: string) =>
+  invoke<InformeRetiroBiblioteca>("retirar_biblioteca", { ruta });
+
 /**
  * Avisa cada vez que termina un reindexado: al arrancar la aplicación y tras
  * cada «actualizar». Si el canal de eventos no existe (la interfaz abierta en

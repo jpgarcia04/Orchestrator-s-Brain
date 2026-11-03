@@ -1,4 +1,4 @@
-//! # obrain-api — M5 · La superficie del núcleo
+﻿//! # obrain-api — M5 · La superficie del núcleo
 //!
 //! Cuatro operaciones: **buscar, abrir la lente, mirar una entidad y
 //! corregirla**. Nada más, y a propósito.
@@ -61,7 +61,7 @@ use std::time::Instant;
 pub use colecciones::{Abierta, Coleccion, Miembro, Movidos, Pertenece};
 pub use dentro::{Copia, Paquete, Parte};
 pub use entity::{Claim, EntityView};
-pub use indexar::IndexReport;
+pub use indexar::{IndexReport, InformeRetiroBiblioteca};
 pub use lens::{Edge, Lens, Node};
 pub use marks::{ByPart, MarkedFolder, Protection};
 pub use papelera::EnPapelera;
@@ -113,6 +113,9 @@ pub enum Error {
 
     #[error("tipo o valor incorrecto para «{0}»")]
     CorreccionInvalida(String),
+
+    #[error("no se encontró la biblioteca «{0}»")]
+    BibliotecaNoEncontrada(String),
 }
 
 impl Error {
@@ -801,6 +804,15 @@ impl Brain {
         let (now, _) = Self::now();
         self.store
             .transaction(|s| colecciones::mover(s, desde, hacia, docs, now, source))
+    }
+
+    /// **Retira una biblioteca registrada** y sus documentos exclusivos.
+    ///
+    /// No borra ni altera ningún archivo del disco de Windows.
+    pub fn unregister_library(&mut self, root_or_id: &str) -> Result<InformeRetiroBiblioteca> {
+        let (now, _) = Self::now();
+        self.store
+            .transaction(|s| indexar::unregister_library(s, root_or_id, now))
     }
 
     /// Los documentos que llevan otros dentro, con lo que llevan (ADR-0030).

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * El estado de la aplicación: **uno solo**, y todas las vistas lo leen.
  *
  * Es la consecuencia #4 de ADR-0014 —dos vistas de un solo estado— llevada al
@@ -11,6 +11,7 @@ import {
   alEmpezarIndexado,
   alIndexar,
   anadirBiblioteca,
+  retirarBiblioteca as pedirRetirarBiblioteca,
   alRestaurar,
   reanudarReindexado,
   borrarColeccion as pedirBorrarColeccion,
@@ -29,7 +30,7 @@ import {
   sacarDeColeccion,
   seguridad as pedirSeguridad,
 } from "./nucleo";
-import type { Abierta, Coleccion, Estado, Indexado, Listado, Seguridad } from "./nucleo";
+import type { Abierta, Coleccion, Estado, Indexado, InformeRetiroBiblioteca, Listado, Seguridad } from "./nucleo";
 import { tituloDe } from "./nombres";
 import { pinSession } from "./pin-session";
 
@@ -348,6 +349,20 @@ class App {
     } catch (e) {
       this.actualizacionManual = false;
       this.avisar(`No se pudo actualizar — ${e}`);
+    }
+  }
+
+  async retirarCarpeta(ruta: string): Promise<InformeRetiroBiblioteca | null> {
+    try {
+      const informe = await pedirRetirarBiblioteca(ruta);
+      await this.refrescar();
+      if (this.vista === "carpeta") {
+        this.irVista("inicio");
+      }
+      return informe;
+    } catch (e) {
+      this.avisar(`No se pudo retirar la biblioteca — ${e}`);
+      return null;
     }
   }
 

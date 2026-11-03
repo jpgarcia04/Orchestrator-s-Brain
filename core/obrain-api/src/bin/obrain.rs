@@ -23,7 +23,7 @@ obrain — tu segundo cerebro desde la terminal
 USO:
   obrain indexar <carpeta> [<carpeta>...]   añade esas carpetas como bibliotecas y las indexa
   obrain indexar                             vuelve a indexar todas las bibliotecas
-  obrain bibliotecas                         lista las bibliotecas registradas
+  obrain bibliotecas [--retirar <carpeta>]   lista las bibliotecas registradas (o retira una)
   obrain sensible <carpeta>                  marca una carpeta como sensible: todo lo que
                                              tenga dentro lo hereda, también lo que llegue
   obrain sensible <carpeta> --boveda         lo mismo, pero como bóveda
@@ -98,6 +98,7 @@ fn main() -> ExitCode {
     let mut pedir_pin = false;
     let mut confirmar = false;
     let mut sin_pausa = false;
+    let mut retirar_biblioteca: Option<String> = None;
     let mut coleccion = Coleccion::Ver;
     let mut sueltos: Vec<&str> = Vec::new();
     let mut it = args.iter();
@@ -154,6 +155,13 @@ fn main() -> ExitCode {
             "--pedir-pin" => pedir_pin = true,
             "--confirmar" => confirmar = true,
             "--sin-pausa" => sin_pausa = true,
+            "--retirar" => match it.next() {
+                Some(p) => retirar_biblioteca = Some(p.clone()),
+                None => {
+                    eprintln!("uso: obrain bibliotecas --retirar <carpeta>");
+                    return ExitCode::from(2);
+                }
+            },
             "--crear" => coleccion = Coleccion::Crear,
             "--meter" => coleccion = Coleccion::Meter,
             "--sacar" => coleccion = Coleccion::Sacar,
@@ -638,6 +646,32 @@ fn main() -> ExitCode {
 
     match *orden {
         "bibliotecas" => {
+            if let Some(carpeta_a_retirar) = retirar_biblioteca {
+                let Some(mut b) = try_brain(store) else {
+                    return ExitCode::FAILURE;
+                };
+                return match b.unregister_library(&carpeta_a_retirar) {
+                    Ok(inf) => {
+                        println!("▸ biblioteca retirada: {}", inf.ruta);
+                        println!(
+                            "  documentos retirados del índice: {}",
+                            inf.documentos_retirados
+                        );
+                        if inf.documentos_conservados > 0 {
+                            println!(
+                                "  documentos conservados (en otra biblioteca): {}",
+                                inf.documentos_conservados
+                            );
+                        }
+                        println!("  nota: los archivos originales en Windows no se han tocado.");
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => {
+                        eprintln!("no se pudo retirar la biblioteca: {e}");
+                        ExitCode::FAILURE
+                    }
+                };
+            }
             if confirmar {
                 match seguridad::reanudar_reindexado(store.conn()) {
                     Ok(()) => {
