@@ -29,7 +29,7 @@ fn vigia(raices: &[PathBuf]) -> (Vigia, mpsc::Receiver<()>) {
         let _ = tx.send(());
     })
     .unwrap();
-    v.sincronizar(raices);
+    v.sincronizar(raices).unwrap();
     (v, rx)
 }
 
@@ -85,14 +85,14 @@ fn lo_que_se_deja_de_vigilar_no_avisa() {
     let a = carpeta("a");
     let b = carpeta("b");
     let (v, rx) = vigia(&[a.clone(), b.clone()]);
-    v.sincronizar(std::slice::from_ref(&a));
+    v.sincronizar(std::slice::from_ref(&a)).unwrap();
     assert_eq!(v.raices(), std::slice::from_ref(&a));
 
     std::fs::write(b.join("fuera.txt"), "x").unwrap();
     assert!(rx.recv_timeout(SILENCIO).is_err(), "b ya no se vigila");
 
     // Una biblioteca que no está en el disco se salta sin error.
-    v.sincronizar(&[a.clone(), a.join("no existe")]);
+    v.sincronizar(&[a.clone(), a.join("no existe")]).unwrap();
     assert_eq!(v.raices(), std::slice::from_ref(&a));
 
     std::fs::write(a.join("dentro.txt"), "x").unwrap();

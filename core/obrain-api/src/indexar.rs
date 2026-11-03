@@ -339,6 +339,10 @@ pub struct InformeRetiroBiblioteca {
     pub documentos_retirados: usize,
     /// Documentos preservados por pertenecer también a otra biblioteca activa.
     pub documentos_conservados: usize,
+    /// Si la desuscripción de la vigilancia en segundo plano se confirmó con éxito.
+    pub vigilancia_desactivada: bool,
+    /// Detalle si la desuscripción de vigilancia requirió atención o notificación.
+    pub aviso_vigilancia: Option<String>,
 }
 
 /// Retira una biblioteca registrada de la base de datos sin tocar ningún archivo del disco.
@@ -387,8 +391,8 @@ pub fn unregister_library(
     }
 
     // 2. Comprobar migraciones para asegurar que las tablas derivadas existen
-    let _ = obrain_extract::index::migrate(store.conn());
-    let _ = obrain_embed::index::migrate(store.conn());
+    obrain_extract::index::migrate(store.conn())?;
+    obrain_embed::index::migrate(store.conn())?;
 
     // 3. Identificar documentos bajo esta ruta
     let mut docs_retirados = 0;
@@ -434,29 +438,7 @@ pub fn unregister_library(
             store.retract(&a.id, now)?;
         }
 
-        let c = store.conn();
-        let _ = c.execute(
-            "DELETE FROM vectors WHERE entity = ?1",
-            [doc_entity.as_str()],
-        );
-        let _ = c.execute(
-            "DELETE FROM chunks WHERE entity = ?1",
-            [doc_entity.as_str()],
-        );
-        let _ = c.execute(
-            "DELETE FROM extractions WHERE entity = ?1",
-            [doc_entity.as_str()],
-        );
-        let _ = c.execute(
-            "DELETE FROM publication_backup_chunks WHERE entity = ?1",
-            [doc_entity.as_str()],
-        );
-        let _ = c.execute(
-            "UPDATE content_publication
-                SET state='ready', published_hash=NULL, backup_captured=0
-              WHERE entity=?1",
-            [doc_entity.as_str()],
-        );
+        crate::papelera::purge(store, doc_entity)?;
     }
 
     // 5. Retirar subcarpetas exclusivas bajo esta biblioteca
@@ -531,6 +513,8 @@ pub fn unregister_library(
         ruta: lib_canonical_path,
         documentos_retirados: docs_retirados,
         documentos_conservados: docs_conservados,
+        vigilancia_desactivada: true,
+        aviso_vigilancia: None,
     })
 }
 

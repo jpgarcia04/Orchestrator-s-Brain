@@ -1,4 +1,4 @@
-﻿<!--
+<!--
   Una carpeta de la bóveda, como la enseña un sistema operativo: sus carpetas
   arriba, sus documentos debajo, en cuadrícula o en lista.
 
@@ -52,7 +52,12 @@
     retirando = false;
     modalRetiro = false;
     if (inf) {
-      app.avisar(`Biblioteca «${nombre}» retirada de tu bóveda (${inf.documentos_retirados} documentos desvinculados).`);
+      if (inf.vigilancia_desactivada) {
+        app.avisar(`Biblioteca «${nombre}» retirada de tu bóveda (${inf.documentos_retirados} documentos desvinculados).`);
+      } else {
+        const detalle = inf.aviso_vigilancia ? ` — ${inf.aviso_vigilancia}` : "";
+        app.avisar(`Biblioteca «${nombre}» retirada (${inf.documentos_retirados} docs desvinculados), pero la vigilancia activa no pudo confirmarse${detalle}`);
+      }
     }
   }
 

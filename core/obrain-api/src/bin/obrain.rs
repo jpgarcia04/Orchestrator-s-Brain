@@ -663,6 +663,11 @@ fn main() -> ExitCode {
                                 inf.documentos_conservados
                             );
                         }
+                        if !inf.vigilancia_desactivada {
+                            if let Some(ref aviso) = inf.aviso_vigilancia {
+                                println!("  aviso de vigilancia: {aviso}");
+                            }
+                        }
                         println!("  nota: los archivos originales en Windows no se han tocado.");
                         ExitCode::SUCCESS
                     }

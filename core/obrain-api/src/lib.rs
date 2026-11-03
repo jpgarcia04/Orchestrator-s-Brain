@@ -1,4 +1,4 @@
-﻿//! # obrain-api — M5 · La superficie del núcleo
+//! # obrain-api — M5 · La superficie del núcleo
 //!
 //! Cuatro operaciones: **buscar, abrir la lente, mirar una entidad y
 //! corregirla**. Nada más, y a propósito.

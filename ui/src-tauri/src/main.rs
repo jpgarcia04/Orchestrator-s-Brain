@@ -55,14 +55,13 @@ use obrain_api::respaldo::{
 use obrain_api::seguridad::{self, Estado as EstadoSeguridad};
 use obrain_api::vigilar::{self, Vigia};
 use obrain_api::{
-    default_db_path, Abierta, Brain, Coleccion, Embedder, EnPapelera, EntityView, Expiring,
-    FolderMarked, Glance, IndexReport, InformeRetiroBiblioteca, Lens, Listing, MarkedFolder,
-    Preview, Row, Sky,
+    Abierta, Brain, Coleccion, Embedder, EnPapelera, EntityView, Expiring, FolderMarked, Glance,
+    IndexReport, InformeRetiroBiblioteca, Lens, Listing, MarkedFolder, Preview, Row, Sky, default_db_path,
 };
 use obrain_core::{EntityId, Sensitivity, Store};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
@@ -636,10 +635,12 @@ async fn respaldo_crear(
 
     let db = default_db_path();
     let d = destino.clone();
-    let manifiesto = tauri::async_runtime::spawn_blocking(move || respaldo::crear(&db, &d))
-        .await
-        .map_err(texto)?
-        .map_err(texto)?;
+    let manifiesto = tauri::async_runtime::spawn_blocking(move || {
+        respaldo::crear(&db, &d)
+    })
+    .await
+    .map_err(texto)?
+    .map_err(texto)?;
 
     let nombre = destino
         .file_name()
@@ -693,18 +694,19 @@ async fn respaldo_seleccionar(
 
     let r = ruta.clone();
     let c = clave.clone();
-    let (manifiesto, requiere_clave) =
-        tauri::async_runtime::spawn_blocking(move || match respaldo::verificar(&r) {
+    let (manifiesto, requiere_clave) = tauri::async_runtime::spawn_blocking(move || {
+        match respaldo::verificar(&r) {
             Ok(m) => Ok::<_, respaldo::Error>((m, false)),
             Err(respaldo::Error::Keys(_)) if c.is_some() => {
                 let m = respaldo::verificar_con_clave(&r, c.as_deref())?;
                 Ok((m, true))
             }
             Err(e) => Err(e),
-        })
-        .await
-        .map_err(texto)?
-        .map_err(texto)?;
+        }
+    })
+    .await
+    .map_err(texto)?
+    .map_err(texto)?;
 
     let nombre = ruta
         .file_name()
@@ -735,10 +737,7 @@ async fn respaldo_comprobar(
     }
     let ruta = {
         let guarda = respaldo_state.seleccionada.lock().map_err(texto)?;
-        guarda
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| "No hay ninguna carpeta de respaldo seleccionada".to_string())?
+        guarda.as_ref().cloned().ok_or_else(|| "No hay ninguna carpeta de respaldo seleccionada".to_string())?
     };
     tauri::async_runtime::spawn_blocking(move || {
         respaldo::verificar_con_clave(&ruta, clave.as_deref()).map_err(texto)
@@ -759,10 +758,7 @@ async fn respaldo_ensayar(
     }
     let ruta = {
         let guarda = respaldo_state.seleccionada.lock().map_err(texto)?;
-        guarda
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| "No hay ninguna carpeta de respaldo seleccionada".to_string())?
+        guarda.as_ref().cloned().ok_or_else(|| "No hay ninguna carpeta de respaldo seleccionada".to_string())?
     };
     tauri::async_runtime::spawn_blocking(move || {
         respaldo::ensayar(&ruta, None, clave.as_deref(), None).map_err(texto)
@@ -786,10 +782,7 @@ async fn restauracion_planificar(
     }
     let ruta = {
         let guarda = respaldo_state.seleccionada.lock().map_err(texto)?;
-        guarda
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| "No hay ninguna carpeta de respaldo seleccionada".to_string())?
+        guarda.as_ref().cloned().ok_or_else(|| "No hay ninguna carpeta de respaldo seleccionada".to_string())?
     };
     let db = default_db_path();
     tauri::async_runtime::spawn_blocking(move || {
@@ -827,10 +820,7 @@ async fn restauracion_ejecutar(
 
     let carpeta = {
         let guarda = respaldo_state.seleccionada.lock().map_err(texto)?;
-        guarda
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| "No hay ninguna carpeta de respaldo seleccionada".to_string())?
+        guarda.as_ref().cloned().ok_or_else(|| "No hay ninguna carpeta de respaldo seleccionada".to_string())?
     };
 
     let res = coordinar_restauracion(
@@ -932,15 +922,15 @@ async fn coordinar_restauracion(
     };
 
     match res {
-        Ok(informe) => match reabrir_cerebro(&db) {
-            Ok(()) => Ok(informe),
-            Err(e) => {
-                eprintln!("error abriendo base restaurada: {e}");
-                Err(format!(
-                    "El perfil se restauró, pero ocurrió un error al abrirlo: {e}"
-                ))
+        Ok(informe) => {
+            match reabrir_cerebro(&db) {
+                Ok(()) => Ok(informe),
+                Err(e) => {
+                    eprintln!("error abriendo base restaurada: {e}");
+                    Err(format!("El perfil se restauró, pero ocurrió un error al abrirlo: {e}"))
+                }
             }
-        },
+        }
         Err(respaldo::Error::RestauracionFallidaYRecuperada(motivo)) => {
             if tenia_brain_abierto && existia_db_antes && db.exists() {
                 let _ = reabrir_cerebro(&db);
@@ -979,9 +969,8 @@ fn reiniciar_vigia(app: &AppHandle, vigilante: &State<'_, Vigilante>) {
                 app.state::<Vigilante>().0.lock(),
             ) {
                 if let Some(vigia) = v.as_ref() {
-                    let b_paths: Vec<PathBuf> =
-                        bibliotecas.into_iter().map(PathBuf::from).collect();
-                    vigia.sincronizar(&b_paths);
+                    let b_paths: Vec<PathBuf> = bibliotecas.into_iter().map(PathBuf::from).collect();
+                    let _ = vigia.sincronizar(&b_paths);
                 }
             }
         }
@@ -1064,11 +1053,7 @@ fn actualizar(
 /// reindexado en marcha; el resultado llega con el evento `indexado`.
 #[tauri::command]
 async fn anadir_biblioteca(app: AppHandle) -> Result<bool, String> {
-    if app
-        .state::<EstadoRespaldo>()
-        .restaurando
-        .load(Ordering::SeqCst)
-    {
+    if app.state::<EstadoRespaldo>().restaurando.load(Ordering::SeqCst) {
         return Ok(false);
     }
     if app.state::<Indexando>().0.load(Ordering::SeqCst) {
@@ -1100,20 +1085,13 @@ async fn anadir_biblioteca(app: AppHandle) -> Result<bool, String> {
         return Ok(false);
     };
     let ruta = carpeta.into_path().map_err(texto)?;
-    if app
-        .state::<EstadoRespaldo>()
-        .restaurando
-        .load(Ordering::SeqCst)
-    {
+    if app.state::<EstadoRespaldo>().restaurando.load(Ordering::SeqCst) {
         return Ok(false);
     }
     if app.state::<Indexando>().0.swap(true, Ordering::SeqCst) {
         return Ok(false);
     }
-    if app
-        .state::<EstadoRespaldo>()
-        .restaurando
-        .load(Ordering::SeqCst)
+    if app.state::<EstadoRespaldo>().restaurando.load(Ordering::SeqCst)
         || app
             .state::<Cerebro>()
             .0
@@ -1158,20 +1136,45 @@ fn retirar_biblioteca(
         return Err("hay una indexación en marcha; espera a que termine".to_string());
     }
 
-    let informe = con(&cerebro, |b| b.unregister_library(&ruta))?;
+    let mut informe = con(&cerebro, |b| b.unregister_library(&ruta))?;
 
-    // Sincronizar el vigía para que deje de vigilar la carpeta retirada
-    if let Ok(vigia) = vigilante.0.lock() {
-        if let Some(v) = vigia.as_ref() {
-            if let Ok(mut guarda) = cerebro.0.lock() {
-                if let Some(b) = guarda.as_mut() {
-                    if let Ok(bibliotecas) = obrain_api::indexar::libraries(b.store()) {
+    // Sincronizar el vigía para que deje de vigilar la carpeta retirada.
+    // Si la desuscripción de vigilancia encuentra dificultades en el sistema,
+    // se comunica explícitamente en el informe en lugar de asumirla como dada.
+    match vigilante.0.lock() {
+        Ok(vigia_guarda) => {
+            if let Some(v) = vigia_guarda.as_ref() {
+                match con(&cerebro, |b| obrain_api::indexar::libraries(b.store())) {
+                    Ok(bibliotecas) => {
                         let raices: Vec<PathBuf> =
                             bibliotecas.into_iter().map(PathBuf::from).collect();
-                        v.sincronizar(&raices);
+                        if let Err(e) = v.sincronizar(&raices) {
+                            eprintln!("aviso al desvigilar carpeta: {e}");
+                            informe.vigilancia_desactivada = false;
+                            informe.aviso_vigilancia = Some(format!(
+                                "No se pudo desuscribir la vigilancia activa en el sistema ({e}). Reinicia Brain si la carpeta continúa recibiendo cambios."
+                            ));
+                        } else {
+                            informe.vigilancia_desactivada = true;
+                        }
+                    }
+                    Err(e) => {
+                        informe.vigilancia_desactivada = false;
+                        informe.aviso_vigilancia = Some(format!(
+                            "No se pudo consultar la lista de bibliotecas activas para el monitor: {e}"
+                        ));
                     }
                 }
+            } else {
+                informe.vigilancia_desactivada = true;
             }
+        }
+        Err(_) => {
+            informe.vigilancia_desactivada = false;
+            informe.aviso_vigilancia = Some(
+                "El monitor de carpetas no estuvo disponible para confirmar la desuscripción."
+                    .to_string(),
+            );
         }
     }
 
@@ -1216,7 +1219,7 @@ fn indexar_en_fondo(
             {
                 if let Some(v) = vigia.as_ref() {
                     let b: Vec<PathBuf> = bibliotecas.into_iter().map(PathBuf::from).collect();
-                    v.sincronizar(&b);
+                    let _ = v.sincronizar(&b);
                 }
             }
             Ok(r)
@@ -1248,10 +1251,7 @@ fn indexar_en_fondo(
     let _ = app.emit("indexado", aviso);
     // Lo que cambió mientras tanto, en una pasada más (salvo que haya comenzado una restauración).
     if app.state::<Pendiente>().0.swap(false, Ordering::SeqCst)
-        && !app
-            .state::<EstadoRespaldo>()
-            .restaurando
-            .load(Ordering::SeqCst)
+        && !app.state::<EstadoRespaldo>().restaurando.load(Ordering::SeqCst)
     {
         por_cambio(app);
     }
@@ -1290,18 +1290,15 @@ fn cerrada_o_en_pausa(cerebro: &Cerebro) -> bool {
         .0
         .lock()
         .map(|g| {
-            g.as_ref()
-                .is_none_or(|b| seguridad::reindexado_pausado(b.store().conn()).unwrap_or(false))
+            g.as_ref().is_none_or(|b| {
+                seguridad::reindexado_pausado(b.store().conn()).unwrap_or(false)
+            })
         })
         .unwrap_or(true)
 }
 
 fn por_cambio(app: &AppHandle) {
-    if app
-        .state::<EstadoRespaldo>()
-        .restaurando
-        .load(Ordering::SeqCst)
-    {
+    if app.state::<EstadoRespaldo>().restaurando.load(Ordering::SeqCst) {
         return;
     }
     if cerrada_o_en_pausa(app.state::<Cerebro>().inner()) {
@@ -1311,10 +1308,7 @@ fn por_cambio(app: &AppHandle) {
         app.state::<Pendiente>().0.store(true, Ordering::SeqCst);
         return;
     }
-    if app
-        .state::<EstadoRespaldo>()
-        .restaurando
-        .load(Ordering::SeqCst)
+    if app.state::<EstadoRespaldo>().restaurando.load(Ordering::SeqCst)
         || cerrada_o_en_pausa(app.state::<Cerebro>().inner())
     {
         app.state::<Indexando>().0.store(false, Ordering::SeqCst);
@@ -1529,9 +1523,7 @@ mod tests {
         assert!(!indexando.0.load(Ordering::SeqCst));
 
         let guarda = cerebro.0.lock().unwrap();
-        let brain_reabierto = guarda
-            .as_ref()
-            .expect("Brain debe reabrirse tras fallo previo");
+        let brain_reabierto = guarda.as_ref().expect("Brain debe reabrirse tras fallo previo");
         assert_eq!(brain_reabierto.collections().unwrap().len(), 1);
     }
 
@@ -1559,17 +1551,9 @@ mod tests {
                 "target_llave_hash_anterior": "hash_anterior_llave_inexistente",
                 "estado": "sustituyendo"
             }}"#,
-            tmp.0
-                .join("staging")
-                .display()
-                .to_string()
-                .replace('\\', "\\\\"),
+            tmp.0.join("staging").display().to_string().replace('\\', "\\\\"),
             db.display().to_string().replace('\\', "\\\\"),
-            tmp.0
-                .join("brain.obrain.llave")
-                .display()
-                .to_string()
-                .replace('\\', "\\\\"),
+            tmp.0.join("brain.obrain.llave").display().to_string().replace('\\', "\\\\"),
         );
         std::fs::write(&recibo_path, recibo_json.as_bytes()).expect("escribir recibo ambiguo");
 
@@ -1633,16 +1617,11 @@ mod tests {
         .expect("restauración coordinada satisfactoria");
 
         assert!(informe.reindexado_en_pausa);
-        assert!(informe
-            .salvaguarda_creada
-            .as_ref()
-            .is_some_and(|p| p.exists()));
+        assert!(informe.salvaguarda_creada.as_ref().is_some_and(|p| p.exists()));
         assert!(!indexando.0.load(Ordering::SeqCst));
 
         let mut guarda = cerebro.0.lock().unwrap();
-        let brain_restaurado = guarda
-            .as_mut()
-            .expect("Brain debe quedar abierto tras restaurar");
+        let brain_restaurado = guarda.as_mut().expect("Brain debe quedar abierto tras restaurar");
         assert_eq!(brain_restaurado.collections().unwrap().len(), 1);
         assert!(brain_restaurado.security().unwrap().reindexado_pausado);
     }

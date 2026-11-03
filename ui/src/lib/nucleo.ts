@@ -733,6 +733,8 @@ export interface InformeRetiroBiblioteca {
   ruta: string;
   documentos_retirados: number;
   documentos_conservados: number;
+  vigilancia_desactivada: boolean;
+  aviso_vigilancia: string | null;
 }
 
 /**

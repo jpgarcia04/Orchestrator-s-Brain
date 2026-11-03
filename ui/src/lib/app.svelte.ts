@@ -1,4 +1,4 @@
-﻿/**
+/**
  * El estado de la aplicación: **uno solo**, y todas las vistas lo leen.
  *
  * Es la consecuencia #4 de ADR-0014 —dos vistas de un solo estado— llevada al

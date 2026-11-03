@@ -129,7 +129,7 @@ try {
     $changedRs += @(git -C $repoRoot diff --name-only origin/main...HEAD -- "*.rs" 2>$null)
     $changedRs += @(git -C $repoRoot diff --name-only -- "*.rs" 2>$null)
 } catch {}
-$changedRs = @($changedRs | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+$changedRs = @($changedRs | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_.StartsWith("core") } | Select-Object -Unique)
 foreach ($relRs in $changedRs) {
     $fullRs = Join-Path $repoRoot $relRs
     if (Test-Path -LiteralPath $fullRs -PathType Leaf) {

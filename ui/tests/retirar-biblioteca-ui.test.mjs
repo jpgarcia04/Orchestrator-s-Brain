@@ -37,6 +37,8 @@ test('retirarBiblioteca invoca el comando seguro de Tauri con la ruta indicada',
       ruta: "C:\\Usuarios\\Pruebas\\Videos\\Captures",
       documentos_retirados: 3,
       documentos_conservados: 0,
+      vigilancia_desactivada: true,
+      aviso_vigilancia: null,
     };
   };
 
@@ -45,6 +47,22 @@ test('retirarBiblioteca invoca el comando seguro de Tauri con la ruta indicada',
   assert.deepEqual(invokedArgs, { ruta: "C:\\Usuarios\\Pruebas\\Videos\\Captures" });
   assert.equal(informe.documentos_retirados, 3);
   assert.equal(informe.documentos_conservados, 0);
+  assert.equal(informe.vigilancia_desactivada, true);
+  assert.equal(informe.aviso_vigilancia, null);
+});
+
+test('retirarBiblioteca transmite correctamente fallos o advertencias de vigilancia', async () => {
+  globalThis.__brainInvoke = async () => ({
+    ruta: "C:\\Vault\\Personal",
+    documentos_retirados: 2,
+    documentos_conservados: 1,
+    vigilancia_desactivada: false,
+    aviso_vigilancia: "Error simulado al desuscribir del monitor de Windows",
+  });
+
+  const informe = await retirarBiblioteca("C:\\Vault\\Personal");
+  assert.equal(informe.vigilancia_desactivada, false);
+  assert.equal(informe.aviso_vigilancia, "Error simulado al desuscribir del monitor de Windows");
 });
 
 test('app.retirarCarpeta refresca el estado y redirige al inicio si la vista es carpeta', async () => {
@@ -55,6 +73,8 @@ test('app.retirarCarpeta refresca el estado y redirige al inicio si la vista es 
         ruta: "C:\\Usuarios\\Pruebas\\Descargas",
         documentos_retirados: 5,
         documentos_conservados: 2,
+        vigilancia_desactivada: true,
+        aviso_vigilancia: null,
       };
     }
     if (command === 'estado') {
