@@ -2360,3 +2360,155 @@ fn salvaguarda_previa_se_reconoce_y_explica_sin_modificar_archivos() {
         Err(RespaldoError::ArchivoInesperado(_))
     ));
 }
+
+fn nombres_de_colecciones(b: &Brain) -> Vec<String> {
+    b.collections()
+        .unwrap()
+        .into_iter()
+        .map(|c| c.name)
+        .collect()
+}
+
+/// Una restauración cancelada porque otra instancia abrió la bóveda durante
+/// la preparación no ha movido nada: no puede dejar un recibo que, en la
+/// apertura siguiente, sustituya la base viva por la salvaguarda.
+#[test]
+fn restauracion_cancelada_por_base_en_uso_no_revierte_trabajo_posterior() {
+    let dir = CarpetaPrueba::nueva("cancelada-no-revierte");
+    let fuente = dir.path().join("fuente").join("brain.obrain");
+    construir_base_simple(&fuente, 3);
+    let respaldo_dir = dir.path().join("respaldo");
+    respaldo::crear(&fuente, &respaldo_dir).unwrap();
+
+    let db_activa = dir.path().join("activa").join("brain.obrain");
+    construir_base_simple(&db_activa, 4);
+    let recibo_path = db_activa.parent().unwrap().join(RECIBO_TRANSICION_ARCHIVO);
+
+    let opciones = OpcionesRestauracion {
+        codigo_recuperacion: None,
+        autorizar: true,
+        pausar_reindexado: true,
+        carpeta_salvaguarda: None,
+    };
+    let mut otra_instancia: Option<Brain> = None;
+    let err = restaurar_con_etapa(&respaldo_dir, &db_activa, opciones, |etapa| {
+        if matches!(etapa, EtapaRestauracion::TrasPrepararStaging) {
+            otra_instancia = Some(Brain::try_from_store(abrir_con(&db_activa, K).unwrap()).unwrap());
+        }
+        Ok(())
+    })
+    .unwrap_err();
+    assert!(
+        !matches!(
+            err,
+            RespaldoError::RestauracionCritica(..) | RespaldoError::RestauracionFallidaYRecuperada(_)
+        ),
+        "no debió llegar a sustituir nada: {err:?}"
+    );
+    assert!(
+        !recibo_path.exists(),
+        "una cancelación previa a la sustitución no deja recibo"
+    );
+
+    // La otra instancia sigue trabajando y cierra.
+    let mut brain = otra_instancia.take().unwrap();
+    brain
+        .create_collection("trabajo posterior", "user@ui")
+        .unwrap();
+    drop(brain);
+
+    // El arranque siguiente conserva ese trabajo.
+    let brain = Brain::try_from_store(abrir_con(&db_activa, K).unwrap()).unwrap();
+    assert!(
+        nombres_de_colecciones(&brain)
+            .iter()
+            .any(|n| n == "trabajo posterior"),
+        "el trabajo posterior a la restauración cancelada debe conservarse"
+    );
+}
+
+/// Defensa en profundidad: un recibo huérfano con salvaguarda válida, junto a
+/// una base viva distinta de la original y de la restaurada, es ambiguo. No se
+/// sustituye la base por la salvaguarda.
+#[test]
+fn recibo_huerfano_no_pisa_base_viva_con_la_salvaguarda() {
+    let dir = CarpetaPrueba::nueva("recibo-huerfano");
+    let db_activa = dir.path().join("activa").join("brain.obrain");
+    construir_base_simple(&db_activa, 4);
+    let parent = db_activa.parent().unwrap();
+    let llave_activa = obrain_keys::key_path(&db_activa);
+    let hash = |p: &Path| blake3::hash(&std::fs::read(p).unwrap()).to_hex().to_string();
+
+    // Salvaguarda tomada del estado original.
+    let salv_dir = dir.path().join("salvaguarda");
+    std::fs::create_dir_all(&salv_dir).unwrap();
+    std::fs::copy(&db_activa, salv_dir.join(BASE_ARCHIVO)).unwrap();
+    std::fs::copy(&llave_activa, salv_dir.join(LLAVE_ARCHIVO)).unwrap();
+    let recibo = ReciboTransicion {
+        version: 1,
+        creado_en_ms: 1000,
+        salvaguarda_dir: Some(salv_dir.clone()),
+        staging_dir: dir.path().join("staging-inexistente"),
+        target_db: db_activa.clone(),
+        target_llave: llave_activa.clone(),
+        staged_db_hash: "staged_hash".into(),
+        staged_llave_hash: "staged_llave".into(),
+        target_db_hash_anterior: Some(hash(&db_activa)),
+        target_llave_hash_anterior: Some(hash(&llave_activa)),
+        estado: "preparado".into(),
+    };
+
+    // La base sigue viva y recibe trabajo nuevo antes de que aparezca el recibo.
+    let mut brain = Brain::try_from_store(abrir_con(&db_activa, K).unwrap()).unwrap();
+    brain
+        .create_collection("trabajo posterior", "user@ui")
+        .unwrap();
+    drop(brain);
+    let hash_viva = hash(&db_activa);
+    assert_ne!(Some(&hash_viva), recibo.target_db_hash_anterior.as_ref());
+
+    let recibo_path = parent.join(RECIBO_TRANSICION_ARCHIVO);
+    std::fs::write(&recibo_path, serde_json::to_string_pretty(&recibo).unwrap()).unwrap();
+
+    let res = comprobar_y_reparar_transicion(&db_activa);
+    assert!(
+        matches!(res, Err(RespaldoError::TransicionAmbigua(_))),
+        "esperado TransicionAmbigua, obtenido: {res:?}"
+    );
+    assert_eq!(hash_viva, hash(&db_activa), "la base viva no se toca");
+    assert!(recibo_path.exists(), "el recibo se conserva como evidencia");
+}
+
+/// Restaurar es la salida cuando la base activa está dañada: no puede
+/// rechazarse diciendo que «está en uso».
+#[test]
+fn restauracion_sobre_base_activa_danada() {
+    let dir = CarpetaPrueba::nueva("restaurar-sobre-danada");
+    let fuente = dir.path().join("fuente").join("brain.obrain");
+    construir_base_simple(&fuente, 5);
+    let respaldo_dir = dir.path().join("respaldo");
+    let manifiesto = respaldo::crear(&fuente, &respaldo_dir).unwrap();
+
+    let db_activa = dir.path().join("activa").join("brain.obrain");
+    construir_base_simple(&db_activa, 3);
+    let mut bytes = std::fs::read(&db_activa).unwrap();
+    for b in bytes.iter_mut().take(4096) {
+        *b = 0;
+    }
+    std::fs::write(&db_activa, &bytes).unwrap();
+
+    let opciones = OpcionesRestauracion {
+        codigo_recuperacion: None,
+        autorizar: true,
+        pausar_reindexado: true,
+        carpeta_salvaguarda: None,
+    };
+    let informe = restaurar(&respaldo_dir, &db_activa, opciones).unwrap();
+
+    // La base dañada se conserva tal cual en la salvaguarda.
+    let salv = informe.salvaguarda_creada.expect("salvaguarda del perfil dañado");
+    assert_eq!(std::fs::read(salv.join(BASE_ARCHIVO)).unwrap(), bytes);
+    // Y el perfil activo es el del respaldo.
+    assert_eq!(informe.manifiesto, manifiesto);
+    Brain::try_from_store(abrir_con(&db_activa, K).unwrap()).unwrap();
+}
