@@ -188,6 +188,7 @@ pub fn abrir_con(db: &Path, kdf: KdfParams) -> Result<Store> {
             reanudar(db, &cifrando)?;
         }
         let store = Store::open(db)?;
+        obrain_keys::limpiar_temporal(db)?;
         migrate(store.conn())?;
         return Ok(store);
     }

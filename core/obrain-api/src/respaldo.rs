@@ -1372,13 +1372,17 @@ fn revertir_sustitucion_salvaguarda(
 fn escribir_recibo_transicion(path: &Path, recibo: &ReciboTransicion) -> Result<()> {
     let json = serde_json::to_string_pretty(recibo)
         .map_err(|e| Error::ManifiestoInvalido(e.to_string()))?;
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(path)?;
-    file.write_all(json.as_bytes())?;
-    file.sync_all()?;
+    let tmp = con_sufijo(path, ".tmp");
+    {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&tmp)?;
+        file.write_all(json.as_bytes())?;
+        file.sync_all()?;
+    }
+    std::fs::rename(&tmp, path)?;
     Ok(())
 }
 
@@ -1614,10 +1618,9 @@ fn comprobar_conexiones_activas(db: &Path) -> Result<()> {
             let _ = conn.busy_timeout(std::time::Duration::from_millis(500));
             if obrain_keys::exists(db) {
                 if let Ok(k) = obrain_keys::unlock(db) {
-                    let _ = conn.execute_batch(&format!(
-                        "PRAGMA key = \"{}\"; PRAGMA temp_store = MEMORY;",
-                        k.sqlcipher_literal().as_str()
-                    ));
+                    let pragma = k.sqlcipher_pragma();
+                    let _ = conn.execute_batch(&pragma);
+                    let _ = conn.execute_batch("PRAGMA temp_store = MEMORY;");
                 }
             }
             // Una base que no se deja leer (dañada, o con una llave que este
@@ -1738,10 +1741,9 @@ fn obtener_bibliotecas_respaldo(
 }
 
 fn aplicar_llave_escritura(conn: &Connection, key: &obrain_keys::DataKey) -> Result<()> {
-    conn.execute_batch(&format!(
-        "PRAGMA key = \"{}\"; PRAGMA temp_store = MEMORY;",
-        key.sqlcipher_literal().as_str()
-    ))?;
+    let pragma = key.sqlcipher_pragma();
+    conn.execute_batch(&pragma)?;
+    conn.execute_batch("PRAGMA temp_store = MEMORY;")?;
     conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| {
         r.get::<_, i64>(0)
     })
@@ -1907,10 +1909,9 @@ fn publicar_staging(staging: DirTemporal, destino_abs: &Path) -> Result<()> {
 }
 
 fn aplicar_llave_lectura(conn: &Connection, key: &obrain_keys::DataKey) -> Result<()> {
-    conn.execute_batch(&format!(
-        "PRAGMA key = \"{}\"; PRAGMA temp_store = MEMORY;",
-        key.sqlcipher_literal().as_str()
-    ))?;
+    let pragma = key.sqlcipher_pragma();
+    conn.execute_batch(&pragma)?;
+    conn.execute_batch("PRAGMA temp_store = MEMORY;")?;
     conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| {
         r.get::<_, i64>(0)
     })

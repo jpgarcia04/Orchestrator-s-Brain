@@ -2512,3 +2512,42 @@ fn restauracion_sobre_base_activa_danada() {
     assert_eq!(informe.manifiesto, manifiesto);
     Brain::try_from_store(abrir_con(&db_activa, K).unwrap()).unwrap();
 }
+
+/// El recibo de transición se reescribe mediante un archivo `.tmp` + `rename`
+/// para que un corte a mitad de la sustitución no deje el recibo vacío o truncado.
+#[test]
+fn recibo_de_transicion_se_reescribe_sin_dejar_temporal() {
+    let dir = CarpetaPrueba::nueva("recibo-atomico");
+    let fuente = dir.path().join("fuente").join("brain.obrain");
+    construir_base_simple(&fuente, 3);
+    let respaldo_dir = dir.path().join("respaldo");
+    respaldo::crear(&fuente, &respaldo_dir).unwrap();
+
+    let db_activa = dir.path().join("activa").join("brain.obrain");
+    construir_base_simple(&db_activa, 2);
+    let parent = db_activa.parent().unwrap();
+    let recibo_path = parent.join(RECIBO_TRANSICION_ARCHIVO);
+    let recibo_tmp = parent.join(format!("{RECIBO_TRANSICION_ARCHIVO}.tmp"));
+
+    let opciones = OpcionesRestauracion {
+        codigo_recuperacion: None,
+        autorizar: true,
+        pausar_reindexado: true,
+        carpeta_salvaguarda: None,
+    };
+    let mut comprobado = false;
+    restaurar_con_etapa(&respaldo_dir, &db_activa, opciones, |etapa| {
+        if matches!(etapa, EtapaRestauracion::TrasDesplazarActiva) {
+            let texto = std::fs::read_to_string(&recibo_path).unwrap();
+            let recibo: ReciboTransicion = serde_json::from_str(&texto).unwrap();
+            assert_eq!(recibo.estado, "reemplazando");
+            assert!(!recibo_tmp.exists());
+            comprobado = true;
+        }
+        Ok(())
+    })
+    .unwrap();
+    assert!(comprobado);
+    assert!(!recibo_path.exists());
+    assert!(!recibo_tmp.exists());
+}
