@@ -205,6 +205,26 @@ fn sin_la_llave_de_windows_se_entra_con_la_clave_de_recuperacion() {
     assert!(Brain::open(&db).is_ok());
 }
 
+/// Si una escritura anterior de la llave dejó un `.llave.tmp` huérfano junto a
+/// una bóveda cuya llave definitiva ya abre la base, `abrir_con` retira el
+/// temporal para no bloquear los respaldos.
+#[test]
+fn abrir_limpia_llave_temporal_huerfana_y_permite_respaldar() {
+    let d = dir("llave-tmp-huerfana");
+    let db = d.join("brain.obrain");
+    drop(abrir_con(&db, KdfParams::FAST_FOR_TESTS).unwrap());
+
+    let tmp = con_sufijo(&db, ".llave.tmp");
+    std::fs::write(&tmp, b"basura de una escritura interrumpida").unwrap();
+    assert!(tmp.exists());
+
+    drop(abrir_con(&db, KdfParams::FAST_FOR_TESTS).unwrap());
+    assert!(!tmp.exists(), "el temporal .llave.tmp debe desaparecer al abrir");
+
+    let destino_respaldo = d.join("respaldo");
+    obrain_api::respaldo::crear(&db, &destino_respaldo).unwrap();
+}
+
 // ═══════════════════════════════════════════════════════════════════ el PIN
 
 fn cerebro_con_pasaporte() -> (Brain, EntityId, EntityId, PathBuf) {

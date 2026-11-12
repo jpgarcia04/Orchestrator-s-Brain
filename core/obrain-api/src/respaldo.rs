@@ -979,6 +979,22 @@ where
         (None, None)
     };
 
+    // Repetir las comprobaciones críticas ANTES de persistir el recibo: una
+    // cancelación aquí no ha movido nada y no debe dejar un recibo en disco.
+    // Un recibo huérfano junto a su salvaguarda haría que una apertura
+    // posterior sustituyera una base viva (y más reciente) por la salvaguarda.
+    comprobar_conexiones_activas(&db_destino_abs)?;
+    if db_destino_abs.exists() {
+        if let Some(ref h_ant) = target_db_hash_anterior {
+            let actual_hash = describir_archivo(&db_destino_abs, "db")?.blake3;
+            if &actual_hash != h_ant {
+                return Err(Error::DestinoInvalido(
+                    "la base activa cambió durante la preparación de la restauración; operación cancelada para proteger los datos".into(),
+                ));
+            }
+        }
+    }
+
     let mut recibo = ReciboTransicion {
         version: 1,
         creado_en_ms: ahora_ms(),
@@ -997,19 +1013,6 @@ where
     // 6. Sustitución controlada con reversibilidad
     let db_anterior = db_destino_abs.with_extension("obrain.anterior");
     let llave_anterior = target_llave.with_extension("llave.anterior");
-
-    // Repetir comprobaciones críticas inmediatamente antes de la sustitución
-    comprobar_conexiones_activas(&db_destino_abs)?;
-    if db_destino_abs.exists() {
-        if let Some(ref h_ant) = target_db_hash_anterior {
-            let actual_hash = describir_archivo(&db_destino_abs, "db")?.blake3;
-            if &actual_hash != h_ant {
-                return Err(Error::DestinoInvalido(
-                    "la base activa cambió durante la preparación de la restauración; operación cancelada para proteger los datos".into(),
-                ));
-            }
-        }
-    }
 
     let sustitucion_resultado = (|| -> Result<()> {
         if db_destino_abs.exists() {
@@ -1067,10 +1070,16 @@ where
                 &target_llave,
                 &db_anterior,
                 &llave_anterior,
+                &staged_llave_hash,
             )
-        } else if let Some(ref salv) = salvaguarda_creada {
+        } else if let Some(salv) = salvaguarda_creada
+            .as_deref()
+            .filter(|_| !db_destino_abs.exists())
+        {
             revertir_sustitucion_salvaguarda(&db_destino_abs, &target_llave, salv)
         } else {
+            // Sin `.anterior` y con la base en su sitio, la activa nunca se
+            // desplazó: no hay nada que revertir y no se pisa con la salvaguarda.
             Ok(())
         };
         return match rollback_res {
@@ -1231,7 +1240,13 @@ pub fn comprobar_y_reparar_transicion(db_destino: &Path) -> Result<Option<String
     };
 
     if db_anterior_valida && llave_anterior_valida {
-        revertir_sustitucion_anterior(target_db, target_llave, &db_anterior, &llave_anterior)?;
+        revertir_sustitucion_anterior(
+            target_db,
+            target_llave,
+            &db_anterior,
+            &llave_anterior,
+            &recibo.staged_llave_hash,
+        )?;
         let _ = std::fs::remove_file(&recibo_path);
         let _ = std::fs::remove_file(&db_anterior);
         let _ = std::fs::remove_file(&llave_anterior);
@@ -1272,7 +1287,10 @@ pub fn comprobar_y_reparar_transicion(db_destino: &Path) -> Result<Option<String
         false
     };
 
-    if salvaguarda_valida {
+    // La salvaguarda sólo repone una base que falta o que es la instalada por
+    // la propia restauración. Una base distinta en destino es trabajo que el
+    // recibo no conoce: sustituirla lo destruiría, así que queda como ambigua.
+    if salvaguarda_valida && (!target_db.exists() || target_db_match) {
         let salv = recibo.salvaguarda_dir.as_ref().unwrap();
         revertir_sustitucion_salvaguarda(target_db, target_llave, salv)?;
         let _ = std::fs::remove_file(&recibo_path);
@@ -1294,6 +1312,7 @@ fn revertir_sustitucion_anterior(
     target_llave: &Path,
     db_anterior: &Path,
     llave_anterior: &Path,
+    staged_llave_hash: &str,
 ) -> Result<()> {
     if target_db.exists() {
         let _ = std::fs::remove_file(target_db);
@@ -1301,8 +1320,17 @@ fn revertir_sustitucion_anterior(
     for suf in ["-wal", "-shm", "-journal"] {
         let _ = std::fs::remove_file(con_sufijo(target_db, suf));
     }
+    // La llave en destino sólo se retira si es la que instaló la restauración
+    // o si hay una `.llave.anterior` que la repone. Si la original nunca llegó
+    // a desplazarse (falló su rename), sigue siendo la llave de `db_anterior`:
+    // borrarla dejaría la base repuesta sin forma de abrirse.
     if target_llave.exists() {
-        let _ = std::fs::remove_file(target_llave);
+        let es_la_instalada = describir_archivo(target_llave, "llave")
+            .map(|m| m.blake3 == staged_llave_hash)
+            .unwrap_or(false);
+        if llave_anterior.exists() || es_la_instalada {
+            let _ = std::fs::remove_file(target_llave);
+        }
     }
 
     if llave_anterior.exists() {
@@ -1344,13 +1372,17 @@ fn revertir_sustitucion_salvaguarda(
 fn escribir_recibo_transicion(path: &Path, recibo: &ReciboTransicion) -> Result<()> {
     let json = serde_json::to_string_pretty(recibo)
         .map_err(|e| Error::ManifiestoInvalido(e.to_string()))?;
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(path)?;
-    file.write_all(json.as_bytes())?;
-    file.sync_all()?;
+    let tmp = con_sufijo(path, ".tmp");
+    {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&tmp)?;
+        file.write_all(json.as_bytes())?;
+        file.sync_all()?;
+    }
+    std::fs::rename(&tmp, path)?;
     Ok(())
 }
 
@@ -1565,6 +1597,15 @@ fn inspeccionar_perfil(db: &Path) -> ResumenPerfil {
     }
 }
 
+/// ¿El error de SQLite dice que otra conexión tiene la base ocupada?
+fn es_ocupacion(e: &obrain_core::rusqlite::Error) -> bool {
+    use obrain_core::rusqlite::ErrorCode;
+    matches!(
+        e.sqlite_error_code(),
+        Some(ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked)
+    )
+}
+
 fn comprobar_conexiones_activas(db: &Path) -> Result<()> {
     if !db.exists() {
         return Ok(());
@@ -1577,30 +1618,45 @@ fn comprobar_conexiones_activas(db: &Path) -> Result<()> {
             let _ = conn.busy_timeout(std::time::Duration::from_millis(500));
             if obrain_keys::exists(db) {
                 if let Ok(k) = obrain_keys::unlock(db) {
-                    let _ = conn.execute_batch(&format!(
-                        "PRAGMA key = \"{}\"; PRAGMA temp_store = MEMORY;",
-                        k.sqlcipher_literal().as_str()
-                    ));
+                    let pragma = k.sqlcipher_pragma();
+                    let _ = conn.execute_batch(&pragma);
+                    let _ = conn.execute_batch("PRAGMA temp_store = MEMORY;");
                 }
             }
-            if conn
-                .execute_batch("PRAGMA locking_mode = EXCLUSIVE;")
-                .is_err()
-            {
-                return Err(Error::BaseEnUso(db.to_path_buf()));
-            }
-            let check: std::result::Result<(i64, i64, i64), _> =
-                conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| {
-                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-                });
-            match check {
-                Ok((busy, frames, copied)) => {
-                    if busy != 0 || (frames >= 0 && frames != copied) {
+            // Una base que no se deja leer (dañada, o con una llave que este
+            // equipo no abre) no está «en uso»: es justo el caso en que hace
+            // falta restaurar. Sin lectura no hay checkpoint posible; la
+            // salvaguarda copia sus bytes y su WAL tal cual, y la exclusividad
+            // la sigue decidiendo la comprobación del sistema de más abajo.
+            let legible = match conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| {
+                r.get::<_, i64>(0)
+            }) {
+                Ok(_) => true,
+                Err(e) if es_ocupacion(&e) => return Err(Error::BaseEnUso(db.to_path_buf())),
+                Err(_) => false,
+            };
+            if legible {
+                if conn
+                    .execute_batch("PRAGMA locking_mode = EXCLUSIVE;")
+                    .is_err()
+                {
+                    return Err(Error::BaseEnUso(db.to_path_buf()));
+                }
+                let check: std::result::Result<(i64, i64, i64), _> =
+                    conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| {
+                        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                    });
+                match check {
+                    Ok((busy, frames, copied)) => {
+                        if busy != 0 || (frames >= 0 && frames != copied) {
+                            return Err(Error::BaseEnUso(db.to_path_buf()));
+                        }
+                    }
+                    // Una base legible cuyo WAL no se deja consolidar se trata
+                    // como ocupada: es la lectura prudente.
+                    Err(_) => {
                         return Err(Error::BaseEnUso(db.to_path_buf()));
                     }
-                }
-                Err(_) => {
-                    return Err(Error::BaseEnUso(db.to_path_buf()));
                 }
             }
             drop(conn);
@@ -1623,7 +1679,12 @@ fn comprobar_conexiones_activas(db: &Path) -> Result<()> {
                     .open(&path)
                 {
                     Ok(_) => {}
-                    Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                    // 32 = ERROR_SHARING_VIOLATION, 33 = ERROR_LOCK_VIOLATION:
+                    // otro proceso o conexión tiene el archivo abierto.
+                    Err(e)
+                        if e.kind() == std::io::ErrorKind::PermissionDenied
+                            || matches!(e.raw_os_error(), Some(32 | 33)) =>
+                    {
                         return Err(Error::BaseEnUso(db.to_path_buf()));
                     }
                     Err(e) => return Err(Error::Io(e)),
@@ -1680,10 +1741,9 @@ fn obtener_bibliotecas_respaldo(
 }
 
 fn aplicar_llave_escritura(conn: &Connection, key: &obrain_keys::DataKey) -> Result<()> {
-    conn.execute_batch(&format!(
-        "PRAGMA key = \"{}\"; PRAGMA temp_store = MEMORY;",
-        key.sqlcipher_literal().as_str()
-    ))?;
+    let pragma = key.sqlcipher_pragma();
+    conn.execute_batch(&pragma)?;
+    conn.execute_batch("PRAGMA temp_store = MEMORY;")?;
     conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| {
         r.get::<_, i64>(0)
     })
@@ -1849,10 +1909,9 @@ fn publicar_staging(staging: DirTemporal, destino_abs: &Path) -> Result<()> {
 }
 
 fn aplicar_llave_lectura(conn: &Connection, key: &obrain_keys::DataKey) -> Result<()> {
-    conn.execute_batch(&format!(
-        "PRAGMA key = \"{}\"; PRAGMA temp_store = MEMORY;",
-        key.sqlcipher_literal().as_str()
-    ))?;
+    let pragma = key.sqlcipher_pragma();
+    conn.execute_batch(&pragma)?;
+    conn.execute_batch("PRAGMA temp_store = MEMORY;")?;
     conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| {
         r.get::<_, i64>(0)
     })
@@ -2284,4 +2343,47 @@ fn ahora_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Si la llave original nunca llegó a desplazarse (no hay
+    /// `.llave.anterior`), revertir no puede borrarla: es la de la base que
+    /// se repone desde `.anterior`.
+    #[test]
+    fn revertir_conserva_la_llave_que_no_se_desplazo() {
+        let dir = DirTemporal::new("obrain-revertir-llave-").unwrap();
+        let db = dir.path().join(BASE_ARCHIVO);
+        let llave = dir.path().join(LLAVE_ARCHIVO);
+        let db_anterior = db.with_extension("obrain.anterior");
+        let llave_anterior = llave.with_extension("llave.anterior");
+        std::fs::write(&db_anterior, b"base original").unwrap();
+        std::fs::write(&llave, b"llave original").unwrap();
+
+        revertir_sustitucion_anterior(&db, &llave, &db_anterior, &llave_anterior, "hash-staged")
+            .unwrap();
+        assert_eq!(std::fs::read(&db).unwrap(), b"base original");
+        assert_eq!(std::fs::read(&llave).unwrap(), b"llave original");
+    }
+
+    /// La llave que instaló la restauración sí se retira, aunque el perfil
+    /// original no tuviera ninguna.
+    #[test]
+    fn revertir_retira_la_llave_instalada_por_la_restauracion() {
+        let dir = DirTemporal::new("obrain-revertir-staged-").unwrap();
+        let db = dir.path().join(BASE_ARCHIVO);
+        let llave = dir.path().join(LLAVE_ARCHIVO);
+        let db_anterior = db.with_extension("obrain.anterior");
+        let llave_anterior = llave.with_extension("llave.anterior");
+        std::fs::write(&db_anterior, b"base original").unwrap();
+        std::fs::write(&db, b"base restaurada").unwrap();
+        std::fs::write(&llave, b"llave restaurada").unwrap();
+        let staged = blake3::hash(b"llave restaurada").to_hex().to_string();
+
+        revertir_sustitucion_anterior(&db, &llave, &db_anterior, &llave_anterior, &staged).unwrap();
+        assert_eq!(std::fs::read(&db).unwrap(), b"base original");
+        assert!(!llave.exists());
+    }
 }

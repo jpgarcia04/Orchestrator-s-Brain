@@ -43,10 +43,8 @@ pub(crate) fn has_migration_artifacts(path: &Path) -> bool {
 
 pub(crate) fn key(conn: &Connection, key: Option<&DataKey>) -> Result<()> {
     if let Some(key) = key {
-        conn.execute_batch(&format!(
-            "PRAGMA key = \"{}\";",
-            key.sqlcipher_literal().as_str()
-        ))?;
+        let pragma = key.sqlcipher_pragma();
+        conn.execute_batch(&pragma)?;
         conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| {
             r.get::<_, i64>(0)
         })

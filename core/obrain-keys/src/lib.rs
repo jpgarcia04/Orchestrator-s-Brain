@@ -118,6 +118,17 @@ impl DataKey {
         s.push('\'');
         s
     }
+
+    /// La sentencia `PRAGMA key = "x'2DD2…'";` lista para `execute_batch`,
+    /// construida directamente sobre un búfer que se pone a cero al soltarse.
+    pub fn sqlcipher_pragma(&self) -> Zeroizing<String> {
+        let mut s = Zeroizing::new(String::with_capacity(83));
+        s.push_str("PRAGMA key = \"");
+        let lit = self.sqlcipher_literal();
+        s.push_str(&lit);
+        s.push_str("\";");
+        s
+    }
 }
 
 impl std::fmt::Debug for DataKey {
@@ -143,6 +154,17 @@ pub fn key_path(db: &Path) -> PathBuf {
 /// ¿Esta base tiene llave? Si la tiene, está cifrada.
 pub fn exists(db: &Path) -> bool {
     key_path(db).is_file()
+}
+
+/// Borra `<base>.llave.tmp` si quedó huérfano tras una escritura interrumpida.
+pub fn limpiar_temporal(db: &Path) -> Result<()> {
+    let mut tmp = key_path(db).into_os_string();
+    tmp.push(".tmp");
+    match std::fs::remove_file(PathBuf::from(tmp)) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(Error::Io(e)),
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -559,6 +581,16 @@ mod tests {
         assert_eq!(l.len(), 67);
         assert!(l.starts_with("x'ABAB") && l.ends_with("AB'"));
         assert_eq!(format!("{k:?}"), "DataKey(…)");
+    }
+
+    #[test]
+    fn el_pragma_de_sqlcipher_contiene_la_sentencia_completa() {
+        let k = DataKey::from_slice(&[0xAB; 32]).unwrap();
+        let p = k.sqlcipher_pragma();
+        assert_eq!(
+            p.as_str(),
+            "PRAGMA key = \"x'ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB'\";"
+        );
     }
 
     #[test]
