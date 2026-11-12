@@ -188,7 +188,10 @@ pub fn abrir_con(db: &Path, kdf: KdfParams) -> Result<Store> {
             reanudar(db, &cifrando)?;
         }
         let store = Store::open(db)?;
-        obrain_keys::limpiar_temporal(db)?;
+        // Sólo limpieza: la base ya abrió con su llave definitiva. Si el
+        // temporal no se deja borrar (otro programa lo tiene cogido), no es
+        // motivo para negar la apertura; se reintenta en la siguiente.
+        let _ = obrain_keys::limpiar_temporal(db);
         migrate(store.conn())?;
         return Ok(store);
     }
