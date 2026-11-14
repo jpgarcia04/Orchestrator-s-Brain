@@ -6,7 +6,7 @@ use std::path::Path;
 #[test]
 fn version_del_proyecto_es_coherente_en_todos_los_manifiestos() {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let version_esperada = "0.0.2";
+    let version_esperada = "0.0.3";
 
     // 1. Manifiestos de Cargo del núcleo
     let crates = [

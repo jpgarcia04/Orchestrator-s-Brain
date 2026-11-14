@@ -1,6 +1,6 @@
 [package]
 name = "obrain-app"
-version = "0.0.2"
+version = "0.0.3"
 description = "Orchestrator's Brain — la barra sobre el sustrato"
 edition = "2024"
 rust-version = "1.85"
@@ -31,6 +31,14 @@ tauri-plugin-opener = "2"
 # diálogos ni pasar rutas; sólo pide «añade una carpeta» y elige la persona.
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
+# La configuración del actualizador (`plugins` en tauri.conf.json) se incrusta
+# como JSON al compilar, y el código generado por Tauri lo nombra.
+serde_json = "1"
+# Actualizarse sola (ADR-0037). Es la única salida a la red de la aplicación:
+# pregunta a GitHub si hay una versión publicada más nueva y, si la persona lo
+# pide, la descarga y comprueba su firma antes de instalarla. También se usa
+# **desde Rust**: el webview no recibe permisos del plugin.
+tauri-plugin-updater = "2"
 
 [profile.release]
 lto = true

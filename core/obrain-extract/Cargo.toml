@@ -1,6 +1,6 @@
 [package]
 name = "obrain-extract"
-version = "0.0.2"
+version = "0.0.3"
 description = "Extracción de texto, chunking versionado e índice léxico FTS5 — M2 de Orchestrator's Brain"
 edition.workspace = true
 license.workspace = true

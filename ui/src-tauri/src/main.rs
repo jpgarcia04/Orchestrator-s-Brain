@@ -1325,12 +1325,115 @@ fn por_cambio(app: &AppHandle) {
     std::thread::spawn(move || indexar_en_fondo(&app, None, modelo, true));
 }
 
+// ───────────────────────────────────────────────────── actualizaciones
+
+/// La versión nueva que encontró [`actualizacion_buscar`], a la espera de que
+/// la persona pulse «Actualizar». Nada se instala sin ese gesto (ADR-0037).
+struct ActualizacionHallada(Mutex<Option<tauri_plugin_updater::Update>>);
+
+/// Lo que la ventana enseña en el aviso de versión nueva.
+#[derive(serde::Serialize)]
+struct AvisoActualizacion {
+    actual: String,
+    nueva: String,
+    notas: Option<String>,
+}
+
+/// ¿Puede esta copia actualizarse sola? No en desarrollo (`npm run app` se
+/// sustituiría a sí misma por una versión instalada) ni si se compiló sin la
+/// llave pública de publicación: sin ella no hay firma que comprobar, y una
+/// actualización sin firma comprobada no se instala nunca.
+fn actualizaciones_activas(app: &AppHandle) -> bool {
+    if cfg!(debug_assertions) {
+        return false;
+    }
+    app.config()
+        .plugins
+        .0
+        .get("updater")
+        .and_then(|u| u.get("pubkey"))
+        .and_then(|p| p.as_str())
+        .is_some_and(|p| !p.trim().is_empty())
+}
+
+/// Pregunta a GitHub si hay una versión publicada más nueva que ésta. Es la
+/// única conexión de red de la aplicación y no manda nada de la bóveda: sólo
+/// pide el archivo `latest.json` de la última versión publicada.
+///
+/// Un fallo (sin red, GitHub caído) vuelve como error y la ventana lo calla:
+/// la aplicación ya está abierta y sigue con la versión que tiene.
+#[tauri::command]
+async fn actualizacion_buscar(
+    app: AppHandle,
+    hallada: State<'_, ActualizacionHallada>,
+) -> Result<Option<AvisoActualizacion>, String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    if !actualizaciones_activas(&app) {
+        return Ok(None);
+    }
+    // Antes de que el instalador cierre el proceso, se suelta la base: así se
+    // cierra por su camino normal y no como en un corte.
+    let cierre = app.clone();
+    let actualizador = app
+        .updater_builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .on_before_exit(move || {
+            if let Ok(mut cerebro) = cierre.state::<Cerebro>().0.lock() {
+                cerebro.take();
+            }
+        })
+        .build()
+        .map_err(texto)?;
+    let nueva = actualizador.check().await.map_err(texto)?;
+    let aviso = nueva.as_ref().map(|u| AvisoActualizacion {
+        actual: u.current_version.clone(),
+        nueva: u.version.clone(),
+        notas: u.body.clone(),
+    });
+    *hallada.0.lock().map_err(texto)? = nueva;
+    Ok(aviso)
+}
+
+/// Descarga la versión hallada, comprueba su firma contra la llave pública
+/// compilada en esta copia y lanza el instalador, que cierra la aplicación y
+/// la vuelve a abrir. Si la firma no coincide, no se instala nada.
+#[tauri::command]
+async fn actualizacion_instalar(
+    hallada: State<'_, ActualizacionHallada>,
+    indexando: State<'_, Indexando>,
+    respaldo_state: State<'_, EstadoRespaldo>,
+) -> Result<(), String> {
+    if respaldo_state.restaurando.load(Ordering::SeqCst) {
+        return Err("Hay una restauración en marcha. Actualiza cuando termine.".to_string());
+    }
+    if indexando.0.load(Ordering::SeqCst) {
+        return Err(
+            "Brain está leyendo tu bóveda. Espera a que termine y vuelve a pulsar «Actualizar»."
+                .to_string(),
+        );
+    }
+    let nueva = hallada
+        .0
+        .lock()
+        .map_err(texto)?
+        .clone()
+        .ok_or_else(|| "No hay ninguna versión nueva pendiente.".to_string())?;
+    nueva
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(texto)
+}
+
 fn main() {
     tauri::Builder::default()
         // Sin permisos para el webview a propósito: las dos salidas se invocan
         // desde `abrir` y `revelar`, que son Rust y consultan el log.
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        // Tampoco aquí hay permisos para el webview: buscar e instalar van por
+        // `actualizacion_buscar` y `actualizacion_instalar`, que son Rust.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let db = default_db_path();
             if let Some(dir) = db.parent() {
@@ -1369,6 +1472,7 @@ fn main() {
                 .ok();
             app.manage(Vigilante(Mutex::new(vigia)));
             app.manage(Pendiente(AtomicBool::new(false)));
+            app.manage(ActualizacionHallada(Mutex::new(None)));
             app.manage(EstadoRespaldo {
                 seleccionada: Mutex::new(None),
                 restaurando: AtomicBool::new(false),
@@ -1426,7 +1530,9 @@ fn main() {
             restauracion_ejecutar,
             reanudar_reindexado,
             motivo_reindexado_pausado,
-            abrir_carpeta_salvaguarda
+            abrir_carpeta_salvaguarda,
+            actualizacion_buscar,
+            actualizacion_instalar
         ])
         .run(tauri::generate_context!())
         .expect("no se pudo arrancar la ventana");

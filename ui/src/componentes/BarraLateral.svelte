@@ -9,6 +9,7 @@
   aspecto.
 -->
 <script lang="ts">
+  import Download from "@lucide/svelte/icons/download";
   import Folder from "@lucide/svelte/icons/folder";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
   import House from "@lucide/svelte/icons/house";
@@ -199,6 +200,21 @@
   {/if}
 
   <div class="pie">
+    {#if app.versionNueva}
+      <button
+        class="version hov-fondo"
+        disabled={app.instalandoVersion}
+        onclick={() => app.instalarVersionNueva()}
+        title={`Tienes la ${app.versionNueva.actual}. Al actualizar, Brain se cierra y vuelve a abrirse.`}
+      >
+        <Download size={15} />
+        <span>
+          {app.instalandoVersion
+            ? `Descargando la ${app.versionNueva.nueva}…`
+            : `Versión ${app.versionNueva.nueva} · Actualizar`}
+        </span>
+      </button>
+    {/if}
     <div class="estado">
       <span class="punto" style:background={estado.color}></span>
       <span class="texto">{estado.texto}</span>
@@ -426,6 +442,22 @@
     border-radius: 8px;
     font-size: 12.5px;
     color: var(--tenue);
+  }
+  .version {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 30px;
+    padding: 4px 6px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    text-align: left;
+    color: var(--acento);
+    border: 1px solid var(--linea);
+  }
+  .version:disabled {
+    color: var(--tenue);
+    cursor: progress;
   }
   .ruta {
     padding: 0 6px;
