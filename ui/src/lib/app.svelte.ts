@@ -7,6 +7,8 @@
  */
 
 import {
+  actualizacionBuscar,
+  actualizacionInstalar,
   actualizar as pedirActualizar,
   alEmpezarIndexado,
   alIndexar,
@@ -30,7 +32,7 @@ import {
   sacarDeColeccion,
   seguridad as pedirSeguridad,
 } from "./nucleo";
-import type { Abierta, Coleccion, Estado, Indexado, InformeRetiroBiblioteca, Listado, Seguridad } from "./nucleo";
+import type { Abierta, AvisoActualizacion, Coleccion, Estado, Indexado, InformeRetiroBiblioteca, Listado, Seguridad } from "./nucleo";
 import { tituloDe } from "./nombres";
 import { pinSession } from "./pin-session";
 
@@ -151,6 +153,10 @@ class App {
   /** Lo soltado en «Nueva colección», esperando su nombre. */
   pendiente = $state<Pendiente | null>(null);
   aviso = $state("");
+  /** Hay una versión publicada más nueva: el pie de la barra lateral la ofrece. */
+  versionNueva = $state<AvisoActualizacion | null>(null);
+  /** Se está descargando e instalando: el botón no admite otro clic. */
+  instalandoVersion = $state(false);
   /** Sube cada vez que termina un reindexado: lo que se pinta con datos vuelve a pedirlos. */
   version = $state(0);
   /** Ninguna vista documental se monta mientras se retiran datos de una indexación. */
@@ -214,6 +220,33 @@ class App {
       await this.refrescar();
     });
     await this.refrescar();
+    // Sin esperar: la bóveda ya está a la vista y la consulta no la frena.
+    void this.buscarVersionNueva();
+  }
+
+  /**
+   * Mira si hay una versión publicada más nueva (ADR-0037). Si no hay red o
+   * GitHub no responde, no se dice nada: la app sigue con la que tiene.
+   */
+  async buscarVersionNueva(): Promise<void> {
+    try {
+      this.versionNueva = await actualizacionBuscar();
+    } catch {
+      this.versionNueva = null;
+    }
+  }
+
+  /** La persona pulsó «Actualizar»: descarga, comprueba la firma e instala. */
+  async instalarVersionNueva(): Promise<void> {
+    if (!this.versionNueva || this.instalandoVersion) return;
+    this.instalandoVersion = true;
+    try {
+      await actualizacionInstalar();
+    } catch (e) {
+      this.avisar(`No se pudo instalar la versión nueva — ${e}`);
+    } finally {
+      this.instalandoVersion = false;
+    }
   }
 
   /** Retira selecciones y respuestas anteriores antes de cambiar el inventario. */
