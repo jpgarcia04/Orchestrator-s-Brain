@@ -47,13 +47,18 @@ function Parar([string]$mensaje) { throw "NO SE PUBLICA: $mensaje" }
 function Invoke-Git {
     $anterior = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
+    # Los avisos de git (finales de linea, por ejemplo) van aparte: mezclados
+    # con la respuesta, una lista vacia de cambios dejaria de estar vacia.
+    $avisos = [System.IO.Path]::GetTempFileName()
     try {
-        $salida = & git.exe -C $repoRoot @args 2>&1
+        $salida = & git.exe -C $repoRoot @args 2> $avisos
         $codigo = $LASTEXITCODE
+        $dicho = (Get-Content -LiteralPath $avisos -Raw)
     } finally {
         $ErrorActionPreference = $anterior
+        Remove-Item -LiteralPath $avisos -ErrorAction SilentlyContinue
     }
-    if ($codigo -ne 0) { Parar "git $($args -join ' ') fallo: $(($salida | Out-String).Trim())" }
+    if ($codigo -ne 0) { Parar "git $($args -join ' ') fallo: $("$dicho".Trim())" }
     return ($salida | Out-String).Trim()
 }
 
@@ -75,7 +80,12 @@ function Sustituir([string]$relativa, [string]$patron, [string]$reemplazo, [int]
 Write-Host '==> [1/6] Comprobando el repositorio y la llave...'
 
 if ((Invoke-Git 'rev-parse' '--abbrev-ref' 'HEAD') -ne 'main') { Parar 'hay que estar en la rama main.' }
-if (Invoke-Git 'status' '--porcelain') { Parar 'hay cambios sin confirmar.' }
+# Se mira el CONTENIDO, no `git status`: la compilacion de Tauri reescribe
+# ui/src-tauri/Cargo.toml con otros finales de linea y `status` lo da por
+# cambiado aunque no cambie una letra. Con eso, tras publicar una vez no se
+# podria volver a publicar.
+if (Invoke-Git 'diff' 'HEAD' '--name-only') { Parar 'hay cambios sin confirmar.' }
+if (Invoke-Git 'ls-files' '--others' '--exclude-standard') { Parar 'hay archivos nuevos sin confirmar.' }
 Invoke-Git 'fetch' '--quiet' '--tags' 'origin' | Out-Null
 if ((Invoke-Git 'rev-parse' 'HEAD') -ne (Invoke-Git 'rev-parse' 'origin/main')) {
     Parar 'main no coincide con origin/main. Sube o trae los cambios antes.'
