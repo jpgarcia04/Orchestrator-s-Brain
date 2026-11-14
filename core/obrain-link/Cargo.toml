@@ -1,6 +1,6 @@
 [package]
 name = "obrain-link"
-version = "0.0.2"
+version = "0.0.3"
 description = "Enlazadores deterministas — M3 de Orchestrator's Brain. Cero IA."
 edition.workspace = true
 license.workspace = true

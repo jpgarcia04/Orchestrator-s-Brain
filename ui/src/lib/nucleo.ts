@@ -907,3 +907,22 @@ export async function alRestaurar(f: (i: InformeRestauracion) => void): Promise<
     // sin eventos
   }
 }
+
+// ───────────────────────────────────────────────────────── actualizaciones
+
+/** Hay una versión publicada más nueva que la instalada (ADR-0037). */
+export interface AvisoActualizacion {
+  actual: string;
+  nueva: string;
+  notas: string | null;
+}
+
+/**
+ * Pregunta si hay versión nueva. La consulta la hace Rust, no la ventana, y
+ * no lleva nada de la bóveda. `null` = estás al día (o esta copia no se
+ * actualiza sola: desarrollo, o compilada sin llave de publicación).
+ */
+export const actualizacionBuscar = () => invoke<AvisoActualizacion | null>("actualizacion_buscar");
+
+/** Descarga, comprueba la firma e instala. Si va bien, la aplicación se cierra y vuelve a abrirse. */
+export const actualizacionInstalar = () => invoke<void>("actualizacion_instalar");
