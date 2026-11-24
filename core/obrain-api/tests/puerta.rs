@@ -456,3 +456,235 @@ fn un_ajuste_que_no_se_entiende_deja_la_puerta_apagada() {
         assert_eq!(que_contesta(&p, &recibo), [false, false, false], "{raro:?}");
     }
 }
+
+// ───────────────────────────────────────────── el programa de la puerta (paso 5)
+
+/// Una conversación MCP entera con la puerta, como la tendría Aetheris: cada
+/// petición en su línea, y las respuestas en el mismo orden.
+fn conversar(
+    p: &Prueba,
+    cargar: obrain_api::puerta_mcp::Cargador,
+    peticiones: &[serde_json::Value],
+) -> Vec<serde_json::Value> {
+    use obrain_api::puerta_mcp::{Puerta, servir};
+    let mut entrada = String::new();
+    for r in peticiones {
+        entrada.push_str(&r.to_string());
+        entrada.push('\n');
+    }
+    let mut puerta = Puerta::con_modelo(p.db(), cargar);
+    let mut salida = Vec::new();
+    servir(&mut puerta, entrada.as_bytes(), &mut salida).unwrap();
+    salida
+        .split(|b| *b == b'\n')
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_slice(l).unwrap())
+        .collect()
+}
+
+/// Sin modelo de significado.
+fn sin_modelo() -> obrain_api::puerta_mcp::Cargador {
+    Box::new(|| None)
+}
+
+/// El modelo de juguete, contando cuántas veces se carga.
+fn con_especias(veces: &std::rc::Rc<std::cell::Cell<u32>>) -> obrain_api::puerta_mcp::Cargador {
+    let veces = veces.clone();
+    Box::new(move || {
+        veces.set(veces.get() + 1);
+        Some(Box::new(Especias) as Box<dyn obrain_api::Embedder>)
+    })
+}
+
+fn llamada(id: u32, herramienta: &str, argumentos: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": "2.0", "id": id, "method": "tools/call",
+        "params": { "name": herramienta, "arguments": argumentos }
+    })
+}
+
+fn inicio() -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": "2.0", "id": 0, "method": "initialize",
+        "params": { "protocolVersion": "2025-06-18", "capabilities": {},
+                    "clientInfo": { "name": "aetheris-de-prueba", "version": "0" } }
+    })
+}
+
+fn motivo(r: &serde_json::Value) -> &str {
+    r["result"]["structuredContent"]["no_disponible"]["motivo"]
+        .as_str()
+        .unwrap_or_default()
+}
+
+#[test]
+fn la_puerta_por_stdio_contesta_lo_mismo_que_el_nucleo_y_no_cambia_la_base() {
+    let p = Prueba::nueva("mcp");
+    let brain = preparar(&p);
+    let recibo = id(brain.store(), &p, "Normal/recibo.txt");
+    let pasaporte = id(brain.store(), &p, "Identidad/pasaporte.txt");
+    drop(brain);
+    let antes = std::fs::read(p.db()).unwrap();
+
+    let r = conversar(
+        &p,
+        sin_modelo(),
+        &[
+            inicio(),
+            serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+            serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
+            llamada(2, "localizar", serde_json::json!({ "consulta": "azafrán" })),
+            llamada(
+                3,
+                "leer",
+                serde_json::json!({ "consulta": "azafrán", "limite": 5 }),
+            ),
+            llamada(4, "documento", serde_json::json!({ "id": recibo.as_str() })),
+            llamada(
+                5,
+                "documento",
+                serde_json::json!({ "id": pasaporte.as_str() }),
+            ),
+            llamada(6, "documento", serde_json::json!({ "id": "01INVENTADO" })),
+            llamada(
+                7,
+                "localizar",
+                serde_json::json!({ "consulta": "azafrán", "pin": "2468" }),
+            ),
+        ],
+    );
+    // La notificación no tiene respuesta: ocho peticiones, ocho respuestas.
+    assert_eq!(r.len(), 8, "{r:?}");
+    assert_eq!(r[0]["result"]["serverInfo"]["version"], "1");
+    assert_eq!(r[1]["result"]["tools"].as_array().unwrap().len(), 3);
+
+    // Lo que dio el núcleo, abierto como lo abre la puerta.
+    let localizado =
+        por_la_puerta(&p, |s| puerta::localizar(s, None, "azafrán", 10, ahora())).unwrap();
+    assert_eq!(
+        r[2]["result"]["structuredContent"],
+        serde_json::to_value(&localizado).unwrap()
+    );
+    assert_eq!(r[2]["result"]["isError"], false);
+    let texto: serde_json::Value =
+        serde_json::from_str(r[2]["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(texto, r[2]["result"]["structuredContent"]);
+
+    let pasajes = r[3]["result"]["structuredContent"]["pasajes"]
+        .as_array()
+        .unwrap();
+    assert!(!pasajes.is_empty());
+    assert!(pasajes.iter().all(|x| x["documento"] == recibo.as_str()));
+
+    assert_eq!(r[4]["result"]["structuredContent"]["id"], recibo.as_str());
+    // Lo de bóveda y lo inventado, la misma respuesta.
+    assert_eq!(motivo(&r[5]), "fuera_de_la_puerta");
+    assert_eq!(r[5]["result"], r[6]["result"]);
+    // Un argumento que no está en el esquema no llega al núcleo.
+    assert_eq!(r[7]["error"]["code"], -32602);
+
+    // Nada de lo de bóveda en ninguna respuesta, ni en el texto ni en la estructura.
+    let todo = serde_json::to_string(&r).unwrap();
+    assert!(
+        !todo.contains("X0000000") && !todo.contains("pasaporte"),
+        "{todo}"
+    );
+    // Leer no cambió ni un byte, ni dejó un log al lado.
+    assert_eq!(std::fs::read(p.db()).unwrap(), antes);
+    let log = format!("{}-wal", p.db().display());
+    assert!(!std::path::Path::new(&log).exists());
+}
+
+#[test]
+fn la_puerta_por_stdio_respeta_el_interruptor_y_no_carga_el_modelo_para_documento() {
+    let p = Prueba::nueva("mcp-interruptor");
+    let mut brain = preparar_con_la_puerta_de_fabrica(&p);
+    let recibo = id(brain.store(), &p, "Normal/recibo.txt");
+    let pide = |id: &EntityId| {
+        vec![
+            inicio(),
+            llamada(1, "localizar", serde_json::json!({ "consulta": "azafrán" })),
+            llamada(2, "leer", serde_json::json!({ "consulta": "azafrán" })),
+            llamada(3, "documento", serde_json::json!({ "id": id.as_str() })),
+        ]
+    };
+    let r = conversar(&p, sin_modelo(), &pide(&recibo));
+    assert_eq!(
+        [motivo(&r[1]), motivo(&r[2]), motivo(&r[3])],
+        ["apagada"; 3]
+    );
+
+    brain.set_gate_position(Posicion::SoloLocalizar).unwrap();
+    let r = conversar(&p, sin_modelo(), &pide(&recibo));
+    assert_eq!(motivo(&r[1]), "");
+    assert_eq!([motivo(&r[2]), motivo(&r[3])], ["apagada"; 2]);
+    drop(brain);
+
+    // Con el modelo de juguete, la búsqueda por significado corre. El modelo
+    // se carga una vez para toda la conversación, y nunca para `documento`.
+    let mut store = abrir_con(&p.db(), K).unwrap();
+    Brain::initialize_store(&mut store).unwrap();
+    indexar::index_with(&mut store, &[p.biblioteca()], Some(&Especias), None).unwrap();
+    obrain_api::seguridad::poner_ajuste(store.conn(), Posicion::CLAVE, "localizar_y_leer").unwrap();
+    drop(store);
+    let veces = std::rc::Rc::new(std::cell::Cell::new(0));
+    let r = conversar(
+        &p,
+        con_especias(&veces),
+        &[
+            inicio(),
+            llamada(1, "documento", serde_json::json!({ "id": recibo.as_str() })),
+        ],
+    );
+    assert_eq!(r[1]["result"]["structuredContent"]["id"], recibo.as_str());
+    assert_eq!(veces.get(), 0);
+    let r = conversar(
+        &p,
+        con_especias(&veces),
+        &[
+            inicio(),
+            llamada(
+                1,
+                "localizar",
+                serde_json::json!({ "consulta": "especia dorada" }),
+            ),
+            llamada(
+                2,
+                "leer",
+                serde_json::json!({ "consulta": "especia dorada" }),
+            ),
+        ],
+    );
+    assert_eq!(
+        r[1]["result"]["structuredContent"]["semantica"], true,
+        "{r:?}"
+    );
+    assert_eq!(
+        r[2]["result"]["structuredContent"]["semantica"], true,
+        "{r:?}"
+    );
+    assert_eq!(veces.get(), 1);
+}
+
+#[test]
+fn la_puerta_por_stdio_dice_ocupada_si_una_escritura_quedo_a_medias() {
+    let p = Prueba::nueva("mcp-ocupada");
+    drop(preparar(&p));
+    let journal = format!("{}-journal", p.db().display());
+    std::fs::write(&journal, b"").unwrap();
+    let r = conversar(
+        &p,
+        sin_modelo(),
+        &[
+            inicio(),
+            llamada(1, "localizar", serde_json::json!({ "consulta": "azafrán" })),
+        ],
+    );
+    assert_eq!(motivo(&r[1]), "ocupada");
+    // El mensaje no lleva la ruta de la base.
+    let todo = serde_json::to_string(&r).unwrap();
+    assert!(
+        !todo.contains(&p.raiz.to_string_lossy().to_string()),
+        "{todo}"
+    );
+}

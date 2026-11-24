@@ -113,7 +113,8 @@ test('enseña la posición que dice el núcleo y dice qué sale en cada una', as
   assert.match(texto, /nunca lo sensible, lo de bóveda ni lo que está sin\s+clasificar/);
   assert.match(opcion(host, 'Sólo localizar').textContent, /Ningún texto de dentro/);
   assert.match(opcion(host, 'Localizar y leer lo normal').textContent, /pasajes literales/);
-  assert.match(texto, /todavía no trae el programa de la puerta/);
+  assert.match(texto, /obrain-app --puerta/);
+  assert.doesNotMatch(texto, /todavía no trae/);
   await unmount(ui);
 });
 
