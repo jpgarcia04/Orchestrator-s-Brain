@@ -612,6 +612,54 @@ mod tests {
         assert_eq!(documentos(&store, 20, None).len(), 12);
     }
 
+    /// Para la puerta (ADR-0039, condición 1): en kNN tampoco sale la copia
+    /// sin marcar de algo protegido, aunque sea lo más cercano.
+    #[test]
+    fn solo_normal_no_deja_salir_una_copia_de_algo_protegido() {
+        let store = base();
+        let publicado = |p: &Pending, t: i64, v: &[f32]| {
+            con_ruta(&store, p, t);
+            insert(store.conn(), p, M, v).unwrap();
+            store.prepare_content(&p.entity, None).unwrap();
+            store.publish_content(&p.entity, None).unwrap();
+            store
+                .conn()
+                .execute(
+                    "INSERT INTO extractions (entity, extractor, extractor_ver, chunker, chunker_ver,
+                                              status, text_hash, chars, extracted_at)
+                     VALUES (?1, 'txt', 1, 'paragraph-pack', 1, 'ok', ?2, 20, 1)",
+                    params![p.entity.as_str(), format!("hash-{}", p.text)],
+                )
+                .unwrap();
+        };
+        let original = fragmento(&store, 1, "pasaporte");
+        let copia = fragmento(&store, 2, "pasaporte");
+        let otro = fragmento(&store, 3, "recibo");
+        publicado(&original, 1, &[1.0, 0.0, 0.0]);
+        publicado(&copia, 2, &[1.0, 0.0, 0.0]);
+        publicado(&otro, 3, &[0.6, 0.8, 0.0]);
+        store
+            .conn()
+            .execute(
+                "UPDATE entities SET sensitivity = 'vault' WHERE id = ?1",
+                [original.entity.as_str()],
+            )
+            .unwrap();
+
+        let v = knn_documents(
+            store.conn(),
+            &[1.0, 0.0, 0.0],
+            M,
+            5,
+            AHORA,
+            None,
+            Elegibles::SoloNormal,
+        )
+        .unwrap();
+        let entidades: Vec<&EntityId> = v.iter().map(|n| &n.entity).collect();
+        assert_eq!(entidades, vec![&otro.entity]);
+    }
+
     /// Un vector sin normalizar rompe el kNN en silencio: las puntuaciones
     /// dejan de ser cosenos y el orden deja de significar nada. Se rechaza al
     /// escribir, que es la única vez que sale barato comprobarlo.

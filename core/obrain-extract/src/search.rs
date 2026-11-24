@@ -680,6 +680,102 @@ mod tests {
         assert_eq!(ventana.last().map(|h| &h.entity), Some(&normal));
     }
 
+    /// Lo que `obrain-extract` apunta al extraer: el hash del texto
+    /// normalizado y cuántos caracteres tenía.
+    fn extraccion(store: &Store, e: &EntityId, text_hash: &str, chars: i64) {
+        store
+            .conn()
+            .execute(
+                "INSERT INTO extractions (entity, extractor, extractor_ver, chunker, chunker_ver,
+                                          status, text_hash, chars, extracted_at)
+                 VALUES (?1, 'txt', 1, 'paragraph-pack', 1, 'ok', ?2, ?3, 1)",
+                obrain_core::rusqlite::params![e.as_str(), text_hash, chars],
+            )
+            .unwrap();
+    }
+
+    fn proteger(store: &Store, e: &EntityId, nivel: &str) {
+        store
+            .conn()
+            .execute(
+                "UPDATE entities SET sensitivity = ?2 WHERE id = ?1",
+                [e.as_str(), nivel],
+            )
+            .unwrap();
+    }
+
+    /// Para la puerta (ADR-0039, condición 1): la copia sin marcar de algo
+    /// protegido no sale, sea la copia más vieja o la más nueva, ni aunque lo
+    /// protegido esté en la papelera. La ventana la sigue viendo. Un texto
+    /// vacío no hace copia de nada.
+    #[test]
+    fn solo_normal_no_deja_salir_una_copia_de_algo_protegido() {
+        for copia_mas_vieja in [true, false] {
+            let store = base();
+            let texto = "pasaporte sintético con azafrán número X0000000";
+            let (t_copia, t_original) = if copia_mas_vieja { (1, 2) } else { (2, 1) };
+            let copia = documento(&store, t_copia, &[texto]);
+            let original = documento(&store, t_original, &[texto]);
+            let vacia = documento(&store, 3, &["azafrán en una nota sin texto extraído"]);
+            let vacia_protegida = documento(&store, 4, &["otra cosa"]);
+            let otro = documento(&store, 5, &["un recibo sintético con azafrán"]);
+            extraccion(&store, &copia, "hash-del-pasaporte", texto.len() as i64);
+            extraccion(&store, &original, "hash-del-pasaporte", texto.len() as i64);
+            extraccion(&store, &vacia, "hash-del-vacio", 0);
+            extraccion(&store, &vacia_protegida, "hash-del-vacio", 0);
+            extraccion(&store, &otro, "hash-del-recibo", 31);
+            proteger(&store, &original, "vault");
+            proteger(&store, &vacia_protegida, "sensitive");
+
+            let puerta = |store: &Store| {
+                let hits =
+                    search_eligible(store, "azafrán", 10, AHORA, None, Elegibles::SoloNormal)
+                        .unwrap();
+                let mut v: Vec<EntityId> = hits.into_iter().map(|h| h.entity).collect();
+                v.sort();
+                v
+            };
+            let mut esperado = vec![vacia.clone(), otro.clone()];
+            esperado.sort();
+            assert_eq!(
+                puerta(&store),
+                esperado,
+                "copia más vieja: {copia_mas_vieja}"
+            );
+
+            let ventana = search(&store, "azafrán", 10, AHORA).unwrap();
+            assert!(entidades(&ventana).contains(&&copia));
+
+            a_la_papelera(&store, &original);
+            assert_eq!(puerta(&store), esperado, "lo protegido, en la papelera");
+        }
+    }
+
+    /// Buscar las copias de un texto sigue el índice por `text_hash`, no
+    /// recorre todas las extracciones por cada resultado.
+    #[test]
+    fn la_regla_de_las_copias_sigue_su_indice() {
+        let store = base();
+        let sql = format!(
+            "EXPLAIN QUERY PLAN SELECT 1 FROM chunks c WHERE {}",
+            Elegibles::SoloNormal.sql("c.entity")
+        );
+        let mut stmt = store.conn().prepare(&sql).unwrap();
+        let plan: Vec<String> = stmt
+            .query_map(
+                obrain_core::rusqlite::named_params! {":valid": 1, ":known": 1},
+                |r| r.get(3),
+            )
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert!(
+            plan.iter()
+                .any(|l| l.contains("otra") && l.contains("idx_extractions_text_hash")),
+            "{plan:#?}"
+        );
+    }
+
     /// La búsqueda de rescate (frase parcial) aplica los mismos filtros.
     #[test]
     fn la_frase_parcial_tambien_filtra_antes_de_cortar() {

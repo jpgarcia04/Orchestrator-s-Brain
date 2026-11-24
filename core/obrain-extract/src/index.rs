@@ -42,6 +42,10 @@ CREATE TABLE IF NOT EXISTS extractions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_extractions_status ON extractions(status);
+-- Para la puerta de Aetheris: una copia de algo protegido no sale (ADR-0039,
+-- `Elegibles::SoloNormal`), y encontrar las copias de un texto no puede
+-- recorrer todas las extracciones por cada resultado.
+CREATE INDEX IF NOT EXISTS idx_extractions_text_hash ON extractions(text_hash);
 
 -- ─────────────────────────────────────────────────────────────── fragmentos
 -- `text` es exactamente la rebanada [byte_start, byte_end) del texto
