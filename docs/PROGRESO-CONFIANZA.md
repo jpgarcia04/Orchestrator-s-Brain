@@ -37,6 +37,27 @@ si se retracta sin mirar el método, la procedencia o la identidad pendiente.
 contrato las deja fuera (ADR-0039, condición 2) y meterlas la sube, lo que
 también toca a Aetheris.
 
+## Restaurar no sustituye una base abierta — 2026-11-24
+
+Las dos pruebas de `respaldos.rs` que fallaban en Linux tenían razón: en
+Linux la restauración sustituía una base que otra conexión, del mismo proceso
+o de otro, tenía abierta y quieta, y esa conexión seguía escribiendo en el
+archivo que pasaba a la salvaguarda, con lo que su trabajo se perdía sin
+aviso. En Windows no ocurría porque la apertura con `share_mode(0)` del
+sistema lo frena.
+
+`comprobar_conexiones_activas` ponía `PRAGMA locking_mode = EXCLUSIVE`
+después de su primera lectura. Una conexión WAL quieta no tiene ningún
+bloqueo con el que choque ese modo puesto tarde, y el `wal_checkpoint` no ve
+lectores. Ahora el modo exclusivo va antes de la primera lectura (tras la
+llave de SQLCipher): esa lectura pide el bloqueo exclusivo y cualquier otra
+conexión abierta responde «ocupada», que es `BaseEnUso`. La comprobación de
+Windows sigue igual y se suma a esta.
+
+Las dos pruebas fallaban sin el cambio y pasan con él; `cargo test` del
+núcleo entero pasa en Linux. Queda pasarlo en Windows, donde la comprobación
+del sistema ya cubría el caso.
+
 ## Puerta de Aetheris, paso 6: la base de la batería de Aetheris — 2026-11-24
 
 La batería de ataques de Aetheris ya puede correr contra la puerta de verdad.
@@ -238,12 +259,12 @@ de `ocupada`, `base_cerrada` y `version_distinta` sin que cambie un byte, y
 una restauración de respaldo que funciona en cuanto la lectura se suelta.
 Cada protección falló su prueba con una mutación temporal que la quitaba.
 
-`cargo test --workspace` en Linux pasa entero salvo dos pruebas de
-`respaldos.rs` que ya fallan en `main` en Linux
+`cargo test --workspace` en Linux pasaba entero salvo dos pruebas de
+`respaldos.rs` que ya fallaban en `main` en Linux
 (`restauracion_rechaza_conexiones_abiertas` y
-`restauracion_cancelada_por_base_en_uso_no_revierte_trabajo_posterior`): una
-conexión del mismo proceso no bloquea la restauración porque los bloqueos
-POSIX son por proceso. Queda por comprobar en Windows que `readonly_shm` e
+`restauracion_cancelada_por_base_en_uso_no_revierte_trabajo_posterior`). La
+causa no eran los bloqueos POSIX sino un fallo de la restauración, arreglado
+después (ver «Restaurar no sustituye una base abierta»). Queda por comprobar en Windows que `readonly_shm` e
 `immutable` se portan igual y que la huella detecta una escritura en NTFS.
 
 ## Punto 3, recuperación: elegibilidad antes de cortar — 2026-11-24
