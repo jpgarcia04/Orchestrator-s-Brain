@@ -39,6 +39,10 @@ BM25 y en kNN (punto 3 del plan, condición del
 ver [progreso](PROGRESO-CONFIANZA.md). Con eso y el modelo local de Aetheris
 ya medido, el [ADR-0039](adr/0039-la-puerta-de-aetheris-se-adelanta.md)
 adelanta la puerta: se construye ya, con tres condiciones antes de encenderla.
+Hechos los pasos 1 a 4: la apertura de sólo lectura, la regla de las copias,
+las tres herramientas en el núcleo y el interruptor de tres posiciones en el
+panel de Seguridad, apagado de fábrica. Falta el programa de la puerta (paso
+5) y la batería de Aetheris contra una base sintética (paso 6).
 
 Contexto versionado: [auditoría](AUDITORIA-CONFIANZA.md),
 [plan](PLAN-CONFIANZA.md), [progreso](PROGRESO-CONFIANZA.md),

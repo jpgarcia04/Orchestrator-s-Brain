@@ -1,6 +1,7 @@
 <!--
   El panel de Seguridad (ADR-0021): el cifrado, la clave de recuperación y el
-  PIN, en un sitio.
+  PIN, en un sitio. Al lado, los respaldos y el interruptor de la puerta de
+  Aetheris (ADR-0038), que decide qué sale de Brain hacia otro programa.
 
   Dice las cosas como son. Lo que protege el cifrado —una copia de la base no
   se lee— y lo que no —tus archivos originales—. Lo que protege el PIN —ver lo
@@ -17,6 +18,7 @@
   import ShieldAlert from "@lucide/svelte/icons/shield-alert";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import Modal from "./Modal.svelte";
+  import Puerta from "./Puerta.svelte";
   import Respaldos from "./Respaldos.svelte";
   import { app } from "../lib/app.svelte";
   import { frase } from "../lib/nombres";
@@ -24,7 +26,7 @@
 
   const s = $derived(app.seguridad);
 
-  let pestana = $state<"proteccion" | "respaldos">("proteccion");
+  let pestana = $state<"proteccion" | "respaldos" | "aetheris">("proteccion");
   let clave = $state<string | null>(null);
   let copiada = $state(false);
   onMount(() => {
@@ -112,10 +114,15 @@
         <span class="punto-aviso" title="Sincronización en pausa" aria-hidden="true"></span>
       {/if}
     </button>
+    <button class="boton-pestana" class:activa={pestana === "aetheris"} onclick={() => (pestana = "aetheris")}>
+      Aetheris
+    </button>
   </div>
 
   {#if pestana === "respaldos"}
     <Respaldos />
+  {:else if pestana === "aetheris"}
+    <Puerta />
   {:else}
   {#if s}
     <section class="bloque">

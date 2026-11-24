@@ -5,6 +5,51 @@ referencias más abajo a la rama previa y a la base del PR documentan el
 estado de aquella entrega, no el estado actual. La identidad entre bibliotecas
 se trabaja desde `main` en `codex/identidad-entre-bibliotecas` (ADR-0036).
 
+## Puerta de Aetheris, paso 4: el ajuste de tres posiciones — 2026-11-24
+
+El ajuste del [ADR-0038](adr/0038-la-puerta-de-aetheris.md) (B2 y ajuste 5):
+**apagada** · **sólo localizar** · **localizar y leer lo normal**, de fábrica
+apagada. El ADR-0039 dejaba abierto dónde guardarlo; se guarda en la tabla
+`seguridad`, dentro de la base cifrada y junto al PIN, con la clave
+`puerta_de_aetheris`, y no como aserción del log: es un control, no
+conocimiento, no pide migración y la apertura de la puerta ya exige esa
+tabla. El precio es que no queda historia de cuándo se cambió. Sin ajuste, o
+con un valor que no es ninguna de las tres posiciones, cuenta como apagada.
+
+`obrain-api/src/puerta.rs`: `Posicion` y `posicion()`, y cada herramienta lee
+el ajuste dentro de la misma lectura antes de mirar nada; si no la deja,
+contesta `NoSale::Apagada` (motivo `apagada`). Con «sólo localizar», `leer` y
+`documento` dicen `apagada`, también para un identificador inventado.
+`FueraDeLaPuerta` pasa a ser `NoSale::FueraDeLaPuerta`, con su mismo motivo.
+Sólo la ventana escribe el ajuste (`Brain::set_gate_position`, comandos
+`puerta_posicion` y `puerta_poner`): abrir más pide la ventana desbloqueada si
+hay PIN, como marcar una carpeta; cerrar no se bloquea nunca. Lo que sale por
+la puerta sigue sin depender del PIN (ajuste 3): esto sólo guarda quién puede
+mover el interruptor.
+
+En la ventana, una pestaña «Aetheris» en el panel de Seguridad
+(`ui/src/componentes/Puerta.svelte`) con las tres posiciones y lo que recibe
+Aetheris en cada una: que lo normal puede salir, que que un documento salga ya
+dice algo de su texto, que los nombres de carpetas y colecciones también salen
+y que lo protegido no sale nunca, haya PIN o no. Enseña la posición que el
+núcleo devuelve después de escribirla; si no puede leerla, no marca ninguna y
+no deja elegir. Dice también que esta versión todavía no trae el programa de
+la puerta; esa frase se quita en el paso 5.
+
+Pruebas: en `obrain-api/tests/puerta.rs`, la puerta viene apagada y cada
+posición deja exactamente sus herramientas, leídas con la apertura de la
+puerta; abrir con el PIN bloqueado falla y cerrar no; cuatro valores raros
+dejan la puerta apagada. En `puerta.rs`, la tabla de posiciones y que el texto
+guardado y el JSON de la ventana coinciden. En `ui/tests/puerta-ui.test.mjs`,
+el componente montado con un núcleo sintético: enseña la posición y los
+textos, no escribe si no pudo leer, pide el PIN para abrir y no abre si se
+cancela, reintenta tras el PIN y cierra sin pedirlo. Mutaciones temporales
+(un valor raro abre, `leer` comprobado como `localizar`, sin guarda de PIN,
+guarda también al cerrar, sin reintento tras el PIN, ajuste ilegible como
+apagada, sin la frase de carpetas y colecciones): cada una rompió su prueba.
+La aplicación Tauri se compiló y probó en Linux con WebKitGTK; el interruptor
+no se ha visto todavía en Windows.
+
 ## Puerta de Aetheris, paso 3: las tres herramientas en el núcleo — 2026-11-24
 
 `obrain-api/src/puerta.rs`: `localizar`, `leer` y `documento`, sobre un
@@ -18,7 +63,7 @@ la ficha de lo normal, con la ruta completa, la caducidad con su procedencia
 y sólo las relaciones deterministas (carpeta, copia de, dentro de) hacia lo
 que también puede salir; para lo sensible, lo de bóveda, su copia sin marcar,
 lo de la papelera, un identificador inventado o vacío responde
-`FueraDeLaPuerta`, lo mismo en todos los casos. Cada respuesta lleva el mismo
+`FueraDeLaPuerta` (desde el paso 4, `NoSale::FueraDeLaPuerta`), lo mismo en todos los casos. Cada respuesta lleva el mismo
 aviso fijo. Todavía no hay programa que las sirva: eso es el paso 5.
 
 Pruebas en `obrain-api/tests/puerta.rs`, de punta a punta con una biblioteca

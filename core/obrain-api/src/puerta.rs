@@ -17,7 +17,7 @@
 //! - [`leer`] devuelve pasajes de lo normal, cada uno con su documento, el
 //!   método que lo encontró y dos fechas (B7, ajuste 8).
 //! - [`documento`] devuelve la ficha de un documento normal, o
-//!   [`FueraDeLaPuerta`], **lo mismo** para uno sensible, de bóveda, sin
+//!   [`NoSale::FueraDeLaPuerta`], **lo mismo** para uno sensible, de bóveda, sin
 //!   clasificar, en la papelera o inventado (ajuste 2). La ficha no trae
 //!   identificadores de aserción ni nada corregible, ni las relaciones
 //!   inferidas (`version_of`, `occurred_during`), que todavía no se
@@ -26,6 +26,11 @@
 //!
 //! Cada respuesta lleva [`AVISO`], el mismo para cualquier consulta: un aviso
 //! que dependiera de la pregunta ya diría algo de lo protegido (ajuste 1).
+//!
+//! Antes de mirar nada, cada herramienta lee el [ajuste](Posicion) en la misma
+//! lectura y, si no la deja, contesta [`NoSale::Apagada`] (ADR-0039, paso 4).
+//! Está en el núcleo y no en el programa de la puerta para que no haya una
+//! forma de llamar a una herramienta saltándoselo.
 
 use crate::colecciones;
 use obrain_core::rusqlite::{OptionalExtension, named_params};
@@ -137,22 +142,119 @@ pub struct Relacion {
     pub ruta: String,
 }
 
-/// La única respuesta de [`documento`] para todo lo que no es un documento
-/// normal y publicado: no dice cuál de los casos es.
+/// Por qué una herramienta no da lo pedido sin que sea un fallo. La puerta lo
+/// sirve como `no_disponible` con su [`motivo`](NoSale::motivo).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FueraDeLaPuerta;
-
-impl FueraDeLaPuerta {
-    pub const MOTIVO: &'static str = "fuera_de_la_puerta";
+pub enum NoSale {
+    /// El ajuste no deja usar esta herramienta: la puerta está apagada o, para
+    /// [`leer`] y [`documento`], en «sólo localizar» (ADR-0038, ajuste 5).
+    Apagada,
+    /// La única respuesta de [`documento`] para todo lo que no es un documento
+    /// normal y publicado: no dice cuál de los casos es (ajuste 2).
+    FueraDeLaPuerta,
 }
 
-impl std::fmt::Display for FueraDeLaPuerta {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(Self::MOTIVO)
+impl NoSale {
+    pub fn motivo(self) -> &'static str {
+        match self {
+            NoSale::Apagada => "apagada",
+            NoSale::FueraDeLaPuerta => "fuera_de_la_puerta",
+        }
     }
 }
 
-impl std::error::Error for FueraDeLaPuerta {}
+impl std::fmt::Display for NoSale {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.motivo())
+    }
+}
+
+impl std::error::Error for NoSale {}
+
+/// **El ajuste de la puerta**, con sus tres posiciones (ADR-0038, B2 y ajuste
+/// 5). De fábrica, apagada.
+///
+/// Se guarda en la tabla `seguridad`, dentro de la base cifrada, junto al PIN:
+/// es un control, no conocimiento, y por eso no va al log de aserciones (ver
+/// [`crate::seguridad::migrate`]). La puerta lo lee con su apertura de sólo
+/// lectura, dentro de la misma lectura que contesta, así que no hay forma de
+/// que una respuesta mezcle un ajuste y datos de momentos distintos. Sólo la
+/// ventana lo escribe ([`crate::Brain::set_gate_position`]); la puerta no
+/// tiene con qué.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Posicion {
+    /// Ninguna herramienta contesta.
+    Apagada,
+    /// Sólo [`localizar`]: nombres y rutas, ningún texto.
+    SoloLocalizar,
+    /// Las tres: también pasajes y fichas de lo normal.
+    LocalizarYLeer,
+}
+
+impl Posicion {
+    /// La clave en la tabla `seguridad`.
+    pub const CLAVE: &'static str = "puerta_de_aetheris";
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Posicion::Apagada => "apagada",
+            Posicion::SoloLocalizar => "solo_localizar",
+            Posicion::LocalizarYLeer => "localizar_y_leer",
+        }
+    }
+
+    /// La posición que dice este texto, o `None` si no es ninguna.
+    pub fn desde(texto: &str) -> Option<Self> {
+        [
+            Posicion::Apagada,
+            Posicion::SoloLocalizar,
+            Posicion::LocalizarYLeer,
+        ]
+        .into_iter()
+        .find(|p| p.as_str() == texto)
+    }
+
+    /// `Ok` si esta posición deja contestar a `herramienta`.
+    fn deja(self, herramienta: Herramienta) -> Result<(), NoSale> {
+        let minima = match herramienta {
+            Herramienta::Localizar => Posicion::SoloLocalizar,
+            Herramienta::Leer | Herramienta::Documento => Posicion::LocalizarYLeer,
+        };
+        if self >= minima {
+            Ok(())
+        } else {
+            Err(NoSale::Apagada)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Herramienta {
+    Localizar,
+    Leer,
+    Documento,
+}
+
+/// La posición guardada. **Sin ajuste, o con uno que no se entiende, la
+/// puerta está apagada**: un valor que no es ninguna posición no puede abrir
+/// nada, venga de un error o de una versión que no es ésta.
+pub fn posicion(store: &Store) -> crate::Result<Posicion> {
+    Ok(
+        crate::seguridad::leer_ajuste(store.conn(), Posicion::CLAVE)?
+            .and_then(|v| Posicion::desde(&v))
+            .unwrap_or(Posicion::Apagada),
+    )
+}
+
+/// Escribe la posición. Sólo [`crate::Brain::set_gate_position`], que decide
+/// cuándo hace falta el PIN, la llama.
+pub(crate) fn poner_posicion(store: &Store, p: Posicion) -> crate::Result<()> {
+    crate::seguridad::poner_ajuste(store.conn(), Posicion::CLAVE, p.as_str())?;
+    Ok(())
+}
 
 /// Un resultado de búsqueda antes de vestirlo: documento, ruta y por dónde
 /// salió.
@@ -303,7 +405,10 @@ pub fn localizar(
     consulta: &str,
     limite: usize,
     at: TimePoint,
-) -> crate::Result<Localizado> {
+) -> crate::Result<Result<Localizado, NoSale>> {
+    if let Err(no) = posicion(store)?.deja(Herramienta::Localizar) {
+        return Ok(Err(no));
+    }
     let (encontrados, semantica) = buscar(store, embedder, consulta, limite, at)?;
     let libs = bibliotecas(store, at)?;
     let mut resultados = Vec::with_capacity(encontrados.len());
@@ -323,11 +428,11 @@ pub fn localizar(
             id: f.entity.0,
         });
     }
-    Ok(Localizado {
+    Ok(Ok(Localizado {
         resultados,
         semantica,
         aviso: AVISO,
-    })
+    }))
 }
 
 /// Cuándo extrajo Brain el texto que hoy publica de esta entidad.
@@ -356,7 +461,10 @@ pub fn leer(
     consulta: &str,
     limite: usize,
     at: TimePoint,
-) -> crate::Result<Leido> {
+) -> crate::Result<Result<Leido, NoSale>> {
+    if let Err(no) = posicion(store)?.deja(Herramienta::Leer) {
+        return Ok(Err(no));
+    }
     let (encontrados, semantica) = buscar(store, embedder, consulta, limite, at)?;
     let libs = bibliotecas(store, at)?;
     let mut pasajes = Vec::new();
@@ -403,33 +511,33 @@ pub fn leer(
             });
         }
     }
-    Ok(Leido {
+    Ok(Ok(Leido {
         pasajes,
         semantica,
         aviso: AVISO,
-    })
+    }))
 }
 
-/// **`documento`**: la ficha de un documento normal, o [`FueraDeLaPuerta`]
-/// para todo lo demás, sin decir qué es. Ver el módulo.
-pub fn documento(
-    store: &Store,
-    id: &str,
-    at: TimePoint,
-) -> crate::Result<Result<Ficha, FueraDeLaPuerta>> {
+/// **`documento`**: la ficha de un documento normal, o
+/// [`NoSale::FueraDeLaPuerta`] para todo lo demás, sin decir qué es. Ver el
+/// módulo.
+pub fn documento(store: &Store, id: &str, at: TimePoint) -> crate::Result<Result<Ficha, NoSale>> {
+    if let Err(no) = posicion(store)?.deja(Herramienta::Documento) {
+        return Ok(Err(no));
+    }
     let e = EntityId(id.to_string());
     if !puede_salir(store, &e, at)? {
-        return Ok(Err(FueraDeLaPuerta));
+        return Ok(Err(NoSale::FueraDeLaPuerta));
     }
     let libs = bibliotecas(store, at)?;
     let Some(ruta_completa) = store
         .resolve(&e, "path_observed_at", at)?
         .and_then(|a| a.object.as_text().map(str::to_string))
     else {
-        return Ok(Err(FueraDeLaPuerta));
+        return Ok(Err(NoSale::FueraDeLaPuerta));
     };
     let Some((biblioteca, ruta, _)) = ubicar(&libs, &ruta_completa) else {
-        return Ok(Err(FueraDeLaPuerta));
+        return Ok(Err(NoSale::FueraDeLaPuerta));
     };
 
     let vence = store.resolve(&e, "expires_on", at)?.and_then(|a| {
@@ -530,6 +638,34 @@ pub fn documento(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cada_posicion_deja_sus_herramientas_y_ninguna_mas() {
+        use Herramienta::*;
+        let deja = |p: Posicion| [Localizar, Leer, Documento].map(|h| p.deja(h).is_ok());
+        assert_eq!(deja(Posicion::Apagada), [false, false, false]);
+        assert_eq!(deja(Posicion::SoloLocalizar), [true, false, false]);
+        assert_eq!(deja(Posicion::LocalizarYLeer), [true, true, true]);
+        assert_eq!(Posicion::Apagada.deja(Leer), Err(NoSale::Apagada));
+    }
+
+    #[test]
+    fn la_posicion_se_escribe_y_se_lee_con_el_mismo_texto() {
+        for p in [
+            Posicion::Apagada,
+            Posicion::SoloLocalizar,
+            Posicion::LocalizarYLeer,
+        ] {
+            assert_eq!(Posicion::desde(p.as_str()), Some(p));
+            // La ventana la recibe y la manda en JSON con el mismo texto.
+            let json = serde_json::to_string(&p).unwrap();
+            assert_eq!(json, format!("\"{}\"", p.as_str()));
+            assert_eq!(serde_json::from_str::<Posicion>(&json).unwrap(), p);
+        }
+        assert_eq!(Posicion::desde("Apagada"), None);
+        assert_eq!(NoSale::Apagada.motivo(), "apagada");
+        assert_eq!(NoSale::FueraDeLaPuerta.motivo(), "fuera_de_la_puerta");
+    }
 
     #[test]
     fn la_ruta_relativa_es_la_de_la_biblioteca_mas_profunda() {
