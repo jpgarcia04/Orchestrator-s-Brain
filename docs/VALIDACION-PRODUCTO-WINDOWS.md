@@ -21,7 +21,7 @@ El alcance de esta PR termina en la biblioteca sintética, sus regresiones y est
 
 ## Biblioteca y oráculo
 
-`tests/fixtures/producto-windows` contiene 11 archivos de texto, Markdown, CSV, HTML y PDF: estudios, trámites, contrato, finanzas e identidad ficticia. `tools/generar-pdf-fixture.py` regenera el PDF de una página; se renderizó y se revisó visualmente, y `pdfplumber` extrajo el texto. La tarjeta `4111 1111 1111 1111` es un número público de pruebas y no una credencial. No hay identificadores personales auténticos.
+`tests/fixtures/producto-windows` contiene 11 archivos de texto, Markdown, CSV, HTML y PDF: estudios, trámites, contrato, finanzas e identidad ficticia. `tools/generar-pdf-fixture.py` regenera el PDF de una página; se renderizó y se revisó visualmente, y `pdfplumber` extrajo el texto. La tarjeta `4111 1111 1111 1111` es un número público de pruebas y no una credencial. El NIE `X1234567L` del contrato es el ejemplo público de siempre (desde el ADR-0040 el contrato es sensible por él, no por su nombre). No hay identificadores personales auténticos.
 
 | Escenario | Esperado | Resultado automático observado |
 | --- | --- | --- |

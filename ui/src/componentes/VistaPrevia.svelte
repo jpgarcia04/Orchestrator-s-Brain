@@ -403,9 +403,16 @@
     if (familia === "contenido") {
       return `Lo leí en el texto: hay ${HALLAZGOS[cual ?? ""] ?? "algo que no debería salir de tu computadora"}.${marcaDicha(c, "marcado")}`;
     }
+    // ADR-0040: contrato y póliza sólo protegen lo que no se pudo leer; si el
+    // texto se lee y no trae nada personal, la señal cede.
+    const sinLeer = " No pude leer su texto para comprobarlo; si lo leo y no trae datos personales, deja de serlo.";
     if (familia === "carpeta") {
       const casa = carpeta ? `«${nombreBonito(carpeta.value)}»` : "donde está";
-      return `Por la carpeta ${casa}: su nombre suena a documentos personales, así que lo que tiene dentro lo trato como ${nivel}.`;
+      const extra = cual === "contexto-contractual" ? sinLeer : "";
+      return `Por la carpeta ${casa}: su nombre suena a documentos personales, así que lo que tiene dentro lo trato como ${nivel}.${extra}`;
+    }
+    if (familia === "nombre" && cual === "contractual") {
+      return `Por su nombre, «${sinCodigos(ficha?.label ?? "")}», que ${NOMBRES_SENSIBLES.contractual}.${sinLeer}`;
     }
     if (familia === "nombre" || familia === "extension") {
       return `Por su nombre, «${sinCodigos(ficha?.label ?? "")}», que ${NOMBRES_SENSIBLES[cual ?? ""] ?? "suena a algo personal"}. No he tenido que leerlo.`;

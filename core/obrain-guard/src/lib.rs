@@ -52,7 +52,9 @@ pub use gate::{Capability, Decision, Runs};
 /// Identidad del clasificador. Va en `source` de cada aserción: cambiar las
 /// reglas y no cambiar esto haría imposible saber qué versión escribió qué.
 pub const CLASSIFIER: &str = "guard";
-pub const CLASSIFIER_VERSION: i64 = 1;
+/// `1`: la primera versión. `2`: contrato y póliza ceden ante un texto leído sin hallazgos
+/// ([ADR-0040](../../../docs/adr/0040-un-contrato-se-juzga-por-lo-que-trae.md)).
+pub const CLASSIFIER_VERSION: i64 = 2;
 
 /// Lo que el clasificador concluyó sobre un archivo.
 #[derive(Debug, Clone)]
@@ -165,7 +167,7 @@ fn classify_inner(
     report.considered = files.len();
 
     // Una consulta para todo el contenido, no una por archivo.
-    let por_contenido = scan_chunks(store.conn(), report)?;
+    let (por_contenido, con_texto) = scan_chunks(store.conn(), report)?;
     // Y una para lo que ya estaba dicho, para no reafirmar lo idéntico.
     let previas = previous_claims(store, tp)?;
     // Las carpetas que marcó el usuario, una vez: son la herencia (ADR-0020).
@@ -189,9 +191,19 @@ fn classify_inner(
             continue;
         }
         let name = file.file_name();
-        let por_nombre = rules::classify_name(name);
-        let del_padre = parent_dir(&file.path).and_then(rules::classify_parent);
         let del_texto = por_contenido.get(&file.entity).copied();
+        // ADR-0040: «contrato» o «póliza» en el nombre o en la carpeta sólo
+        // protege lo que el contenido no puede contradecir. Si el texto en
+        // `chunks` es el de ESTA versión y no disparó nada, la señal cede. El
+        // de una versión anterior no cuenta como leído (falla cerrado).
+        let leido_sin_hallazgos = del_texto.is_none()
+            && con_texto.contains(&file.entity)
+            && text_is_current(store, file)?;
+        let vale = |s: &Signal| !(leido_sin_hallazgos && rules::yields_to_content(s));
+        let por_nombre = rules::classify_name(name).filter(vale);
+        let del_padre = parent_dir(&file.path)
+            .and_then(rules::classify_parent)
+            .filter(vale);
 
         // Gana la más restrictiva; a igual nivel, la de más confianza.
         let ganadora = [
@@ -296,12 +308,16 @@ fn project(
     Ok(())
 }
 
+/// Lo que [`scan_chunks`] encontró: por entidad, la señal más fuerte y el
+/// ordinal de su fragmento; y todas las entidades que tienen texto.
+type Escaneo = (
+    HashMap<EntityId, (Signal, i64)>,
+    std::collections::HashSet<EntityId>,
+);
+
 /// Escanea el texto ya indexado. Devuelve, por entidad, la señal más fuerte y
-/// el ordinal del fragmento donde apareció.
-fn scan_chunks(
-    conn: &Connection,
-    report: &mut GuardReport,
-) -> Result<HashMap<EntityId, (Signal, i64)>> {
+/// el ordinal del fragmento donde apareció, y qué entidades tienen texto.
+fn scan_chunks(conn: &Connection, report: &mut GuardReport) -> Result<Escaneo> {
     let mut stmt =
         conn.prepare("SELECT entity, ordinal, text FROM chunks ORDER BY entity, ordinal")?;
     let mut rows = stmt.query([])?;
@@ -331,7 +347,7 @@ fn scan_chunks(
         }
     }
     report.with_text = vistas.len();
-    Ok(mejor)
+    Ok((mejor, vistas))
 }
 
 /// Las aserciones `sensitivity_level` vigentes, agrupadas por entidad.
@@ -406,6 +422,24 @@ fn retract_stale(
         report.assertions_retracted += 1;
     }
     Ok(())
+}
+
+/// ¿Es el texto de `chunks` el de la versión observada, extraído sin fallo?
+///
+/// Es la misma comparación que usa la extracción para saber si un archivo
+/// cambió: el hash del archivo leído contra el que M1 observó. Sin hash
+/// observado —un archivo que no se pudo abrir— no hay versión con la que
+/// comparar, y la respuesta es que no.
+fn text_is_current(store: &Store, file: &FileRow) -> Result<bool> {
+    let previa = obrain_extract::index::previous(
+        store.conn(),
+        &file.entity,
+        obrain_extract::chunk::CHUNKER,
+        obrain_extract::chunk::CHUNKER_VERSION,
+    )?;
+    Ok(previa.is_some_and(|p| {
+        p.status == "ok" && p.file_hash.is_some() && p.file_hash == file.file_hash
+    }))
 }
 
 /// Nombre de la carpeta que contiene al archivo, sin la ruta completa.

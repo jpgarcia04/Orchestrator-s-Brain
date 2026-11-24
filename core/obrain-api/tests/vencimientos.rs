@@ -97,7 +97,7 @@ fn boveda(nombre: &str) -> PathBuf {
     escribir(
         "05 Vivienda/Contrato de alquiler.txt",
         &format!(
-            "El contrato vence el {} y se renueva por un año.",
+            "El contrato de Ana Ruiz, NIE de prueba X1234567L, vence el {} y se renueva por un año.",
             larga(dentro_de(7))
         ),
     );
@@ -259,8 +259,9 @@ fn con_el_pin_bloqueado_lo_sensible_sale_sin_fecha() {
     b.set_pin("2468", None).unwrap();
     b.lock();
 
-    // La TIE (por su NIE), el contrato y la tarjeta sanitaria (por su nombre)
-    // son sensibles: salen al final, por nombre, con su carpeta y sin fecha.
+    // La TIE y el contrato (por su NIE) y la tarjeta sanitaria (por su
+    // nombre) son sensibles: salen al final, por nombre, con su carpeta y sin
+    // fecha. El contrato no lo es por llamarse así (ADR-0040).
     // Lo normal sigue diciendo la suya.
     let v = b.expiring().unwrap();
     let filas: Vec<_> = v
