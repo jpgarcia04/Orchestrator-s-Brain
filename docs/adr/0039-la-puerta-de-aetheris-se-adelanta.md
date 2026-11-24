@@ -1,6 +1,6 @@
 # ADR-0039 — La puerta de Aetheris se construye ahora, como pieza aparte
 
-- **Estado:** Propuesta, 2026-11-24. Se da por aceptada cuando JP fusione el PR que la trae.
+- **Estado:** Aceptada por JP el 2026-11-24.
 - **Fecha:** 2026-11-24
 - **Cambia:** [ADR-0038](0038-la-puerta-de-aetheris.md), sólo «Dónde va en el plan de confianza»
   y lo que de él depende en «Qué hay que construir». Las herramientas, los ajustes y los rechazos
