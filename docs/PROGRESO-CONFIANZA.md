@@ -5,6 +5,24 @@ referencias más abajo a la rama previa y a la base del PR documentan el
 estado de aquella entrega, no el estado actual. La identidad entre bibliotecas
 se trabaja desde `main` en `codex/identidad-entre-bibliotecas` (ADR-0036).
 
+## Puerta de Aetheris, paso 2: ninguna copia de algo protegido — 2026-11-24
+
+La condición 1 del [ADR-0039](adr/0039-la-puerta-de-aetheris-se-adelanta.md).
+`Elegibles::SoloNormal` deja fuera, dentro de la consulta y antes del
+`LIMIT`, todo documento cuyo texto extraído (`text_hash` de `extractions`)
+es el de una entidad que no es `normal`, aunque él lo sea y aunque lo
+protegido esté en la papelera. Un texto vacío no cuenta. La ventana no
+cambia: sigue usando `Ventana`.
+
+Pruebas en las dos ramas, con bibliotecas sintéticas en memoria: la copia
+sin marcar de un documento de bóveda no sale en BM25, sea la copia más vieja
+o la más nueva, ni con lo protegido en la papelera; dos textos vacíos no se
+toman por copias; en kNN la copia no sale aunque sea lo más cercano. Cada una
+falló con una mutación que quitaba la regla o la excepción del texto vacío.
+Un índice nuevo de la proyección, `idx_extractions_text_hash`, y una prueba
+del plan: la primera versión de la consulta recorría todas las extracciones
+por cada resultado, y la prueba lo cazó.
+
 ## Puerta de Aetheris, paso 1: abrir para leer — 2026-11-24
 
 El primer paso del orden del [ADR-0039](adr/0039-la-puerta-de-aetheris-se-adelanta.md)

@@ -32,6 +32,24 @@ pub enum Elegibles {
     /// —clasificado en su versión actual; sin fila cuenta como no
     /// clasificado—, ruta vigente e identidad confirmada. No depende del PIN
     /// ni de la ventana: por la puerta no mira JP.
+    ///
+    /// Y **ninguna copia de algo protegido** (ADR-0039, condición 1): un
+    /// documento cuyo texto extraído es el mismo (`text_hash`) que el de una
+    /// entidad que no es normal no sale, aunque él lo sea. La sensibilidad
+    /// sigue a lo que va dentro de un paquete (ADR-0030, ADR-0032) pero no a
+    /// las copias, y una copia sin marcar del pasaporte de una carpeta marcada
+    /// queda `normal`. Por texto y no por `duplicate_of`: un PDF guardado otra
+    /// vez tiene otros bytes y el mismo contenido. Un texto vacío no cuenta,
+    /// como un archivo vacío no es duplicado de nada. Lo protegido cuenta
+    /// aunque esté en la papelera: quien lo protegió no lo desprotegió al
+    /// borrarlo.
+    ///
+    /// Necesita la tabla `extractions` de `obrain-extract`, que existe en
+    /// toda base donde hay algo que buscar. El `+` delante de `status` no es
+    /// un descuido: le quita a SQLite el índice por estado, que con pocas
+    /// filas prefería y que recorre todas las extracciones correctas por cada
+    /// resultado; así va por la clave de la entidad y por
+    /// `idx_extractions_text_hash` (lo comprueba una prueba de su plan).
     SoloNormal,
 }
 
@@ -97,6 +115,17 @@ impl Elegibles {
                           WHERE e.id = {entity} AND e.sensitivity = 'normal')
                  AND EXISTS (SELECT 1 FROM content_publication p
                               WHERE p.entity = {entity} AND p.state = 'ready')
+                 AND NOT EXISTS (SELECT 1 FROM extractions mia
+                                  WHERE mia.entity = {entity}
+                                    AND +mia.status = 'ok' AND mia.chars > 0
+                                    AND mia.text_hash IS NOT NULL
+                                    AND EXISTS (SELECT 1 FROM extractions otra
+                                                  JOIN entities protegida
+                                                    ON protegida.id = otra.entity
+                                                 WHERE otra.text_hash = mia.text_hash
+                                                   AND otra.entity <> mia.entity
+                                                   AND +otra.status = 'ok' AND otra.chars > 0
+                                                   AND protegida.sensitivity <> 'normal'))
                  AND {comun}"
             ),
         }
