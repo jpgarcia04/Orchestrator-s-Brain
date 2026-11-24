@@ -47,6 +47,7 @@ pub mod marks;
 pub mod papelera;
 pub mod preview;
 mod publication;
+pub mod puerta;
 pub mod respaldo;
 pub mod seguridad;
 pub mod sky;
