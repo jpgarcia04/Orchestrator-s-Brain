@@ -111,8 +111,8 @@
     haga con ello lo decide Aetheris.
   </p>
   <p class="pequeno">
-    Esta versión de Brain todavía no trae el programa de la puerta: el ajuste se guarda en tu base cifrada y lo usará
-    cuando llegue.
+    Aetheris arranca la puerta cuando la necesita (<code>obrain-app --puerta</code>), sin ventana. Abre la base sólo
+    para leer, en cada pregunta, y no la deja abierta mientras no pregunta. El ajuste se guarda en tu base cifrada.
   </p>
   {#if error}<p class="error-campo">{error}</p>{/if}
 </section>
@@ -174,5 +174,9 @@
   }
   .pequeno {
     font-size: 12px;
+  }
+  code {
+    font-family: var(--mono);
+    font-size: 11.5px;
   }
 </style>

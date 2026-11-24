@@ -1441,6 +1441,20 @@ async fn actualizacion_instalar(
 }
 
 fn main() {
+    // El modo puerta de Aetheris (ADR-0038; ADR-0039, paso 5): MCP por stdio
+    // y nada más. Se decide antes de tocar Tauri, así que no se abre ninguna
+    // ventana, no se carga la interfaz, no corre el actualizador y no se abre
+    // la base como la abre la ventana: la puerta la abre para leer en cada
+    // llamada. Sólo con `--puerta` como único argumento.
+    let mut argumentos = std::env::args_os().skip(1);
+    if argumentos.next().is_some_and(|a| a == "--puerta") {
+        if argumentos.next().is_some() {
+            eprintln!("--puerta no lleva más argumentos");
+            std::process::exit(2);
+        }
+        std::process::exit(obrain_api::puerta_mcp::main());
+    }
+
     tauri::Builder::default()
         // Sin permisos para el webview a propósito: las dos salidas se invocan
         // desde `abrir` y `revelar`, que son Rust y consultan el log.

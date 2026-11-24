@@ -111,6 +111,7 @@ Orchestrator's Brain es un proyecto real, en desarrollo activo y con arquitectur
 
 ### ⚠️ Implementado con limitaciones conocidas
 - **Búsqueda semántica vectorial:** El crate `core/obrain-embed` implementa la vectorización y búsqueda por significado con modelos ONNX (`multilingual-e5-small`). Funciona de forma totalmente local, pero requiere descargar previamente el modelo ONNX a `%USERPROFILE%\.obrain\models`.
+- **Puerta de Aetheris (`obrain-app --puerta`):** MCP por stdio, sólo lectura y sólo de lo normal ya clasificado, apagada de fábrica y encendida desde Seguridad › Aetheris. Todavía no se conecta: falta probarla en Windows y pasar la batería de ataques de Aetheris con una base sintética. Contrato en [`docs/PUERTA-AETHERIS.md`](docs/PUERTA-AETHERIS.md).
 - **Firma digital del instalador Windows (MSI):** El paquete MSI se compila con WiX Toolset y ha sido verificado en pruebas de instalación limpia y actualización desde 0.0.1. Actualmente se genera sin certificado comercial Authenticode (`--no-sign`), por lo que Windows SmartScreen puede mostrar una advertencia informativa durante la instalación manual.
 
 ### ⏳ Planificado en el Roadmap

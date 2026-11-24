@@ -5,6 +5,50 @@ referencias más abajo a la rama previa y a la base del PR documentan el
 estado de aquella entrega, no el estado actual. La identidad entre bibliotecas
 se trabaja desde `main` en `codex/identidad-entre-bibliotecas` (ADR-0036).
 
+## Puerta de Aetheris, paso 5: el programa de la puerta — 2026-11-24
+
+`obrain-app --puerta`: el mismo ejecutable que instala el instalador, en un
+modo que se decide en `main` antes de tocar Tauri, así que no se abre ventana
+ni se carga la interfaz ni corre el actualizador. Se eligió el mismo
+ejecutable y no uno aparte porque ya va firmado en el instalador y no pide
+cambiarlo. Habla MCP por stdio (`obrain-api/src/puerta_mcp.rs`): sólo
+`initialize`, `ping`, `tools/list` y `tools/call`, `serverInfo.name`
+`obrain` y `serverInfo.version` `1`, la versión del contrato. Cada llamada
+abre la base para leer con la apertura del paso 1 y la suelta; lo que no deja
+leer sale como `no_disponible` con su motivo. La base es la de `OBRAIN_DB` o
+la de la carpeta fija, nunca `ubicacion::carpeta()`, que muda. Los argumentos
+se comprueban contra el `inputSchema` publicado (nada de más, tipos, longitud
+de la consulta, límite de 1 a 50); una línea de más de 64 KiB se descarta sin
+leerla entera; un fallo se contesta sin detalles. El modelo de significado se
+carga la primera vez que lo pide `localizar` o `leer`, nunca para
+`documento`. El contrato, en [PUERTA-AETHERIS](PUERTA-AETHERIS.md). La frase
+de la ventana que decía que la puerta todavía no venía pasa a decir cómo la
+arranca Aetheris.
+
+Pruebas: en `puerta_mcp.rs`, los errores de JSON-RPC, que las notificaciones
+no se contestan, que sin `initialize` no hay herramientas, las versiones de
+MCP, los argumentos contra el esquema, las tres herramientas de sólo lectura,
+la línea demasiado larga y que sin base dice `base_cerrada` sin crear nada.
+En `obrain-api/tests/puerta.rs`, una conversación entera contra la biblioteca
+sintética: contesta lo mismo que el núcleo, no deja salir nada de lo de
+bóveda, `documento` responde igual a lo de bóveda y a lo inventado, un
+argumento de más no llega al núcleo y la base no cambia ni un byte; respeta
+las tres posiciones; carga el modelo una vez y no para `documento`; y dice
+`ocupada` ante un `-journal` sin poner la ruta en la respuesta. En
+`ui/src-tauri/tests/puerta.rs`, el ejecutable de verdad lanzado sin
+`DISPLAY` ni `WAYLAND_DISPLAY` (sin `--puerta`, en esas condiciones, Tauri
+no arranca: se comprobó), con `HOME` y XDG en un temporal: contesta, sale
+con 0 al cerrarle la entrada, no cambia la base y rechaza argumentos de más.
+Mutaciones temporales (aceptar argumentos desconocidos, límite sin tope,
+herramientas sin `initialize`, cargar el modelo para `documento`, poner la
+ruta en `no_disponible`, otro nombre para el modo): cada una rompió su
+prueba.
+
+Falta en Windows: que un ejecutable con `windows_subsystem = "windows"` use
+las tuberías que le da el cliente como stdin y stdout, y lo pendiente del paso
+1 sobre NTFS. Y falta el paso 6: la batería de Aetheris contra una base
+sintética desechable, antes de conectarla.
+
 ## Puerta de Aetheris, paso 4: el ajuste de tres posiciones — 2026-11-24
 
 El ajuste del [ADR-0038](adr/0038-la-puerta-de-aetheris.md) (B2 y ajuste 5):
