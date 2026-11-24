@@ -42,6 +42,16 @@ como `p.entity`; ahora la expresión exige la columna con su tabla.
 
 Queda del punto 3 la reconciliación de duplicados, versiones y sesiones.
 
+**Precisión, 2026-11-24 ([ADR-0039](adr/0039-la-puerta-de-aetheris-se-adelanta.md)).**
+Los duplicados (`duplicate_of`) se reconcilian desde `662bdee`; lo que
+queda son versiones (`version_of`) y sesiones (`occurred_during`), que no
+retractan una arista que deja de cumplirse. No bloquean la puerta: su primera
+versión de `documento` no trae relaciones inferidas. Al revisarlo salió un
+hueco que no estaba en el plan: la sensibilidad no sigue a las copias, así
+que la copia sin marcar de algo protegido queda `normal`. Visto leyendo el
+código, sin reproducirlo; la puerta no se enciende sin la regla que deja
+fuera esas copias y su prueba.
+
 ## P1 identidad entre bibliotecas
 
 Dos regresiones nuevas de pipeline con archivos sintéticos y base en memoria

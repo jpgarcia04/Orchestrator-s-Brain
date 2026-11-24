@@ -36,7 +36,9 @@ la indexación sigue siendo el siguiente P1.
 La búsqueda filtra lo elegible dentro de la consulta, antes de cortar, en
 BM25 y en kNN (punto 3 del plan, condición del
 [ADR-0038](adr/0038-la-puerta-de-aetheris.md) para la puerta de Aetheris);
-ver [progreso](PROGRESO-CONFIANZA.md).
+ver [progreso](PROGRESO-CONFIANZA.md). Con eso y el modelo local de Aetheris
+ya medido, el [ADR-0039](adr/0039-la-puerta-de-aetheris-se-adelanta.md)
+adelanta la puerta: se construye ya, con tres condiciones antes de encenderla.
 
 Contexto versionado: [auditoría](AUDITORIA-CONFIANZA.md),
 [plan](PLAN-CONFIANZA.md), [progreso](PROGRESO-CONFIANZA.md),
