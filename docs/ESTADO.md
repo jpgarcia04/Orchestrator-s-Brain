@@ -33,6 +33,11 @@ entre bibliotecas se corrige en la rama `codex/identidad-entre-bibliotecas`
 (ADR-0036), pendiente de revisión; la publicación antes de clasificar durante
 la indexación sigue siendo el siguiente P1.
 
+La búsqueda filtra lo elegible dentro de la consulta, antes de cortar, en
+BM25 y en kNN (punto 3 del plan, condición del
+[ADR-0038](adr/0038-la-puerta-de-aetheris.md) para la puerta de Aetheris);
+ver [progreso](PROGRESO-CONFIANZA.md).
+
 Contexto versionado: [auditoría](AUDITORIA-CONFIANZA.md),
 [plan](PLAN-CONFIANZA.md), [progreso](PROGRESO-CONFIANZA.md),
 [retención](RETENCION-METADATOS.md) y [ADR-0034](adr/0034-correcciones-y-revocacion-del-pin.md).

@@ -5,6 +5,43 @@ referencias más abajo a la rama previa y a la base del PR documentan el
 estado de aquella entrega, no el estado actual. La identidad entre bibliotecas
 se trabaja desde `main` en `codex/identidad-entre-bibliotecas` (ADR-0036).
 
+## Punto 3, recuperación: elegibilidad antes de cortar — 2026-11-24
+
+La parte de BM25/kNN del punto 3 del plan, que el ADR-0038 pone como
+condición antes de construir la puerta de Aetheris. Las dos ramas cortaban su
+lista antes de quitar lo que no podía salir: BM25 pedía `10 × limit`
+fragmentos (al menos 50) y kNN 200, y la papelera y la deduplicación por
+documento se aplicaban después, en Rust; la superficie quitaba además la
+identidad pendiente con la lista ya cortada. Un documento largo o unos
+cuantos de la papelera arriba dejaban la lista corta o vacía teniendo
+respuesta.
+
+Ahora «lo que puede salir» se escribe una vez, en SQL, en
+`obrain-core/src/elegibilidad.rs`, con dos modos: `Ventana` (lo de siempre:
+nada pendiente de publicar, ruta vigente, identidad sin marca pendiente) y
+`SoloNormal` (lo que pide el ADR-0038, B5 y ajuste 3: `sensitivity =
+'normal'`, publicación `ready`, ruta vigente e identidad confirmada, sin
+depender del PIN). La ruta vigente en SQL es la misma condición bitemporal y
+la misma precedencia que `Store::resolve`, con una prueba que las compara.
+BM25 filtra y se queda con el mejor fragmento de cada documento dentro de la
+consulta, y su `LIMIT` cuenta documentos; kNN filtra en el `WHERE` y
+deduplica antes de truncar. La ventana usa `Ventana` y no cambia lo que
+enseña; `SoloNormal` todavía no tiene llamante: la puerta no se construye
+aquí.
+
+Pruebas con bibliotecas sintéticas en memoria, en las dos ramas: un
+documento con más fragmentos que el antiguo tope no tapa al siguiente; lo de
+la papelera, lo pendiente de publicar y lo de identidad pendiente no ocupan
+puesto; una colección con lo de dentro en la papelera; la frase parcial de
+rescate; y diez sensibles por delante de un normal con `SoloNormal`, más un
+documento sin fila de publicación, que no cuenta como clasificado. Cada una
+falló con una mutación temporal que devolvía el comportamiento anterior (sin
+filtro o cortando antes de deduplicar). Las pruebas cazaron además un error
+propio: una columna sin tabla dentro de `content_publication p` se resolvía
+como `p.entity`; ahora la expresión exige la columna con su tabla.
+
+Queda del punto 3 la reconciliación de duplicados, versiones y sesiones.
+
 ## P1 identidad entre bibliotecas
 
 Dos regresiones nuevas de pipeline con archivos sintéticos y base en memoria
