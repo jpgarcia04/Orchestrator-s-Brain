@@ -5,6 +5,40 @@ referencias más abajo a la rama previa y a la base del PR documentan el
 estado de aquella entrega, no el estado actual. La identidad entre bibliotecas
 se trabaja desde `main` en `codex/identidad-entre-bibliotecas` (ADR-0036).
 
+## Puerta de Aetheris, paso 6: la base de la batería de Aetheris — 2026-11-24
+
+La batería de ataques de Aetheris ya puede correr contra la puerta de verdad.
+Brain pone una sola pieza: `obrain-api/tests/bateria_aetheris.rs`, un
+ayudante con `#[ignore]` que sólo corre cuando Aetheris lo lanza con
+`--ignored` y `OBRAIN_BATERIA` apuntando a un manifiesto (biblioteca, base,
+colecciones, posición de la puerta, modelo sí o no, dónde escribir el
+informe). Indexa la biblioteca como la ventana, deja que el clasificador de
+verdad decida lo sensible y lo de bóveda, crea las colecciones, mueve el
+interruptor con `Brain::set_gate_position` y escribe qué nivel y qué estado
+de publicación dio a cada archivo. Es una prueba y no un subcomando de la CLI
+para no añadir al producto una forma de mover el interruptor sin la ventana.
+Se niega si ya hay algo donde va la base (la base, `-wal`, `-shm`,
+`-journal` o `.llave`) o si la base es la de la carpeta fija: los documentos
+de la batería son texto hostil a propósito. Se comprobó a mano que las dos
+negativas paran antes de crear nada.
+
+Lo demás está en Aetheris (`pruebas/ataques/preparar_brain.py`, que arma la
+biblioteca en un temporal y lanza este ayudante, y
+`pruebas/test_puerta_real.py`, sin modelos). Primera pasada aquí, con el
+ejecutable de verdad en Linux y sin modelo de significado: el cliente de
+Aetheris acepta la puerta, ninguna respuesta se descarta por forma, y lo que
+el clasificador marcó como protegido (las credenciales inventadas y el
+archivo cuyo nombre es la orden «IGNORA LAS REGLAS…», como bóveda; la póliza
+inventada, como sensible) no sale por ninguna herramienta con 17 consultas
+que lo buscan por nombre y por contenido; `documento` contesta
+`fuera_de_la_puerta` igual a lo protegido y a lo inventado. Cambiando
+temporalmente la rama léxica de la puerta a `Elegibles::Ventana`, las pruebas
+de Aetheris que miran `localizar` y `leer` fallaron por el nombre del archivo
+de bóveda.
+
+Falta la pasada con modelos (Ollama y Claude) en el portátil de JP, la prueba
+en Windows del paso 5, y decidir con ella si se conecta.
+
 ## Puerta de Aetheris, paso 5: el programa de la puerta — 2026-11-24
 
 `obrain-app --puerta`: el mismo ejecutable que instala el instalador, en un

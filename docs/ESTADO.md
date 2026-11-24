@@ -43,8 +43,10 @@ Hechos los pasos 1 a 5: la apertura de sólo lectura, la regla de las copias,
 las tres herramientas en el núcleo, el interruptor de tres posiciones en el
 panel de Seguridad, apagado de fábrica, y el modo `obrain-app --puerta` (MCP
 por stdio, sin ventana; contrato en [PUERTA-AETHERIS](PUERTA-AETHERIS.md)).
-Falta probarlo en Windows y la batería de Aetheris contra una base sintética
-(paso 6) antes de conectarla.
+El paso 6, la batería de Aetheris, ya corre contra la puerta de verdad sobre
+una base desechable (`core/obrain-api/tests/bateria_aetheris.rs` la arma);
+pasó sin modelos. Falta su pasada con modelos y probar la puerta en Windows
+antes de conectarla.
 
 Contexto versionado: [auditoría](AUDITORIA-CONFIANZA.md),
 [plan](PLAN-CONFIANZA.md), [progreso](PROGRESO-CONFIANZA.md),

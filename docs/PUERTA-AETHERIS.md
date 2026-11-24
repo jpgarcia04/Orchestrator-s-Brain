@@ -6,8 +6,9 @@ Lo que la puerta de Brain contesta, tal como está construida
 lanzarla y lo que su batería de ataques tiene que probar. Si algo de esto cambia de forma, sube la
 versión del contrato.
 
-**Todavía no se conecta:** falta la batería de Aetheris contra una base sintética desechable (paso
-6 del ADR-0039), y el modo puerta no se ha probado en Windows.
+**Todavía no se conecta:** la batería de Aetheris ya corre contra esta puerta sobre una base
+sintética desechable (paso 6 del ADR-0039) y pasó sin modelos; falta su pasada con modelos y probar
+el modo puerta en Windows.
 
 ## Cómo se lanza
 
@@ -116,3 +117,5 @@ no. Los nombres de carpetas y colecciones de lo normal sí salen.
 - `ui/src-tauri/src/main.rs`: `--puerta`, antes de Tauri.
 - Pruebas: `core/obrain-api/tests/puerta.rs` y `ui/src-tauri/tests/puerta.rs` (el ejecutable de
   verdad, sin pantalla).
+- La base de la batería de Aetheris: `core/obrain-api/tests/bateria_aetheris.rs`, que sólo corre
+  con `--ignored` y `OBRAIN_BATERIA` (lo lanza `pruebas/ataques/preparar_brain.py` de Aetheris).
