@@ -5,6 +5,36 @@ referencias más abajo a la rama previa y a la base del PR documentan el
 estado de aquella entrega, no el estado actual. La identidad entre bibliotecas
 se trabaja desde `main` en `codex/identidad-entre-bibliotecas` (ADR-0036).
 
+## Puerta de Aetheris, paso 3: las tres herramientas en el núcleo — 2026-11-24
+
+`obrain-api/src/puerta.rs`: `localizar`, `leer` y `documento`, sobre un
+`Store` abierto con la apertura del paso 1, con `Elegibles::SoloNormal` y sin
+mirar nunca el PIN ni la ventana. `localizar` devuelve `Ubicacion`, un tipo
+sin ningún campo para texto del documento, con la ruta relativa a su
+biblioteca (lo que no está en ninguna biblioteca no sale). `leer` da pasajes
+con su documento, su método (`bm25` o `knn`) y dos fechas: cuándo extrajo
+Brain esa versión y la modificación que observó en el disco. `documento` da
+la ficha de lo normal, con la ruta completa, la caducidad con su procedencia
+y sólo las relaciones deterministas (carpeta, copia de, dentro de) hacia lo
+que también puede salir; para lo sensible, lo de bóveda, su copia sin marcar,
+lo de la papelera, un identificador inventado o vacío responde
+`FueraDeLaPuerta`, lo mismo en todos los casos. Cada respuesta lleva el mismo
+aviso fijo. Todavía no hay programa que las sirva: eso es el paso 5.
+
+Pruebas en `obrain-api/tests/puerta.rs`, de punta a punta con una biblioteca
+sintética indexada como la indexa la ventana, una carpeta marcada como bóveda
+y la base leída con la apertura de la puerta: la respuesta de `localizar` no
+lleva ni la palabra que sólo está en el texto ni la ruta de la biblioteca;
+preguntar por lo protegido responde igual que preguntar por nada; los
+pasajes son del documento normal y dicen su método y sus fechas; `documento`
+responde igual a los cinco casos de fuera; la ficha no trae relaciones
+inferidas aunque el enlazador escribió una versión; el PIN puesto o
+desbloqueado no cambia nada; y con un modelo de significado de juguete, la
+copia sin marcar del pasaporte no sale y el pasaje dice `knn`. Mutaciones
+temporales (buscar con `Ventana`, no comprobar `documento`, añadir
+`version_of`, dar la ruta completa en `localizar`, marcar todo como `bm25`):
+cada una rompió su prueba.
+
 ## Puerta de Aetheris, paso 2: ninguna copia de algo protegido — 2026-11-24
 
 La condición 1 del [ADR-0039](adr/0039-la-puerta-de-aetheris-se-adelanta.md).
