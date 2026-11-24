@@ -71,6 +71,10 @@ modelo, que se pide a mano.
 - La 0.0.2 y anteriores no tienen actualizador: la primera versión con él se
   instala a mano.
 - `tools/validar-msi-runner.ps1` sigue escrito para el candidato 0.0.2.
+- **2026-11-24: se perdió la contraseña de la primera llave** y se creó otra.
+  La 0.0.3 sólo confía en la vieja, así que la 0.0.4 se instala a mano una
+  vez; desde ahí vuelve a actualizarse sola. La contraseña nueva va en el
+  gestor de contraseñas de uso diario.
 
 ## Cómo se publica
 
