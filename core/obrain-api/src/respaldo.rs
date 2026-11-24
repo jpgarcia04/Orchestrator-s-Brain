@@ -1623,6 +1623,20 @@ fn comprobar_conexiones_activas(db: &Path) -> Result<()> {
                     let _ = conn.execute_batch("PRAGMA temp_store = MEMORY;");
                 }
             }
+            // El modo exclusivo va antes de la primera lectura. Una conexión
+            // WAL quieta no tiene ningún bloqueo con el que choque un
+            // `EXCLUSIVE` puesto después de leer, y la restauración sustituiría
+            // una base que otra conexión aún tiene abierta (en Unix nada más
+            // lo nota: esa conexión sigue escribiendo en el archivo que pasó a
+            // la salvaguarda). Puesto primero, la primera lectura pide el
+            // bloqueo exclusivo y cualquier otra conexión abierta, quieta o
+            // no, responde «ocupada».
+            if conn
+                .execute_batch("PRAGMA locking_mode = EXCLUSIVE;")
+                .is_err()
+            {
+                return Err(Error::BaseEnUso(db.to_path_buf()));
+            }
             // Una base que no se deja leer (dañada, o con una llave que este
             // equipo no abre) no está «en uso»: es justo el caso en que hace
             // falta restaurar. Sin lectura no hay checkpoint posible; la
@@ -1636,12 +1650,6 @@ fn comprobar_conexiones_activas(db: &Path) -> Result<()> {
                 Err(_) => false,
             };
             if legible {
-                if conn
-                    .execute_batch("PRAGMA locking_mode = EXCLUSIVE;")
-                    .is_err()
-                {
-                    return Err(Error::BaseEnUso(db.to_path_buf()));
-                }
                 let check: std::result::Result<(i64, i64, i64), _> =
                     conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| {
                         Ok((r.get(0)?, r.get(1)?, r.get(2)?))

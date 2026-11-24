@@ -119,7 +119,7 @@ Si el equipo sufre un corte de energía o el proceso es terminado forzosamente (
 El mayor riesgo de corrupción o fallo en caliente radica en la presencia de conexiones concurrentes en SQLite.
 
 - **Comprobación en dos niveles**:
-  1. *Nivel SQLite*: Comprueba mediante `PRAGMA wal_checkpoint(TRUNCATE)` con timeout que no existan lectores activos reteniendo frames en el WAL (`busy != 0`).
+  1. *Nivel SQLite*: Pone `PRAGMA locking_mode = EXCLUSIVE` antes de la primera lectura, de modo que esa lectura pide el bloqueo exclusivo y cualquier otra conexión abierta, aunque esté quieta, la hace fallar con «ocupada» (corregido el 2026-11-24: antes se ponía después de leer y en Linux no detectaba una conexión quieta). Después comprueba mediante `PRAGMA wal_checkpoint(TRUNCATE)` con timeout que no existan lectores activos reteniendo frames en el WAL (`busy != 0`).
   2. *Nivel Sistema Operativo*: En Windows, invoca `std::os::windows::fs::OpenOptionsExt::share_mode(0)` sobre `brain.obrain` y `brain.obrain-wal`. Esto solicita acceso sin compartición. Dado que SQLite abre sus archivos con `FILE_SHARE_READ | FILE_SHARE_WRITE`, si cualquier otro hilo o proceso tiene la base abierta, la llamada falla de inmediato con `PermissionDenied` (`ERROR_SHARING_VIOLATION`).
 - **Comprobación repetida inmediatamente antes de la sustitución**:
   - Las comprobaciones de exclusividad se repiten justo antes de mover archivos a `.anterior` (paso 6), descartando conexiones que se hayan abierto durante la fase de staging o derivación criptográfica.
