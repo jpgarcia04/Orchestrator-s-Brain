@@ -5,6 +5,38 @@ referencias más abajo a la rama previa y a la base del PR documentan el
 estado de aquella entrega, no el estado actual. La identidad entre bibliotecas
 se trabaja desde `main` en `codex/identidad-entre-bibliotecas` (ADR-0036).
 
+## Punto 3, relaciones: versiones y sesiones se reconcilian — 2026-11-24
+
+Lo que quedaba del punto 3. `obrain_link::versions` y
+`obrain_link::sessions` sólo añadían aristas: un archivo renombrado seguía
+siendo «versión de», las versiones antiguas seguían apuntando al canónico
+anterior cuando aparecía uno más nuevo, y un archivo editado días después
+seguía colgando de la sesión de aquella tarde. Ahora cada pasada calcula las
+aristas que el nombre o el `mtime` sostienen hoy y retracta, con fecha, las
+que este enlazador afirmó y ya no se sostienen, igual que `duplicate_of`
+desde octubre. No toca la corrección del usuario ni lo que afirmó otra
+procedencia, y no retracta nada de una identidad pendiente (ADR-0036); un
+archivo cuya cadena apunta a una identidad pendiente conserva esa arista y no
+gana un segundo canónico, porque `version_of` es de cardinalidad uno.
+
+El concentrador de una sesión no se borra ni se retracta: la sesión ocurrió y
+es historia que el sistema autoró. Sin aristas no aparece en ninguna vista,
+porque todas llegan a una sesión por `occurred_during`, y si los mismos
+archivos la vuelven a formar se reutiliza. Su `session_span` no se reescribe
+cuando la sesión crece por el final; el nombre sale sólo del inicio.
+
+Pruebas unitarias en los dos enlazadores (renombrar, quitar y reponer,
+versión nueva, inicio de sesión que cambia, usuario, otra procedencia,
+identidad pendiente) y `obrain-api/tests/relaciones_inferidas.rs`, con
+indexado real sobre bibliotecas sintéticas: renombrar una versión y editar un
+archivo otro día retiran la relación del log y de la ficha, y la historia la
+conserva. Las de retractar fallan si no se retracta; las de conservar fallan
+si se retracta sin mirar el método, la procedencia o la identidad pendiente.
+
+`documento` de la puerta sigue sin relaciones inferidas: la versión `1` del
+contrato las deja fuera (ADR-0039, condición 2) y meterlas la sube, lo que
+también toca a Aetheris.
+
 ## Puerta de Aetheris, paso 6: la base de la batería de Aetheris — 2026-11-24
 
 La batería de ataques de Aetheris ya puede correr contra la puerta de verdad.

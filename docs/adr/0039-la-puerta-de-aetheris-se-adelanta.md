@@ -82,7 +82,8 @@ aislada (`OBRAIN_DB`), y la batería de ataques de Aetheris pasada contra esa mi
 ### Lo que no hace falta esperar
 
 - **Reconciliar versiones y sesiones.** Con la condición 2, no llegan a la puerta. Sigue en el
-  punto 3 del plan.
+  punto 3 del plan. *(2026-11-24: hecho; ver [progreso](../PROGRESO-CONFIANZA.md). `documento`
+  sigue sin traerlas en la versión `1`: meterlas sube la versión del contrato y es otra decisión.)*
 - **El resto del punto 4 y el punto 5.** Ninguno decide qué sale por la puerta.
 - **Otra utilidad del punto 6.** «Preguntas y comparaciones citadas» las haría Aetheris con la
   puerta; Brain no tiene que construirlas antes.

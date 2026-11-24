@@ -20,8 +20,10 @@
 //! tres o más dígitos es numeración de cámara o de escáner, no una versión.
 
 use crate::{Edge, FileView, LinkReport, write_edge};
-use obrain_core::{Method, Result, Store, Value};
-use std::collections::HashMap;
+use obrain_core::{EntityId, Method, Result, Store, TimePoint, Value};
+use std::collections::{HashMap, HashSet};
+
+const SOURCE: &str = "heuristic:filename-version";
 
 /// Marcadores textuales inequívocos, en español e inglés.
 const EXPLICIT_SUFFIXES: &[&str] = &[
@@ -143,7 +145,21 @@ fn split_name(name: &str) -> (&str, &str) {
     }
 }
 
+/// Escribe las cadenas que el nombre sostiene hoy y **retracta las que dejó
+/// de sostener**: un archivo renombrado fuera de su grupo, uno que pasó a la
+/// papelera, o una versión más nueva que cambia el canónico. Mismo criterio
+/// que `duplicate_of` (`duplicates.rs`): sólo se retracta lo que afirmó este
+/// enlazador, con fecha, así que la historia sigue respondiendo qué creía el
+/// sistema y cuándo; la corrección del usuario y otras procedencias no se
+/// tocan, y un archivo con identidad pendiente espera a una pasada concluyente.
 pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport) -> Result<()> {
+    let tp = TimePoint::at(at);
+    let pending: HashSet<EntityId> = store
+        .query(None, Some("identity_pending_path"), tp)?
+        .into_iter()
+        .map(|a| a.subject)
+        .collect();
+
     // Agrupar por (carpeta, nombre normalizado, extensión). Cruzar carpetas
     // produciría muchísimos falsos positivos.
     struct Member<'a> {
@@ -153,6 +169,9 @@ pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport)
     let mut groups: HashMap<(&str, String, &str), Vec<Member<'_>>> = HashMap::new();
 
     for f in files {
+        if pending.contains(&f.entity) {
+            continue;
+        }
         let (stem, ext) = split_name(f.file_name());
         let (base, kind) = match strip_version_markers(stem) {
             Some(m) => (m.base, m.kind),
@@ -164,6 +183,7 @@ pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport)
             .push(Member { file: f, kind });
     }
 
+    let mut wanted: HashSet<(EntityId, EntityId)> = HashSet::new();
     for (_, mut group) in groups {
         if group.len() < 2 {
             continue;
@@ -187,21 +207,48 @@ pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport)
         let canonical = group[0].file.entity.clone();
 
         for older in &group[1..] {
-            if write_edge(
-                store,
-                report,
-                Edge {
-                    subject: &older.file.entity,
-                    predicate: "version_of",
-                    object: Value::Entity(canonical.clone()),
-                    method: Method::Inferred,
-                    confidence: 0.75,
-                    source: "heuristic:filename-version",
-                },
-                at,
-            )? {
-                report.version_of += 1;
-            }
+            wanted.insert((older.file.entity.clone(), canonical.clone()));
+        }
+    }
+
+    // Un archivo cuya cadena apunta a una identidad pendiente conserva esa
+    // arista y no gana otra: `version_of` es de cardinalidad uno, y dos
+    // canónicos a la vez dirían algo que nadie cree.
+    let mut held: HashSet<EntityId> = HashSet::new();
+    for a in store.query(None, Some("version_of"), tp)? {
+        if a.method != Method::Inferred || a.source != SOURCE {
+            continue;
+        }
+        let Some(object) = a.object.as_entity() else {
+            continue;
+        };
+        if pending.contains(&a.subject) || pending.contains(object) {
+            held.insert(a.subject.clone());
+            continue;
+        }
+        if !wanted.contains(&(a.subject.clone(), object.clone())) {
+            store.retract(&a.id, at)?;
+        }
+    }
+    wanted.retain(|(subject, _)| !held.contains(subject));
+
+    let mut wanted: Vec<_> = wanted.into_iter().collect();
+    wanted.sort();
+    for (subject, object) in wanted {
+        if write_edge(
+            store,
+            report,
+            Edge {
+                subject: &subject,
+                predicate: "version_of",
+                object: Value::Entity(object),
+                method: Method::Inferred,
+                confidence: 0.75,
+                source: SOURCE,
+            },
+            at,
+        )? {
+            report.version_of += 1;
         }
     }
     Ok(())
@@ -371,6 +418,136 @@ mod tests {
         assert_eq!(
             r.version_of, 0,
             "mismo nombre en carpetas distintas no es una cadena"
+        );
+    }
+
+    fn activas(s: &Store, at: i64) -> Vec<obrain_core::Assertion> {
+        s.query(None, Some("version_of"), TimePoint::at(at))
+            .unwrap()
+    }
+
+    /// Renombrar un archivo fuera de su grupo deshace la cadena; la historia
+    /// sigue diciendo que el sistema la creyó.
+    #[test]
+    fn renombrar_fuera_del_grupo_retracta_la_cadena() {
+        let s = Store::open_in_memory().unwrap();
+        let mut files = vec![
+            fv(&s, r"C:\d\informe.pdf", 100),
+            fv(&s, r"C:\d\informe_v2.pdf", 200),
+        ];
+        super::link(&s, &files, 5000, &mut LinkReport::default()).unwrap();
+        assert_eq!(activas(&s, 5001).len(), 1);
+
+        files[1].path = r"C:\d\presentacion.pdf".into();
+        super::link(&s, &files, 6000, &mut LinkReport::default()).unwrap();
+        assert!(activas(&s, 6001).is_empty(), "ya no es versión de nada");
+        assert_eq!(activas(&s, 5500).len(), 1, "la historia la conserva");
+    }
+
+    /// Un archivo que sale de la lista (papelera) deja de ser canónico, y
+    /// volver lo reafirma sin duplicar.
+    #[test]
+    fn quitar_y_reponer_una_version_retracta_y_reafirma_sin_duplicar() {
+        let s = Store::open_in_memory().unwrap();
+        let files = vec![
+            fv(&s, r"C:\d\informe.pdf", 100),
+            fv(&s, r"C:\d\informe_v2.pdf", 200),
+        ];
+        super::link(&s, &files, 5000, &mut LinkReport::default()).unwrap();
+        super::link(&s, &files[..1], 6000, &mut LinkReport::default()).unwrap();
+        assert!(activas(&s, 6001).is_empty());
+
+        super::link(&s, &files, 7000, &mut LinkReport::default()).unwrap();
+        super::link(&s, &files, 8000, &mut LinkReport::default()).unwrap();
+        let a = activas(&s, 8001);
+        assert_eq!(a.len(), 1);
+        assert_eq!(a[0].asserted_at, 7000);
+    }
+
+    /// Una versión más nueva cambia el canónico: cada antigua apunta a la
+    /// nueva y a ninguna otra.
+    #[test]
+    fn una_version_nueva_mueve_la_cadena_entera() {
+        let s = Store::open_in_memory().unwrap();
+        let mut files = vec![
+            fv(&s, r"C:\d\informe.pdf", 100),
+            fv(&s, r"C:\d\informe_v2.pdf", 200),
+        ];
+        super::link(&s, &files, 5000, &mut LinkReport::default()).unwrap();
+        files.push(fv(&s, r"C:\d\informe_final.pdf", 300));
+        super::link(&s, &files, 6000, &mut LinkReport::default()).unwrap();
+
+        let a = activas(&s, 6001);
+        assert_eq!(a.len(), 2);
+        for e in &a {
+            assert_eq!(e.object.as_entity(), Some(&files[2].entity));
+        }
+        assert!(
+            a.iter().any(|e| e.subject == files[1].entity),
+            "el antiguo canónico pasa a ser versión del nuevo"
+        );
+    }
+
+    /// La corrección del usuario y lo que afirmó otra procedencia no los
+    /// retracta este enlazador aunque el nombre ya no los sostenga.
+    #[test]
+    fn la_correccion_del_usuario_y_otras_procedencias_se_conservan() {
+        let s = Store::open_in_memory().unwrap();
+        let files = vec![
+            fv(&s, r"C:\d\informe.pdf", 100),
+            fv(&s, r"C:\d\otra_cosa.pdf", 200),
+            fv(&s, r"C:\d\tercero.pdf", 300),
+        ];
+        for (sujeto, objeto, metodo, fuente) in [
+            (0, 1, Method::User, "user@ui"),
+            (2, 1, Method::Inferred, "import:test"),
+        ] {
+            s.assert(
+                obrain_core::NewAssertion::new(
+                    files[sujeto].entity.clone(),
+                    "version_of",
+                    Value::Entity(files[objeto].entity.clone()),
+                    metodo,
+                    4000,
+                )
+                .source(fuente),
+            )
+            .unwrap();
+        }
+        super::link(&s, &files, 5000, &mut LinkReport::default()).unwrap();
+        assert_eq!(activas(&s, 5001).len(), 2);
+    }
+
+    /// Una identidad pendiente no prueba que la cadena haya dejado de ser
+    /// cierta: su arista se conserva, y quien apunta a ella no gana otra.
+    #[test]
+    fn identidad_pendiente_espera_y_no_gana_un_segundo_canonico() {
+        let s = Store::open_in_memory().unwrap();
+        let files = vec![
+            fv(&s, r"C:\d\informe.pdf", 100),
+            fv(&s, r"C:\d\informe_v2.pdf", 200),
+            fv(&s, r"C:\d\informe_final.pdf", 300),
+        ];
+        super::link(&s, &files, 5000, &mut LinkReport::default()).unwrap();
+        // El canónico queda pendiente y sale de la lista, como lo deja el
+        // recorrido (ADR-0036).
+        s.assert(
+            obrain_core::NewAssertion::new(
+                files[2].entity.clone(),
+                "identity_pending_path",
+                r"C:\d\informe_final.pdf",
+                Method::Deterministic,
+                5500,
+            )
+            .source("scan@m1"),
+        )
+        .unwrap();
+        super::link(&s, &files[..2], 6000, &mut LinkReport::default()).unwrap();
+        let a = activas(&s, 6001);
+        assert_eq!(a.len(), 2, "las dos aristas al pendiente siguen");
+        assert!(
+            a.iter()
+                .all(|e| e.object.as_entity() == Some(&files[2].entity))
         );
     }
 }
