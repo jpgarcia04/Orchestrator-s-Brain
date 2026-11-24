@@ -1,6 +1,8 @@
 # ADR-0038 — La puerta de Aetheris: localizar y leer, sin salir de lo normal
 
-- **Estado:** Aceptada por JP el 2026-11-21. No adelanta nada del plan: se construye cuando toque (ver «Dónde va en el plan de confianza»).
+- **Estado:** Aceptada por JP el 2026-11-21. Su «Dónde va en el plan de confianza» lo cambia el
+  [ADR-0039](0039-la-puerta-de-aetheris-se-adelanta.md) (2026-11-24): la puerta se construye ahora,
+  como pieza aparte, con tres condiciones más. Lo demás de este ADR sigue vigente.
 - **Fecha:** 2026-11-21
 - **Responde a:** el pedido de Aetheris «La puerta de Brain para Aetheris»
   (`Aetheris/docs/contratos/brain-localiza-y-lee.md`, rama `pedir-puerta-brain`, 2026-11-21).

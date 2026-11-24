@@ -17,7 +17,8 @@ Jarvis, empezando por una bóveda local fiable. No fusionar DevHQ/PassGuardian.
 3. **Relaciones y recuperación correcta.** Reconciliar duplicados, versiones
    y sesiones preservando hechos del usuario. BM25/kNN: filtrar elegibilidad
    antes de cortar, recuperar documentos distintos, incluir papelera y colección
-   en la matriz de pruebas.
+   en la matriz de pruebas. *(2026-11-24: lo de BM25/kNN está hecho y
+   `duplicate_of` se reconcilia desde octubre; quedan versiones y sesiones.)*
 4. **Persistencia, recuperación y rendimiento.** Migraciones secuenciadas,
    rechazo de futuro, errores de inicialización, mudanzas consistentes con WAL,
    backups/restauraciones aislados; después medición, rehash incremental,
@@ -28,6 +29,14 @@ Jarvis, empezando por una bóveda local fiable. No fusionar DevHQ/PassGuardian.
 6. **Utilidad cotidiana.** Nombre/ruta y filtros; bibliotecas/exclusiones;
    colecciones con propósito, notas, roles y checklist; renovación y sustitución;
    uso explícito de documentos; evidencia; preguntas y comparaciones citadas.
+
+**Fuera de orden: la puerta de Aetheris** (ADR-0038, adelantada por
+ADR-0039 el 2026-11-24). Se construye ya, como pieza aparte, sin adelantar
+nada más de los puntos 4 a 6. Antes de encenderla: ninguna copia de algo
+protegido la cruza, `documento` sin relaciones inferidas, y apertura de
+lectura propia que se niega ante otro esquema o una operación a medias.
+Sólo bibliotecas sintéticas; la batería de Aetheris, contra una base
+desechable.
 
 Memoria futura pequeña, explícita, corregible y ligada a fuentes. No almacenar
 cada clic ni convertir inferencias en recuerdos permanentes. Medir utilidad
