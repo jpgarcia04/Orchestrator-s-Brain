@@ -6,8 +6,8 @@
 //! pero es el primer eslabón de la cadena de §6 del maestro: BM25 es una de
 //! las cuatro ramas de recuperación paralela, y aquí ya funciona.
 
-use obrain_core::rusqlite::{ToSql, params_from_iter};
-use obrain_core::{EntityId, Result, Store, TimePoint};
+use obrain_core::rusqlite::ToSql;
+use obrain_core::{Elegibles, EntityId, Result, Store, TimePoint, elegibilidad};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
@@ -272,7 +272,8 @@ fn guard(fts: String, text: &str, raw_query: &str) -> String {
 }
 
 /// Busca en el índice léxico y devuelve **un resultado por archivo**: el mejor
-/// de sus fragmentos.
+/// de sus fragmentos, entre lo que la ventana puede enseñar
+/// ([`Elegibles::Ventana`]).
 ///
 /// Sin la deduplicación, un documento largo que menciona el término diez veces
 /// ocuparía los diez primeros puestos y taparía a los demás.
@@ -281,12 +282,7 @@ pub fn search(store: &Store, raw_query: &str, limit: usize, at: TimePoint) -> Re
 }
 
 /// [`search`] **sólo entre estos documentos**: los de una colección
-/// (ADR-0031).
-///
-/// El filtro va dentro de la consulta, antes del `LIMIT`, y no después: si
-/// se buscara como siempre y luego se quitara lo de fuera, los documentos de
-/// la colección que estaban en el puesto 60 no saldrían nunca y la lista
-/// podría quedarse vacía teniendo respuesta. `None` es buscar en todo.
+/// (ADR-0031). `None` es buscar en todo.
 pub fn search_within(
     store: &Store,
     raw_query: &str,
@@ -294,10 +290,34 @@ pub fn search_within(
     at: TimePoint,
     within: Option<&HashSet<EntityId>>,
 ) -> Result<Vec<Hit>> {
+    search_eligible(store, raw_query, limit, at, within, Elegibles::Ventana)
+}
+
+/// La búsqueda léxica con **todos sus filtros dentro de la consulta**, antes
+/// del `LIMIT`: la colección, lo que puede salir según quién mire
+/// ([`Elegibles`]: publicación, papelera, identidad y, para la puerta,
+/// sensibilidad) y un solo resultado por documento.
+///
+/// Antes se pedían de sobra fragmentos (`10 × limit`, al menos 50) y la
+/// papelera y la deduplicación se aplicaban después, en Rust. Con un
+/// documento largo que llenaba esos 50 fragmentos, o con unos cuantos de la
+/// papelera arriba, la lista salía corta o vacía teniendo respuesta: lo que
+/// estaba en el puesto 51 no se veía nunca (`PLAN-CONFIANZA.md` punto 3). Ahora
+/// el `LIMIT` cuenta documentos elegibles, no fragmentos.
+pub fn search_eligible(
+    store: &Store,
+    raw_query: &str,
+    limit: usize,
+    at: TimePoint,
+    within: Option<&HashSet<EntityId>>,
+    elegibles: Elegibles,
+) -> Result<Vec<Hit>> {
     let Some(query) = prepare(raw_query) else {
         return Ok(Vec::new());
     };
-    let exact = search_match(store, &query, raw_query, limit, at, within, false)?;
+    let exact = search_match(
+        store, &query, raw_query, limit, at, within, elegibles, false,
+    )?;
     if !exact.is_empty() || limit == 0 {
         return Ok(exact);
     }
@@ -309,12 +329,14 @@ pub fn search_within(
             limit,
             at,
             within,
+            elegibles,
             true,
         ),
         None => Ok(exact),
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn search_match(
     store: &Store,
     query: &str,
@@ -322,78 +344,102 @@ fn search_match(
     limit: usize,
     at: TimePoint,
     within: Option<&HashSet<EntityId>>,
+    elegibles: Elegibles,
     relaxed: bool,
 ) -> Result<Vec<Hit>> {
     let dentro: Vec<&str> = within
         .map(|w| w.iter().map(EntityId::as_str).collect())
         .unwrap_or_default();
-    if within.is_some() && dentro.is_empty() {
+    if limit == 0 || (within.is_some() && dentro.is_empty()) {
         return Ok(Vec::new());
     }
-    let filtro = if within.is_some() {
-        let huecos: Vec<String> = (0..dentro.len()).map(|i| format!("?{}", i + 3)).collect();
-        format!("AND c.entity IN ({})", huecos.join(", "))
-    } else {
-        String::new()
-    };
 
-    let mut stmt = store.conn().prepare(&format!(
-        "SELECT c.entity, c.ordinal, bm25(chunks_fts) AS score,
-                snippet(chunks_fts, 0, '«', '»', ' … ', 14), c.text
-         FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid
-         WHERE chunks_fts MATCH ?1
-           AND NOT EXISTS (SELECT 1 FROM content_publication p
-                            WHERE p.entity=c.entity AND p.state='pending') {filtro}
-         ORDER BY score
-         LIMIT ?2"
-    ))?;
-    // Se piden de sobra porque varios fragmentos del mismo archivo colapsan
-    // en un solo resultado.
-    let tope = (limit * 10).max(50) as i64;
-    let mut valores: Vec<&dyn ToSql> = vec![&query, &tope];
-    valores.extend(dentro.iter().map(|e| e as &dyn ToSql));
-    let rows = stmt.query_map(params_from_iter(valores), |r| {
-        let fts: String = r.get(3)?;
-        let text: String = r.get(4)?;
-        Ok(Hit {
-            entity: EntityId(r.get(0)?),
-            ordinal: r.get(1)?,
-            score: r.get(2)?,
-            snippet: if relaxed {
-                // La prueba de la coincidencia parcial es una rebanada literal
-                // del fragmento publicado; no una explicación generada.
-                crate::evidence::pick(&text, evidence_query, crate::evidence::BUDGET)
-                    .map(|e| e.text)
-                    .unwrap_or_default()
-            } else {
-                guard(fts, &text, evidence_query)
-            },
-            path: String::new(),
-        })
+    // Tres pasos en una consulta. `coincidencias`: los fragmentos que casan,
+    // con su BM25 (la función auxiliar sólo existe junto al MATCH).
+    // `mejores`: de ésos, sólo los de documentos elegibles, numerados dentro
+    // de su documento. Y fuera, el mejor de cada documento, ordenado y
+    // cortado. La ruta sale de la misma expresión que decidió que hay ruta.
+    let sql = format!(
+        "WITH coincidencias AS (
+             SELECT c.id AS chunk, c.entity AS entity, c.ordinal AS ordinal,
+                    bm25(chunks_fts) AS score
+               FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid
+              WHERE chunks_fts MATCH :q {dentro}
+         ),
+         mejores AS (
+             SELECT m.chunk, m.entity, m.ordinal, m.score,
+                    ROW_NUMBER() OVER (PARTITION BY m.entity ORDER BY m.score, m.ordinal)
+                        AS puesto
+               FROM coincidencias m
+              WHERE {elegibles}
+         )
+         SELECT b.chunk, b.entity, b.ordinal, b.score, {ruta}
+           FROM mejores b
+          WHERE b.puesto = 1
+          ORDER BY b.score, b.entity
+          LIMIT :limite",
+        dentro = elegibilidad::dentro_sql("c.entity", within.map(|_| dentro.len())),
+        elegibles = elegibles.sql("m.entity"),
+        ruta = elegibilidad::ruta_vigente_sql("b.entity"),
+    );
+    let limite = limit as i64;
+    let nombres: Vec<String> = (0..dentro.len()).map(elegibilidad::nombre_dentro).collect();
+    let mut valores: Vec<(&str, &dyn ToSql)> = vec![
+        (":q", &query),
+        (":limite", &limite),
+        (":valid", &at.valid),
+        (":known", &at.known),
+    ];
+    valores.extend(
+        nombres
+            .iter()
+            .map(String::as_str)
+            .zip(dentro.iter().map(|e| e as &dyn ToSql)),
+    );
+
+    let mut stmt = store.conn().prepare(&sql)?;
+    let rows = stmt.query_map(valores.as_slice(), |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            EntityId(r.get(1)?),
+            r.get::<_, i64>(2)?,
+            r.get::<_, f64>(3)?,
+            r.get::<_, String>(4)?,
+        ))
     })?;
+    let mejores = rows.collect::<obrain_core::rusqlite::Result<Vec<_>>>()?;
 
-    let mut seen: Vec<Hit> = Vec::new();
-    for hit in rows {
-        let mut hit = hit?;
-        if seen.iter().any(|h| h.entity == hit.entity) {
-            continue;
-        }
-        // Sin ruta vigente, el documento ya no está en tu bóveda: está en la
-        // papelera y no se busca (ADR-0025). Su texto sigue en el índice hasta
-        // que se olvide, para poder verlo desde la papelera.
-        let Some(path) = store
-            .resolve(&hit.entity, "path_observed_at", at)?
-            .and_then(|a| a.object.as_text().map(str::to_string))
-        else {
-            continue;
+    // El recorte de FTS5 sólo para los que salen: calcularlo para cada
+    // fragmento que casa costaría tanto como la búsqueda entera.
+    let mut recorte = store.conn().prepare(
+        "SELECT snippet(chunks_fts, 0, '«', '»', ' … ', 14), c.text
+           FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid
+          WHERE chunks_fts MATCH ?1 AND chunks_fts.rowid = ?2",
+    )?;
+    let mut out = Vec::with_capacity(mejores.len());
+    for (chunk, entity, ordinal, score, path) in mejores {
+        let (fts, text): (String, String) = recorte
+            .query_row(obrain_core::rusqlite::params![query, chunk], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })?;
+        let snippet = if relaxed {
+            // La prueba de la coincidencia parcial es una rebanada literal
+            // del fragmento publicado; no una explicación generada.
+            crate::evidence::pick(&text, evidence_query, crate::evidence::BUDGET)
+                .map(|e| e.text)
+                .unwrap_or_default()
+        } else {
+            guard(fts, &text, evidence_query)
         };
-        hit.path = path;
-        seen.push(hit);
-        if seen.len() >= limit {
-            break;
-        }
+        out.push(Hit {
+            entity,
+            path,
+            ordinal,
+            score,
+            snippet,
+        });
     }
-    Ok(seen)
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -440,5 +486,217 @@ mod tests {
         assert!(partial("nodo azafrán").is_none());
         assert!(partial("La ruta y rutas").is_none());
         assert!(partial("La red y redes").is_none());
+    }
+
+    // ── La elegibilidad va antes del LIMIT (PLAN-CONFIANZA punto 3) ──
+    //
+    // Bibliotecas sintéticas en memoria: entidades, fragmentos y rutas
+    // inventadas. Nunca la bóveda real.
+
+    use obrain_core::{Method, NewAssertion, Value};
+
+    const AHORA: TimePoint = TimePoint {
+        valid: 1_000,
+        known: 1_000,
+    };
+
+    fn base() -> Store {
+        let store = Store::open_in_memory().unwrap();
+        crate::index::migrate(store.conn()).unwrap();
+        store
+    }
+
+    fn afirmar(store: &Store, e: &EntityId, predicado: &str, valor: &str, t: i64) {
+        store
+            .assert(NewAssertion {
+                subject: e.clone(),
+                predicate: predicado.into(),
+                object: Value::Text(valor.into()),
+                valid_from: Some(t),
+                valid_to: None,
+                method: Method::Deterministic,
+                source: "prueba".into(),
+                confidence: 1.0,
+                evidence: None,
+                asserted_at: t,
+            })
+            .unwrap();
+    }
+
+    /// Un documento vigente y publicado, con estos fragmentos.
+    fn documento(store: &Store, t: i64, textos: &[&str]) -> EntityId {
+        let e = store.create_entity(t).unwrap();
+        let chunks: Vec<crate::chunk::Chunk> = textos
+            .iter()
+            .enumerate()
+            .map(|(i, texto)| crate::chunk::Chunk {
+                ordinal: i,
+                byte_start: 0,
+                byte_end: texto.len(),
+                text: (*texto).to_string(),
+            })
+            .collect();
+        crate::index::replace_chunks(store.conn(), &e, "paragraph-pack", 1, &chunks).unwrap();
+        afirmar(
+            store,
+            &e,
+            "path_observed_at",
+            &format!("C:/sintetica/{e}.txt"),
+            t,
+        );
+        store.prepare_content(&e, None).unwrap();
+        assert!(store.publish_content(&e, None).unwrap());
+        e
+    }
+
+    fn a_la_papelera(store: &Store, e: &EntityId) {
+        for a in store
+            .query(Some(e), Some("path_observed_at"), AHORA)
+            .unwrap()
+        {
+            store.retract(&a.id, 500).unwrap();
+        }
+    }
+
+    fn entidades(hits: &[Hit]) -> Vec<&EntityId> {
+        hits.iter().map(|h| &h.entity).collect()
+    }
+
+    /// Un documento con 60 fragmentos que casan mejor que el siguiente ocupa
+    /// un puesto. Antes se pedían 50 fragmentos y se deduplicaba después: el
+    /// segundo documento no salía y la lista tenía uno solo.
+    #[test]
+    fn un_documento_largo_no_tapa_al_siguiente() {
+        let store = base();
+        let textos: Vec<String> = (0..60)
+            .map(|i| format!("azafrán azafrán azafrán fragmento {i}"))
+            .collect();
+        let largo = documento(
+            &store,
+            1,
+            &textos.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
+        let otro = documento(
+            &store,
+            2,
+            &["un texto mucho más largo que sólo nombra el azafrán una vez entre otras palabras"],
+        );
+        let hits = search(&store, "azafrán", 5, AHORA).unwrap();
+        assert_eq!(entidades(&hits), vec![&largo, &otro]);
+        assert!(hits.iter().all(|h| h.path.starts_with("C:/sintetica/")));
+    }
+
+    /// Lo de la papelera, lo pendiente de publicar y lo de identidad pendiente
+    /// no salen ni ocupan sitio: con un límite de uno, sale el vigente.
+    #[test]
+    fn papelera_y_pendientes_no_ocupan_puesto() {
+        let store = base();
+        let mut fuera = Vec::new();
+        for t in 1..=60 {
+            let e = documento(&store, t, &["azafrán azafrán azafrán"]);
+            match t % 3 {
+                0 => a_la_papelera(&store, &e),
+                1 => store.prepare_content(&e, None).unwrap(),
+                _ => afirmar(
+                    &store,
+                    &e,
+                    "identity_pending_path",
+                    "C:/sintetica/x.txt",
+                    500,
+                ),
+            }
+            fuera.push(e);
+        }
+        let vigente = documento(
+            &store,
+            100,
+            &["en este documento el azafrán aparece una sola vez"],
+        );
+        let hits = search(&store, "azafrán", 1, AHORA).unwrap();
+        assert_eq!(entidades(&hits), vec![&vigente]);
+    }
+
+    /// Dentro de una colección con lo de dentro en la papelera, la colección
+    /// devuelve su documento vigente aunque estuviera muy abajo en todo.
+    #[test]
+    fn la_coleccion_y_la_papelera_filtran_juntas() {
+        let store = base();
+        for t in 1..=60 {
+            documento(&store, t, &["azafrán azafrán azafrán"]);
+        }
+        let tirado = documento(&store, 70, &["azafrán azafrán"]);
+        a_la_papelera(&store, &tirado);
+        let dentro = documento(
+            &store,
+            71,
+            &["un texto largo donde el azafrán sale una vez y ya"],
+        );
+        let coleccion: HashSet<EntityId> = [tirado.clone(), dentro.clone()].into();
+        let hits = search_within(&store, "azafrán", 1, AHORA, Some(&coleccion)).unwrap();
+        assert_eq!(entidades(&hits), vec![&dentro]);
+        assert!(
+            search_within(&store, "azafrán", 5, AHORA, Some(&HashSet::new()))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    /// Para la puerta (ADR-0038): si los diez primeros son sensibles, sale el
+    /// normal que viene detrás. Lo que nunca tuvo publicación no cuenta como
+    /// clasificado. La ventana sigue viéndolos a todos.
+    #[test]
+    fn solo_normal_devuelve_el_normal_que_venia_detras() {
+        let store = base();
+        for t in 1..=10 {
+            let e = documento(&store, t, &["azafrán azafrán azafrán"]);
+            store
+                .conn()
+                .execute(
+                    "UPDATE entities SET sensitivity = 'sensitive' WHERE id = ?1",
+                    [e.as_str()],
+                )
+                .unwrap();
+        }
+        let sin_fila = documento(&store, 20, &["azafrán azafrán"]);
+        store
+            .conn()
+            .execute(
+                "DELETE FROM content_publication WHERE entity = ?1",
+                [sin_fila.as_str()],
+            )
+            .unwrap();
+        let normal = documento(
+            &store,
+            21,
+            &["un texto largo donde el azafrán sale una vez y ya"],
+        );
+
+        let puerta =
+            search_eligible(&store, "azafrán", 10, AHORA, None, Elegibles::SoloNormal).unwrap();
+        assert_eq!(entidades(&puerta), vec![&normal]);
+
+        let ventana = search(&store, "azafrán", 20, AHORA).unwrap();
+        assert_eq!(ventana.len(), 12);
+        assert_eq!(ventana.last().map(|h| &h.entity), Some(&normal));
+    }
+
+    /// La búsqueda de rescate (frase parcial) aplica los mismos filtros.
+    #[test]
+    fn la_frase_parcial_tambien_filtra_antes_de_cortar() {
+        let store = base();
+        for t in 1..=60 {
+            let e = documento(&store, t, &["apuntes de rutas de red de la práctica"]);
+            a_la_papelera(&store, &e);
+        }
+        let vigente = documento(&store, 100, &["apuntes de la práctica sobre la red"]);
+        let hits = search(
+            &store,
+            "Los apuntes de la práctica donde hablábamos de rutas de red",
+            1,
+            AHORA,
+        )
+        .unwrap();
+        assert_eq!(entidades(&hits), vec![&vigente]);
+        assert!(!hits[0].snippet.is_empty());
     }
 }

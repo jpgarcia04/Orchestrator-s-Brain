@@ -19,7 +19,7 @@
 use crate::embedder::{Embedder, Role};
 use crate::fuse::{Fused, Ranking, rrf};
 use crate::{Result, index};
-use obrain_core::{EntityId, Store, TimePoint};
+use obrain_core::{Elegibles, EntityId, Store, TimePoint};
 use std::collections::HashSet;
 
 /// Un resultado de la búsqueda híbrida, con de dónde vino.
@@ -81,7 +81,8 @@ fn path_of(store: &Store, e: &EntityId, at: TimePoint) -> String {
     live_path(store, e, at).unwrap_or_else(|| format!("<{e}>"))
 }
 
-/// Sólo la rama vectorial, **deduplicada por archivo**.
+/// Sólo la rama vectorial, **deduplicada por archivo**, entre lo que la
+/// ventana puede enseñar ([`Elegibles::Ventana`]).
 ///
 /// La deduplicación no es cosmética: sin ella un documento largo cuyos veinte
 /// fragmentos son todos parecidos a la consulta ocupa los veinte primeros
@@ -94,7 +95,7 @@ pub fn semantic(
     limit: usize,
     at: TimePoint,
 ) -> Result<Vec<Hit>> {
-    semantic_within(store, embedder, query, limit, at, None)
+    semantic_eligible(store, embedder, query, limit, at, None, Elegibles::Ventana)
 }
 
 /// [`semantic`] sólo entre estos documentos (ADR-0031). `None` es todo.
@@ -106,24 +107,41 @@ pub fn semantic_within(
     at: TimePoint,
     within: Option<&HashSet<EntityId>>,
 ) -> Result<Vec<Hit>> {
+    semantic_eligible(
+        store,
+        embedder,
+        query,
+        limit,
+        at,
+        within,
+        Elegibles::Ventana,
+    )
+}
+
+/// La rama vectorial con la colección, la elegibilidad y la deduplicación
+/// **dentro del índice, antes de cortar** ([`index::knn_documents`]). Lo que
+/// devuelve el índice ya es la lista: aquí sólo se le pone ruta y prueba.
+pub fn semantic_eligible(
+    store: &Store,
+    embedder: &dyn Embedder,
+    query: &str,
+    limit: usize,
+    at: TimePoint,
+    within: Option<&HashSet<EntityId>>,
+    elegibles: Elegibles,
+) -> Result<Vec<Hit>> {
     let model = embedder.model();
     let qv = embedder.embed(&[query], Role::Query)?;
     let Some(qv) = qv.first() else {
         return Ok(Vec::new());
     };
-    // Se piden de sobra por la misma razón que en BM25: varios fragmentos del
-    // mismo archivo colapsan en un solo resultado.
-    let neighbours = index::knn_within(store.conn(), qv, model, (limit * 10).max(200), within)?;
+    let neighbours = index::knn_documents(store.conn(), qv, model, limit, at, within, elegibles)?;
 
-    let mut out: Vec<Hit> = Vec::new();
+    let mut out: Vec<Hit> = Vec::with_capacity(neighbours.len());
     for n in neighbours {
-        if out.iter().any(|h| h.entity == n.entity) {
-            continue;
-        }
-        // Lo que está en la papelera no tiene ruta y no se busca (ADR-0025).
-        let Some(path) = live_path(store, &n.entity, at) else {
-            continue;
-        };
+        // El índice ya exigió ruta vigente en `at` y la lectura va en la misma
+        // instantánea, así que esto la lee, no la vuelve a decidir.
+        let path = path_of(store, &n.entity, at);
         out.push(Hit {
             path,
             snippet: snippet_of(store, n.chunk, query),
@@ -132,9 +150,6 @@ pub fn semantic_within(
             ranks: vec![("knn".to_string(), out.len() + 1)],
             chunk: Some(n.chunk),
         });
-        if out.len() >= limit {
-            break;
-        }
     }
     Ok(out)
 }
@@ -165,8 +180,33 @@ pub fn hybrid_within(
     at: TimePoint,
     within: Option<&HashSet<EntityId>>,
 ) -> Result<(Vec<Hit>, Vec<obrain_extract::Hit>, Vec<Hit>)> {
-    let lexical = obrain_extract::search_within(store, query, CANDIDATES, at, within)?;
-    let vectorial = semantic_within(store, embedder, query, CANDIDATES, at, within)?;
+    hybrid_eligible(
+        store,
+        embedder,
+        query,
+        limit,
+        at,
+        within,
+        Elegibles::Ventana,
+    )
+}
+
+/// [`hybrid_within`] con la elegibilidad de quien va a ver la lista
+/// ([`Elegibles`]). Las dos ramas la aplican antes de cortar sus candidatos,
+/// así que la fusión nunca trabaja con los restos de una lista más amplia: lo
+/// que llega a RRF ya es todo lo que puede salir.
+#[allow(clippy::type_complexity)]
+pub fn hybrid_eligible(
+    store: &Store,
+    embedder: &dyn Embedder,
+    query: &str,
+    limit: usize,
+    at: TimePoint,
+    within: Option<&HashSet<EntityId>>,
+    elegibles: Elegibles,
+) -> Result<(Vec<Hit>, Vec<obrain_extract::Hit>, Vec<Hit>)> {
+    let lexical = obrain_extract::search_eligible(store, query, CANDIDATES, at, within, elegibles)?;
+    let vectorial = semantic_eligible(store, embedder, query, CANDIDATES, at, within, elegibles)?;
 
     let fused: Vec<Fused<EntityId>> = rrf(
         &[

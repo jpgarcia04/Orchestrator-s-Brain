@@ -474,6 +474,10 @@ impl Brain {
         // Con el PIN puesto y sin desbloquear, lo sensible sale en la lista
         // —su nombre ya está en el explorador— pero sin su fragmento de texto.
         let mut hits = hits;
+        // Las dos ramas ya dejan fuera lo pendiente antes de cortar
+        // (`Elegibles::Ventana`); esto lo repite por si una lectura futura no
+        // pasa por ellas. Aquí no puede ser el filtro: después de cortar sólo
+        // deja huecos.
         let pendientes = identity::pending_set(&self.store, at)?;
         hits.retain(|h| !pendientes.contains(&EntityId(h.entity.clone())));
         if !self.contenido_visible()? {

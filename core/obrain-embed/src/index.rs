@@ -32,9 +32,9 @@
 
 use crate::embedder::{ModelId, cosine};
 use crate::{Error, Result};
-use obrain_core::EntityId;
-use obrain_core::rusqlite::{Connection, ToSql, params, params_from_iter};
-use std::collections::HashSet;
+use obrain_core::rusqlite::{Connection, ToSql, params};
+use obrain_core::{Elegibles, EntityId, TimePoint, elegibilidad};
+use std::collections::{HashMap, HashSet};
 
 pub const DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS vectors (
@@ -180,6 +180,8 @@ pub struct Neighbour {
 }
 
 /// kNN por **recorrido lineal completo**, filtrando por modelo y versión.
+/// Un vecino por fragmento, sin mirar papelera ni identidad: es el índice en
+/// crudo, para medirlo. Lo que se enseña sale de [`knn_documents`].
 ///
 /// El filtro por `(model_id, model_ver)` no es higiene: durante una migración
 /// I7 hay dos juegos de vectores en la tabla, y compararlos entre sí daría
@@ -190,42 +192,97 @@ pub fn knn(
     model: ModelId,
     limit: usize,
 ) -> Result<Vec<Neighbour>> {
-    knn_within(conn, query, model, limit, None)
+    let mut best = scan(conn, query, model, "", &[])?;
+    best.sort_by(|a, b| b.score.total_cmp(&a.score));
+    best.truncate(limit);
+    Ok(best)
 }
 
-/// [`knn`] **sólo entre estos documentos** (los de una colección, ADR-0031).
-/// El filtro va en la consulta, antes de ordenar y cortar, así que no se
-/// pierde nadie que estuviera más abajo. `None` es todo el índice.
-pub fn knn_within(
+/// Los `limit` **documentos** más cercanos, cada uno con su mejor fragmento,
+/// entre los elegibles ([`Elegibles`]) en `at` y, si hay `within`, sólo entre
+/// ésos (los de una colección, ADR-0031; `None` es todo el índice).
+///
+/// Todos los filtros van en la consulta y la deduplicación por documento va
+/// antes de cortar. Antes se pedían 200 fragmentos y la papelera y los
+/// repetidos se quitaban después: con un documento largo cuyos 200 fragmentos
+/// se parecían a la consulta, o con lo de arriba en la papelera, el documento
+/// vigente que venía detrás no salía nunca (`PLAN-CONFIANZA.md` punto 3).
+pub fn knn_documents(
     conn: &Connection,
     query: &[f32],
     model: ModelId,
     limit: usize,
+    at: TimePoint,
     within: Option<&HashSet<EntityId>>,
+    elegibles: Elegibles,
 ) -> Result<Vec<Neighbour>> {
     let dentro: Vec<&str> = within
         .map(|w| w.iter().map(EntityId::as_str).collect())
         .unwrap_or_default();
-    if within.is_some() && dentro.is_empty() {
+    if limit == 0 || (within.is_some() && dentro.is_empty()) {
         return Ok(Vec::new());
     }
-    let filtro = if within.is_some() {
-        let huecos: Vec<String> = (0..dentro.len()).map(|i| format!("?{}", i + 4)).collect();
-        format!("AND entity IN ({})", huecos.join(", "))
-    } else {
-        String::new()
-    };
+    let filtro = format!(
+        "AND {} {}",
+        elegibles.sql("vectors.entity"),
+        elegibilidad::dentro_sql("vectors.entity", within.map(|_| dentro.len())),
+    );
+    let nombres: Vec<String> = (0..dentro.len()).map(elegibilidad::nombre_dentro).collect();
+    let mut valores: Vec<(&str, &dyn ToSql)> = vec![(":valid", &at.valid), (":known", &at.known)];
+    valores.extend(
+        nombres
+            .iter()
+            .map(String::as_str)
+            .zip(dentro.iter().map(|e| e as &dyn ToSql)),
+    );
+
+    // El mejor fragmento de cada documento; a igualdad, el primero que se
+    // leyó, para que el resultado no dependa del orden del HashMap.
+    let mut por_documento: HashMap<EntityId, Neighbour> = HashMap::new();
+    for n in scan(conn, query, model, &filtro, &valores)? {
+        match por_documento.get(&n.entity) {
+            Some(ya) if ya.score >= n.score => {}
+            _ => {
+                por_documento.insert(n.entity.clone(), n);
+            }
+        }
+    }
+    let mut best: Vec<Neighbour> = por_documento.into_values().collect();
+    best.sort_by(|a, b| {
+        b.score
+            .total_cmp(&a.score)
+            .then_with(|| a.entity.as_str().cmp(b.entity.as_str()))
+    });
+    best.truncate(limit);
+    Ok(best)
+}
+
+/// El recorrido: todos los vectores del modelo que pasan el filtro, con su
+/// coseno contra la consulta. Lo de bóveda y lo pendiente de publicar no
+/// entran nunca, aunque la purga no haya ocurrido; `filtro` añade el resto
+/// con sus parámetros con nombre.
+fn scan(
+    conn: &Connection,
+    query: &[f32],
+    model: ModelId,
+    filtro: &str,
+    extra: &[(&str, &dyn ToSql)],
+) -> Result<Vec<Neighbour>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT chunk, entity, vec FROM vectors
-          WHERE model_id = ?1 AND model_ver = ?2 AND dim = ?3
+          WHERE model_id = :model_id AND model_ver = :model_ver AND dim = :dim
           AND entity IN (SELECT id FROM entities WHERE sensitivity != 'vault')
           AND NOT EXISTS (SELECT 1 FROM content_publication p
                            WHERE p.entity=vectors.entity AND p.state='pending') {filtro}"
     ))?;
     let dim = model.dim as i64;
-    let mut valores: Vec<&dyn ToSql> = vec![&model.id, &model.version, &dim];
-    valores.extend(dentro.iter().map(|e| e as &dyn ToSql));
-    let rows = stmt.query_map(params_from_iter(valores), |r| {
+    let mut valores: Vec<(&str, &dyn ToSql)> = vec![
+        (":model_id", &model.id),
+        (":model_ver", &model.version),
+        (":dim", &dim),
+    ];
+    valores.extend_from_slice(extra);
+    let rows = stmt.query_map(valores.as_slice(), |r| {
         Ok((
             r.get::<_, i64>(0)?,
             r.get::<_, String>(1)?,
@@ -233,19 +290,17 @@ pub fn knn_within(
         ))
     })?;
 
-    let mut best: Vec<Neighbour> = Vec::new();
+    let mut out: Vec<Neighbour> = Vec::new();
     for row in rows {
         let (chunk, entity, blob) = row?;
         let v = decode(&blob, model.dim)?;
-        best.push(Neighbour {
+        out.push(Neighbour {
             chunk,
             entity: EntityId(entity),
             score: cosine(query, &v),
         });
     }
-    best.sort_by(|a, b| b.score.total_cmp(&a.score));
-    best.truncate(limit);
-    Ok(best)
+    Ok(out)
 }
 
 /// Cuántos vectores hay de este modelo.
@@ -360,6 +415,47 @@ mod tests {
         );
     }
 
+    /// Le da a la entidad una ruta vigente desde `t`: lo que tiene un
+    /// documento que no está en la papelera.
+    fn con_ruta(store: &Store, p: &Pending, t: i64) {
+        store
+            .assert(obrain_core::NewAssertion {
+                subject: p.entity.clone(),
+                predicate: "path_observed_at".into(),
+                object: obrain_core::Value::Text(format!("C:/sintetica/{}.txt", p.entity)),
+                valid_from: Some(t),
+                valid_to: None,
+                method: obrain_core::Method::Deterministic,
+                source: "prueba".into(),
+                confidence: 1.0,
+                evidence: None,
+                asserted_at: t,
+            })
+            .unwrap();
+    }
+
+    const AHORA: TimePoint = TimePoint {
+        valid: 100,
+        known: 100,
+    };
+
+    fn documentos(
+        store: &Store,
+        limit: usize,
+        within: Option<&HashSet<EntityId>>,
+    ) -> Vec<Neighbour> {
+        knn_documents(
+            store.conn(),
+            &[1.0, 0.0, 0.0],
+            M,
+            limit,
+            AHORA,
+            within,
+            Elegibles::Ventana,
+        )
+        .unwrap()
+    }
+
     /// Buscar dentro de una colección (ADR-0031): el filtro va antes de
     /// cortar, así que el mejor de dentro sale aunque fuera el último de todos.
     #[test]
@@ -369,22 +465,151 @@ mod tests {
         let lejos = fragmento(&store, 2, "lejos");
         insert(store.conn(), &cerca, M, &[1.0, 0.0, 0.0]).unwrap();
         insert(store.conn(), &lejos, M, &[0.0, 1.0, 0.0]).unwrap();
+        con_ruta(&store, &cerca, 1);
+        con_ruta(&store, &lejos, 2);
 
-        let todos = knn(store.conn(), &[1.0, 0.0, 0.0], M, 1).unwrap();
+        let todos = documentos(&store, 1, None);
         assert_eq!(todos[0].entity, cerca.entity);
 
         let dentro: HashSet<EntityId> = [lejos.entity.clone()].into();
-        let v = knn_within(store.conn(), &[1.0, 0.0, 0.0], M, 1, Some(&dentro)).unwrap();
+        let v = documentos(&store, 1, Some(&dentro));
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].entity, lejos.entity);
 
         let vacia = HashSet::new();
         assert!(
-            knn_within(store.conn(), &[1.0, 0.0, 0.0], M, 5, Some(&vacia))
-                .unwrap()
-                .is_empty(),
+            documentos(&store, 5, Some(&vacia)).is_empty(),
             "una colección vacía no encuentra nada, no todo"
         );
+    }
+
+    /// Un documento cuyos fragmentos son todos más parecidos a la consulta que
+    /// el siguiente documento ocupa **un** puesto, no todos: la deduplicación
+    /// va antes de cortar. Antes se pedían 200 fragmentos y se deduplicaba
+    /// después, y con 250 fragmentos del mismo documento el segundo no salía.
+    #[test]
+    fn un_documento_largo_no_tapa_al_siguiente() {
+        let store = base();
+        let largo = fragmento(&store, 1, "largo 0");
+        con_ruta(&store, &largo, 1);
+        insert(store.conn(), &largo, M, &[1.0, 0.0, 0.0]).unwrap();
+        for i in 1..250 {
+            let texto = format!("largo {i}");
+            store
+                .conn()
+                .execute(
+                    "INSERT INTO chunks (entity, chunker, chunker_ver, ordinal, byte_start, byte_end, text)
+                     VALUES (?1, 'paragraph-pack', 1, ?2, 0, ?3, ?4)",
+                    params![largo.entity.as_str(), i, texto.len() as i64, texto],
+                )
+                .unwrap();
+            let p = Pending {
+                chunk: store.conn().last_insert_rowid(),
+                text: texto,
+                ..Pending {
+                    chunk: 0,
+                    entity: largo.entity.clone(),
+                    chunker: "paragraph-pack".into(),
+                    chunker_ver: 1,
+                    text: String::new(),
+                }
+            };
+            insert(store.conn(), &p, M, &[1.0, 0.0, 0.0]).unwrap();
+        }
+        let otro = fragmento(&store, 2, "otro");
+        con_ruta(&store, &otro, 2);
+        insert(store.conn(), &otro, M, &[0.6, 0.8, 0.0]).unwrap();
+
+        let v = documentos(&store, 2, None);
+        let entidades: Vec<&EntityId> = v.iter().map(|n| &n.entity).collect();
+        assert_eq!(entidades, vec![&largo.entity, &otro.entity]);
+    }
+
+    /// Lo de la papelera (sin ruta vigente) y lo de identidad pendiente no
+    /// salen ni ocupan puesto: el siguiente vigente sube.
+    #[test]
+    fn la_papelera_y_la_identidad_pendiente_no_ocupan_puesto() {
+        let store = base();
+        let papelera = fragmento(&store, 1, "papelera");
+        let pendiente = fragmento(&store, 2, "pendiente");
+        let vigente = fragmento(&store, 3, "vigente");
+        insert(store.conn(), &papelera, M, &[1.0, 0.0, 0.0]).unwrap();
+        insert(store.conn(), &pendiente, M, &[1.0, 0.0, 0.0]).unwrap();
+        insert(store.conn(), &vigente, M, &[0.6, 0.8, 0.0]).unwrap();
+        con_ruta(&store, &papelera, 1);
+        con_ruta(&store, &pendiente, 2);
+        con_ruta(&store, &vigente, 3);
+        // A la papelera: su ruta se retracta (ADR-0025).
+        for a in store
+            .query(Some(&papelera.entity), Some("path_observed_at"), AHORA)
+            .unwrap()
+        {
+            store.retract(&a.id, 50).unwrap();
+        }
+        // Identidad pendiente: la marca positiva (ADR-0036).
+        store
+            .assert(obrain_core::NewAssertion {
+                subject: pendiente.entity.clone(),
+                predicate: "identity_pending_path".into(),
+                object: obrain_core::Value::Text("C:/sintetica/pendiente.txt".into()),
+                valid_from: Some(50),
+                valid_to: None,
+                method: obrain_core::Method::Deterministic,
+                source: "prueba".into(),
+                confidence: 1.0,
+                evidence: None,
+                asserted_at: 50,
+            })
+            .unwrap();
+
+        let v = documentos(&store, 1, None);
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].entity, vigente.entity);
+    }
+
+    /// Para la puerta (ADR-0038): diez sensibles más cerca que el normal no
+    /// lo tapan, y lo que no está publicado en `ready` no sale.
+    #[test]
+    fn solo_normal_devuelve_el_normal_que_venia_detras() {
+        let store = base();
+        for t in 1..=10 {
+            let s = fragmento(&store, t, "sensible");
+            con_ruta(&store, &s, t);
+            insert(store.conn(), &s, M, &[1.0, 0.0, 0.0]).unwrap();
+            store
+                .conn()
+                .execute(
+                    "UPDATE entities SET sensitivity = 'sensitive' WHERE id = ?1",
+                    [s.entity.as_str()],
+                )
+                .unwrap();
+            store.prepare_content(&s.entity, None).unwrap();
+            store.publish_content(&s.entity, None).unwrap();
+        }
+        let sin_fila = fragmento(&store, 20, "sin publicar");
+        con_ruta(&store, &sin_fila, 20);
+        insert(store.conn(), &sin_fila, M, &[0.9, 0.0, 0.43589]).unwrap();
+        let normal = fragmento(&store, 21, "normal");
+        con_ruta(&store, &normal, 21);
+        insert(store.conn(), &normal, M, &[0.6, 0.8, 0.0]).unwrap();
+        store.prepare_content(&normal.entity, None).unwrap();
+        store.publish_content(&normal.entity, None).unwrap();
+
+        let v = knn_documents(
+            store.conn(),
+            &[1.0, 0.0, 0.0],
+            M,
+            5,
+            AHORA,
+            None,
+            Elegibles::SoloNormal,
+        )
+        .unwrap();
+        let entidades: Vec<&EntityId> = v.iter().map(|n| &n.entity).collect();
+        assert_eq!(entidades, vec![&normal.entity]);
+
+        // La ventana sí ve los sensibles y lo que nunca tuvo cuarentena.
+        assert_eq!(documentos(&store, 20, None).len(), 12);
     }
 
     /// Un vector sin normalizar rompe el kNN en silencio: las puntuaciones

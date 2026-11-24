@@ -17,14 +17,14 @@ const COLS: &str = "id, subject, predicate, object_kind, object_entity, object_t
 /// Predicado bitemporal, en SQL. Es el corazón del invariante I6 y aparece
 /// en toda consulta: qué era cierto en `:valid`, según lo que el sistema
 /// sabía en `:known`.
-const BITEMPORAL: &str = "
+pub(crate) const BITEMPORAL: &str = "
         asserted_at <= :known
     AND (retracted_at IS NULL OR retracted_at > :known)
     AND (valid_from   IS NULL OR valid_from  <= :valid)
     AND (valid_to     IS NULL OR valid_to    >  :valid)";
 
 /// Orden de precedencia al resolver un conflicto. `user` gana siempre (I5).
-const PRECEDENCE: &str = "
+pub(crate) const PRECEDENCE: &str = "
     ORDER BY CASE method WHEN 'user' THEN 3 WHEN 'deterministic' THEN 2
                          WHEN 'imported' THEN 1 ELSE 0 END DESC,
              asserted_at DESC,

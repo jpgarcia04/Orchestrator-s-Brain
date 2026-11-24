@@ -45,6 +45,7 @@
 //! # Ok::<(), obrain_core::Error>(())
 //! ```
 
+pub mod elegibilidad;
 pub mod error;
 pub mod model;
 mod opening;
@@ -58,6 +59,7 @@ pub mod ubicacion;
 /// mismo crate en el árbol serían dos tipos `Connection` incompatibles.
 pub use rusqlite;
 
+pub use elegibilidad::Elegibles;
 pub use error::{Error, Result};
 pub use model::{
     Assertion, AssertionId, Cardinality, EntityId, Facet, Method, NewAssertion, PredicateDef,
