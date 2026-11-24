@@ -294,6 +294,11 @@ Segundo Cerebro/
 Y nombres que se lean solos, con la fecha delante:
 `2026-09-01 Póliza seguro médico (Salud Mediterránea).pdf`.
 
+Un contrato o una póliza no se protege sólo por llamarse así: si Brain lee su texto y no
+encuentra un DNI, un NIE, un IBAN ni una tarjeta, queda normal y Aetheris lo puede leer con su
+modelo local ([ADR-0040](adr/0040-un-contrato-se-juzga-por-lo-que-trae.md)). Si quieres que todo
+lo de `02 Salud` quede protegido aunque no lleve esos datos, marca la carpeta con el escudo.
+
 ## Qué sigue
 
 | Fase | Qué | Estado |

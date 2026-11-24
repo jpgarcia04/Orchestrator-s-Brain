@@ -1,6 +1,6 @@
 # ADR-0006 — La sensibilidad es una columna impuesta con procedencia en el log
 
-- **Estado:** Aceptada — su alternativa D la acota [ADR-0020](0020-sensibilidad-por-carpeta.md) (2026-09-22): el **usuario** puede marcar una carpeta y lo de dentro hereda ese nivel como suelo. Como señal del clasificador, D sigue igual.
+- **Estado:** Aceptada — su alternativa D la acota [ADR-0020](0020-sensibilidad-por-carpeta.md) (2026-09-22): el **usuario** puede marcar una carpeta y lo de dentro hereda ese nivel como suelo. Como señal del clasificador, D sigue igual, salvo «contrato» y «póliza»: [ADR-0040](0040-un-contrato-se-juzga-por-lo-que-trae.md) (2026-11-24) hace que esas señales, de nombre y de carpeta, cedan cuando el texto se leyó y no trae datos personales.
 - **Fecha:** 2026-08-07
 - **Depende de:** [ADR-0001](0001-log-de-aserciones-como-fuente-de-verdad.md), [ADR-0005](0005-donde-vive-el-texto-extraido.md)
 

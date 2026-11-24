@@ -88,10 +88,6 @@ const VAULT_SUBSTR: &[&str] = &[
 ];
 
 /// Documentos de identidad, salud y dinero. Subcadena.
-///
-/// `contract` **no** está y `contrato` sí. El inglés aparece en cualquier
-/// repositorio de código —`contract tests`, `smart contract`, `IContract.cs`—
-/// y marcaría medio disco de un programador. El castellano, en la práctica, no.
 const SENSITIVE_SUBSTR: &[&str] = &[
     "pasaporte",
     "passport",
@@ -120,9 +116,33 @@ const SENSITIVE_SUBSTR: &[&str] = &[
     "tarjeta de credito",
     "credit card",
     "hipoteca",
-    "contrato",
-    "poliza",
 ];
+
+/// Contratos y pólizas. Subcadena, y **la última señal que se mira**.
+///
+/// Es una señal más débil que las de arriba, y por eso va aparte
+/// ([ADR-0040]). Un pasaporte o una nómina son datos personales por lo que
+/// *son*; un contrato o una póliza, por lo que *traen escrito*: el NIE de las
+/// partes, el IBAN de la domiciliación, la tarjeta del pago. Eso lo comprueba
+/// [`crate::content`] con su dígito de control. Las condiciones generales de
+/// un seguro hablan de coberturas y no de nadie. Así que esta señal sólo
+/// protege lo que el contenido no puede contradecir —un escaneo sin texto, un
+/// archivo deshidratado—, y cede cuando el texto se leyó y no trae nada:
+/// [`yields_to_content`].
+///
+/// Va la última para que ceder no esconda otra señal del mismo nombre:
+/// `contrato DNI.pdf` es una sigla de identidad, no un contrato.
+///
+/// `contract` **no** está y `contrato` sí. El inglés aparece en cualquier
+/// repositorio de código —`contract tests`, `smart contract`, `IContract.cs`—
+/// y marcaría medio disco de un programador. El castellano, en la práctica, no.
+///
+/// [ADR-0040]: ../../../docs/adr/0040-un-contrato-se-juzga-por-lo-que-trae.md
+const CONTRACTUAL_SUBSTR: &[&str] = &["contrato", "poliza"];
+
+/// Las reglas de las señales que ceden ante un texto leído sin hallazgos.
+const RULE_CONTRACTUAL: &str = "nombre:contractual";
+const RULE_PARENT_CONTRACTUAL: &str = "carpeta:contexto-contractual";
 
 /// Siglas. Frontera de palabra **obligatoria**.
 ///
@@ -242,7 +262,20 @@ pub fn classify_name(name: &str) -> Option<Signal> {
             0.65,
         ));
     }
+    if CONTRACTUAL_SUBSTR.iter().any(|t| full.contains(*t)) {
+        return Some(Signal::new(RULE_CONTRACTUAL, Sensitivity::Sensitive, 0.70));
+    }
     None
+}
+
+/// ¿Decae esta señal cuando el texto de la versión actual se leyó entero y
+/// [`crate::content`] no encontró nada en él?
+///
+/// Sólo las de contrato y póliza ([`CONTRACTUAL_SUBSTR`]). Las demás no
+/// ceden, porque lo que protegen no tiene forma que el contenido reconozca: el
+/// sueldo de una nómina, un diagnóstico, una contraseña apuntada a mano.
+pub fn yields_to_content(signal: &Signal) -> bool {
+    signal.rule == RULE_CONTRACTUAL || signal.rule == RULE_PARENT_CONTRACTUAL
 }
 
 /// Clasifica por el nombre de la **carpeta que lo contiene**, y sólo hasta
@@ -257,12 +290,25 @@ pub fn classify_name(name: &str) -> Option<Signal> {
 /// veinte mil archivos que cuelgan de ella. Y nunca llega a `vault`, porque el
 /// contexto no es prueba: una carpeta llamada `Claves` puede contener el `.txt`
 /// donde apuntaste el wifi de casa.
+///
+/// Una carpeta que sólo dice «contratos» o «pólizas» da una señal propia que
+/// cede ante el contenido, igual que el nombre ([`yields_to_content`]).
 pub fn classify_parent(dir: &str) -> Option<Signal> {
     let folded = fold(dir);
     let hit = SENSITIVE_SUBSTR.iter().any(|t| folded.contains(*t))
         || SENSITIVE_TOKEN.iter().any(|t| has_token(&folded, t))
         || VAULT_SUBSTR.iter().any(|t| folded.contains(*t));
-    hit.then(|| Signal::new("carpeta:contexto-sensible", Sensitivity::Sensitive, 0.55))
+    if hit {
+        return Some(Signal::new(
+            "carpeta:contexto-sensible",
+            Sensitivity::Sensitive,
+            0.55,
+        ));
+    }
+    CONTRACTUAL_SUBSTR
+        .iter()
+        .any(|t| folded.contains(*t))
+        .then(|| Signal::new(RULE_PARENT_CONTRACTUAL, Sensitivity::Sensitive, 0.55))
 }
 
 /// Los identificadores de regla son `&'static str` porque van al log y tienen
@@ -292,7 +338,6 @@ fn sensitive_substr_rule(t: &str) -> &'static str {
         | "hipoteca" => "nombre:financiero",
         "historia clinica" | "historial medico" | "informe medico" | "receta medica"
         | "medical record" | "tarjeta sanitaria" => "nombre:salud",
-        "contrato" | "poliza" => "nombre:contractual",
         _ => "nombre:identidad",
     }
 }
@@ -383,6 +428,41 @@ mod tests {
             nivel("Contrato de alquiler.pdf"),
             Some(Sensitivity::Sensitive)
         );
+    }
+
+    /// Contrato y póliza dan su propia señal, la única que cede ante el
+    /// contenido; ninguna otra lo hace.
+    #[test]
+    fn solo_contrato_y_poliza_ceden_ante_el_contenido() {
+        let cede = |n: &str| classify_name(n).is_some_and(|s| yields_to_content(&s));
+        assert!(cede("Contrato de alquiler.pdf"));
+        assert!(cede("Póliza hogar 2026.pdf"));
+        assert!(!cede("Pasaporte escaneado.pdf"));
+        assert!(!cede("Nómina marzo.pdf"));
+        assert!(!cede("Contraseña del router.txt"));
+        assert!(!cede("id_rsa"));
+    }
+
+    /// Ceder no puede esconder otra señal del mismo nombre: por eso contrato y
+    /// póliza son lo último que se mira.
+    #[test]
+    fn un_contrato_con_otra_senal_no_cede() {
+        let s = classify_name("contrato DNI.pdf").unwrap();
+        assert_eq!(s.rule, "nombre:sigla-de-identidad");
+        let s = classify_name("contrato hipoteca.pdf").unwrap();
+        assert_eq!(s.rule, "nombre:financiero");
+        let s = classify_name("contraseña contrato.txt").unwrap();
+        assert_eq!(s.level, Sensitivity::Vault);
+    }
+
+    /// La carpeta `Contratos` da una señal que cede; `Contratos y DNI`, no.
+    #[test]
+    fn la_carpeta_de_contratos_cede_ante_el_contenido() {
+        let s = classify_parent("Contratos").expect("deberia disparar");
+        assert_eq!(s.level, Sensitivity::Sensitive);
+        assert!(yields_to_content(&s));
+        let s = classify_parent("Contratos y DNI").expect("deberia disparar");
+        assert!(!yields_to_content(&s));
     }
 
     #[test]
