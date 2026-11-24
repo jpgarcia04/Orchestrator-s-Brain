@@ -5,6 +5,44 @@ referencias más abajo a la rama previa y a la base del PR documentan el
 estado de aquella entrega, no el estado actual. La identidad entre bibliotecas
 se trabaja desde `main` en `codex/identidad-entre-bibliotecas` (ADR-0036).
 
+## Puerta de Aetheris, paso 1: abrir para leer — 2026-11-24
+
+El primer paso del orden del [ADR-0039](adr/0039-la-puerta-de-aetheris-se-adelanta.md)
+(su condición 3). `Store::abrir_para_leer` (`obrain-core/src/lectura.rs`)
+y `obrain_api::lectura::abrir_para_leer` abren la base cifrada sin crear,
+cifrar, migrar ni reparar nada, con `SQLITE_OPEN_READ_ONLY` y
+`query_only`. Lo que la base pida además de leerla tal como está se niega con
+el `no_disponible` del ADR-0038: `base_cerrada` (sin base, sin llave, en
+claro o con otra llave), `ocupada` (restauración, cifrado o llave a medias,
+`-journal`, un log sin su `-shm` o al revés) y `version_distinta` (otra
+versión del esquema o sin las tablas de las proyecciones).
+
+Abrir en sólo lectura no bastaba para no escribir. Medido con SQLCipher en
+Linux: sin log, una apertura normal crea `-wal` y `-shm` y los deja, y
+`readonly_shm` falla dejando un `-wal` vacío; con el log de un corte, la
+apertura normal reescribe `-shm`. Por eso hay dos modos: con log
+(`readonly_shm=1`, lee el de la ventana o el de un corte sin tocarlo) y sin
+log (`immutable=1`, con la huella del archivo comprobada después de cada
+lectura; si alguien escribió, lo leído se tira y la respuesta es `ocupada`).
+Cada lectura pasa por `Lectura::leer`, que no deja llegar al `Store` de otra
+forma.
+
+Pruebas en `obrain-api/tests/lectura.rs`, con bases sintéticas cifradas:
+sola, con otro proceso que la tiene abierta y acaba de escribir (la
+«ventana», un proceso hijo), con el log de un corte, con una escritura a
+mitad de la lectura, con una escritura intentada desde la lectura, cada caso
+de `ocupada`, `base_cerrada` y `version_distinta` sin que cambie un byte, y
+una restauración de respaldo que funciona en cuanto la lectura se suelta.
+Cada protección falló su prueba con una mutación temporal que la quitaba.
+
+`cargo test --workspace` en Linux pasa entero salvo dos pruebas de
+`respaldos.rs` que ya fallan en `main` en Linux
+(`restauracion_rechaza_conexiones_abiertas` y
+`restauracion_cancelada_por_base_en_uso_no_revierte_trabajo_posterior`): una
+conexión del mismo proceso no bloquea la restauración porque los bloqueos
+POSIX son por proceso. Queda por comprobar en Windows que `readonly_shm` e
+`immutable` se portan igual y que la huella detecta una escritura en NTFS.
+
 ## Punto 3, recuperación: elegibilidad antes de cortar — 2026-11-24
 
 La parte de BM25/kNN del punto 3 del plan, que el ADR-0038 pone como

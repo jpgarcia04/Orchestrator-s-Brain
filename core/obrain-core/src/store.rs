@@ -35,6 +35,12 @@ pub struct Store {
 }
 
 impl Store {
+    /// Envuelve una conexión ya abierta por [`Store::abrir_para_leer`], que
+    /// es quien la ha dejado en sólo lectura. Sin DDL ni migración.
+    pub(crate) fn de_lectura(conn: Connection) -> Self {
+        Store { conn }
+    }
+
     pub fn open_in_memory() -> Result<Self> {
         let store = Store {
             conn: Connection::open_in_memory()?,

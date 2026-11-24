@@ -41,6 +41,7 @@ pub mod dentro;
 pub mod entity;
 mod identity;
 pub mod indexar;
+pub mod lectura;
 pub mod lens;
 pub mod marks;
 pub mod papelera;
