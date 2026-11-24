@@ -47,6 +47,7 @@
 
 pub mod elegibilidad;
 pub mod error;
+pub mod lectura;
 pub mod model;
 mod opening;
 pub mod schema;
@@ -61,6 +62,7 @@ pub use rusqlite;
 
 pub use elegibilidad::Elegibles;
 pub use error::{Error, Result};
+pub use lectura::{Fallo, Lectura, NoDisponible};
 pub use model::{
     Assertion, AssertionId, Cardinality, EntityId, Facet, Method, NewAssertion, PredicateDef,
     Sensitivity, TimePoint, Value,
