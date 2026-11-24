@@ -49,6 +49,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use obrain_api::puerta::Posicion;
 use obrain_api::respaldo::{
     self, InformeEnsayo, InformeRestauracion, Manifiesto, OpcionesRestauracion, PlanRestauracion,
 };
@@ -507,6 +508,20 @@ fn estado(
 #[tauri::command]
 fn seguridad(cerebro: State<'_, Cerebro>) -> Result<EstadoSeguridad, String> {
     con(&cerebro, |b| b.security())
+}
+
+/// En qué posición está la puerta de Aetheris (ADR-0038, ajuste 5).
+#[tauri::command]
+fn puerta_posicion(cerebro: State<'_, Cerebro>) -> Result<Posicion, String> {
+    con(&cerebro, |b| b.gate_position())
+}
+
+/// Mueve el interruptor de la puerta de Aetheris. Abrir más pide el PIN si lo
+/// hay; cerrar nunca se bloquea. Una posición que no es ninguna de las tres no
+/// llega al núcleo: no se deserializa.
+#[tauri::command]
+fn puerta_poner(posicion: Posicion, cerebro: State<'_, Cerebro>) -> Result<(), String> {
+    con(&cerebro, |b| b.set_gate_position(posicion))
 }
 
 /// La clave de recuperación, para enseñarla. Con PIN, desbloqueado.
@@ -1531,6 +1546,8 @@ fn main() {
             reanudar_reindexado,
             motivo_reindexado_pausado,
             abrir_carpeta_salvaguarda,
+            puerta_posicion,
+            puerta_poner,
             actualizacion_buscar,
             actualizacion_instalar
         ])

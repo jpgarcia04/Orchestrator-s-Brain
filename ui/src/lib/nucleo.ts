@@ -683,6 +683,24 @@ export async function seguridad(): Promise<Seguridad> {
   }
 }
 
+// ── la puerta de Aetheris (ADR-0038, ADR-0039) ──
+
+/**
+ * Las tres posiciones del interruptor de la puerta. Sin ajuste, o con uno que
+ * el núcleo no entiende, está `apagada`.
+ */
+export type PosicionPuerta = "apagada" | "solo_localizar" | "localizar_y_leer";
+
+/** En qué posición está la puerta de Aetheris. */
+export const puertaPosicion = () => invoke<PosicionPuerta>("puerta_posicion");
+
+/**
+ * Mueve el interruptor. Abrir más, con PIN, pide la ventana desbloqueada;
+ * cerrar nunca se bloquea. Sólo la ventana puede llamarlo: la puerta no tiene
+ * con qué escribir el ajuste.
+ */
+export const puertaPoner = (posicion: PosicionPuerta) => invoke<void>("puerta_poner", { posicion });
+
 /** La clave de recuperación, para enseñarla. Con PIN, sólo desbloqueado. */
 export const claveRecuperacion = () => read<string | null>("clave_recuperacion");
 

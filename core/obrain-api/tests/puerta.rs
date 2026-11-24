@@ -7,7 +7,7 @@
 //! bóveda real.
 
 use obrain_api::lectura::abrir_para_leer;
-use obrain_api::puerta::{self, AVISO, FueraDeLaPuerta};
+use obrain_api::puerta::{self, AVISO, NoSale, Posicion};
 use obrain_api::seguridad::abrir_con;
 use obrain_api::{Brain, indexar, marks};
 use obrain_core::{EntityId, Lectura, Sensitivity, Store, TimePoint};
@@ -68,9 +68,17 @@ fn ahora() -> TimePoint {
     TimePoint::at(obrain_scan::now_ms())
 }
 
-/// La biblioteca de siempre, indexada y con `Identidad/` marcada como bóveda.
-/// `Tramites/copia.txt` es el pasaporte otra vez, en una carpeta sin marcar.
+/// La biblioteca de siempre, indexada, con `Identidad/` marcada como bóveda
+/// y la puerta en «localizar y leer». `Tramites/copia.txt` es el pasaporte
+/// otra vez, en una carpeta sin marcar.
 fn preparar(p: &Prueba) -> Brain {
+    let mut brain = preparar_con_la_puerta_de_fabrica(p);
+    brain.set_gate_position(Posicion::LocalizarYLeer).unwrap();
+    brain
+}
+
+/// Lo mismo, con la puerta como viene de fábrica.
+fn preparar_con_la_puerta_de_fabrica(p: &Prueba) -> Brain {
     p.archivo("Normal/recibo.txt", RECIBO);
     p.archivo("Identidad/pasaporte.txt", PASAPORTE);
     p.archivo("Tramites/copia.txt", PASAPORTE);
@@ -125,7 +133,7 @@ fn localizar_no_lleva_texto_ni_rutas_completas_ni_lo_protegido() {
     let recibo = id(brain.store(), &p, "Normal/recibo.txt");
     drop(brain);
 
-    let r = por_la_puerta(&p, |s| puerta::localizar(s, None, "azafrán", 10, ahora()));
+    let r = por_la_puerta(&p, |s| puerta::localizar(s, None, "azafrán", 10, ahora())).unwrap();
     let ids: Vec<&str> = r.resultados.iter().map(|u| u.id.as_str()).collect();
     assert_eq!(
         ids,
@@ -145,7 +153,8 @@ fn localizar_no_lleva_texto_ni_rutas_completas_ni_lo_protegido() {
     // pero la palabra no viaja en la respuesta, ni la ruta de la biblioteca.
     let r = por_la_puerta(&p, |s| {
         puerta::localizar(s, None, SOLO_EN_EL_TEXTO, 10, ahora())
-    });
+    })
+    .unwrap();
     assert_eq!(r.resultados.len(), 1);
     let json = serde_json::to_string(&r).unwrap();
     assert!(!json.contains(SOLO_EN_EL_TEXTO), "{json}");
@@ -160,13 +169,15 @@ fn preguntar_por_lo_protegido_responde_lo_mismo_que_por_nada() {
     drop(preparar(&p));
     let protegido = por_la_puerta(&p, |s| {
         puerta::localizar(s, None, "pasaporte X0000000", 10, ahora())
-    });
-    let nada = por_la_puerta(&p, |s| puerta::localizar(s, None, "qwxzzyq", 10, ahora()));
+    })
+    .unwrap();
+    let nada = por_la_puerta(&p, |s| puerta::localizar(s, None, "qwxzzyq", 10, ahora())).unwrap();
     assert_eq!(protegido, nada);
     assert!(protegido.resultados.is_empty());
     let leido = por_la_puerta(&p, |s| {
         puerta::leer(s, None, "pasaporte X0000000", 10, ahora())
-    });
+    })
+    .unwrap();
     assert!(leido.pasajes.is_empty());
     assert_eq!(leido.aviso, AVISO);
 }
@@ -178,7 +189,7 @@ fn leer_da_pasajes_de_lo_normal_con_metodo_y_dos_fechas() {
     let recibo = id(brain.store(), &p, "Normal/recibo.txt");
     drop(brain);
 
-    let r = por_la_puerta(&p, |s| puerta::leer(s, None, "azafrán", 10, ahora()));
+    let r = por_la_puerta(&p, |s| puerta::leer(s, None, "azafrán", 10, ahora())).unwrap();
     assert!(!r.pasajes.is_empty());
     for pasaje in &r.pasajes {
         assert_eq!(pasaje.documento, recibo.as_str());
@@ -221,7 +232,7 @@ fn documento_responde_igual_a_lo_protegido_a_su_copia_a_lo_borrado_y_a_lo_invent
         ("vacío", ""),
     ] {
         let r = por_la_puerta(&p, |s| puerta::documento(s, cual, ahora()));
-        assert_eq!(r, Err(FueraDeLaPuerta), "{que}");
+        assert_eq!(r, Err(NoSale::FueraDeLaPuerta), "{que}");
     }
 }
 
@@ -269,11 +280,17 @@ fn la_ficha_de_lo_normal_trae_su_ruta_completa_y_ninguna_relacion_inferida() {
 fn el_pin_y_el_desbloqueo_de_la_ventana_no_cambian_lo_que_sale() {
     let p = Prueba::nueva("pin");
     let brain = preparar(&p);
-    let sin_pin = puerta::localizar(brain.store(), None, "azafrán", 10, ahora()).unwrap();
+    let sin_pin = puerta::localizar(brain.store(), None, "azafrán", 10, ahora())
+        .unwrap()
+        .unwrap();
     brain.set_pin("2468", None).unwrap();
-    let bloqueada = puerta::localizar(brain.store(), None, "azafrán", 10, ahora()).unwrap();
+    let bloqueada = puerta::localizar(brain.store(), None, "azafrán", 10, ahora())
+        .unwrap()
+        .unwrap();
     brain.unlock("2468").unwrap();
-    let desbloqueada = puerta::localizar(brain.store(), None, "azafrán", 10, ahora()).unwrap();
+    let desbloqueada = puerta::localizar(brain.store(), None, "azafrán", 10, ahora())
+        .unwrap()
+        .unwrap();
     assert_eq!(sin_pin, bloqueada);
     assert_eq!(sin_pin, desbloqueada);
     assert_eq!(sin_pin.resultados.len(), 1);
@@ -328,7 +345,8 @@ fn por_significado_tambien_solo_sale_lo_normal_y_el_pasaje_dice_knn() {
     // habla de azafrán, tiene vector y no sale.
     let r = por_la_puerta(&p, |s| {
         puerta::localizar(s, Some(&Especias), "especia dorada", 10, ahora())
-    });
+    })
+    .unwrap();
     assert!(r.semantica);
     let ids: Vec<&str> = r.resultados.iter().map(|u| u.id.as_str()).collect();
     assert_eq!(ids.first().copied(), Some(recibo.as_str()), "{r:?}");
@@ -338,7 +356,8 @@ fn por_significado_tambien_solo_sale_lo_normal_y_el_pasaje_dice_knn() {
 
     let l = por_la_puerta(&p, |s| {
         puerta::leer(s, Some(&Especias), "especia dorada", 10, ahora())
-    });
+    })
+    .unwrap();
     let del_recibo: Vec<_> = l
         .pasajes
         .iter()
@@ -347,4 +366,93 @@ fn por_significado_tambien_solo_sale_lo_normal_y_el_pasaje_dice_knn() {
     assert!(!del_recibo.is_empty(), "{l:?}");
     assert!(del_recibo.iter().all(|x| x.metodo == "knn"), "{l:?}");
     assert!(l.pasajes.iter().all(|x| x.documento != copia.as_str()));
+}
+
+/// Lo que contesta cada herramienta por la puerta, en el orden localizar,
+/// leer, documento: `true` si dio respuesta, `false` si dijo `apagada`.
+fn que_contesta(p: &Prueba, recibo: &EntityId) -> [bool; 3] {
+    let dio = |r: Result<bool, NoSale>| match r {
+        Ok(_) => true,
+        Err(NoSale::Apagada) => false,
+        Err(otro) => panic!("esperaba respuesta o apagada, no {otro}"),
+    };
+    let localizar = por_la_puerta(p, |s| {
+        Ok(puerta::localizar(s, None, "azafrán", 10, ahora())?.map(|r| !r.resultados.is_empty()))
+    });
+    let leer = por_la_puerta(p, |s| {
+        Ok(puerta::leer(s, None, "azafrán", 10, ahora())?.map(|r| !r.pasajes.is_empty()))
+    });
+    let documento = por_la_puerta(p, |s| {
+        Ok(puerta::documento(s, recibo.as_str(), ahora())?.map(|f| f.id == recibo.as_str()))
+    });
+    for r in [localizar, leer, documento] {
+        // Cuando contesta, contesta de verdad: no una lista vacía.
+        assert_ne!(r, Ok(false));
+    }
+    [dio(localizar), dio(leer), dio(documento)]
+}
+
+#[test]
+fn la_puerta_viene_apagada_y_cada_posicion_deja_lo_suyo() {
+    let p = Prueba::nueva("posiciones");
+    let mut brain = preparar_con_la_puerta_de_fabrica(&p);
+    let recibo = id(brain.store(), &p, "Normal/recibo.txt");
+    assert_eq!(brain.gate_position().unwrap(), Posicion::Apagada);
+    assert_eq!(que_contesta(&p, &recibo), [false, false, false]);
+
+    brain.set_gate_position(Posicion::SoloLocalizar).unwrap();
+    assert_eq!(que_contesta(&p, &recibo), [true, false, false]);
+    // Con «sólo localizar», un identificador inventado también dice
+    // `apagada`: la herramienta no llega a mirar qué es.
+    let inventado = por_la_puerta(&p, |s| puerta::documento(s, "01INVENTADO", ahora()));
+    assert_eq!(inventado, Err(NoSale::Apagada));
+
+    brain.set_gate_position(Posicion::LocalizarYLeer).unwrap();
+    assert_eq!(brain.gate_position().unwrap(), Posicion::LocalizarYLeer);
+    assert_eq!(que_contesta(&p, &recibo), [true, true, true]);
+
+    brain.set_gate_position(Posicion::Apagada).unwrap();
+    assert_eq!(que_contesta(&p, &recibo), [false, false, false]);
+}
+
+#[test]
+fn abrir_la_puerta_pide_el_pin_y_cerrarla_nunca() {
+    let p = Prueba::nueva("interruptor");
+    let mut brain = preparar_con_la_puerta_de_fabrica(&p);
+    brain.set_pin("2468", None).unwrap();
+    brain.lock();
+    assert!(matches!(
+        brain.set_gate_position(Posicion::SoloLocalizar),
+        Err(obrain_api::Error::Bloqueado)
+    ));
+    assert_eq!(brain.gate_position().unwrap(), Posicion::Apagada);
+
+    brain.unlock("2468").unwrap();
+    brain.set_gate_position(Posicion::SoloLocalizar).unwrap();
+    brain.lock();
+    assert!(matches!(
+        brain.set_gate_position(Posicion::LocalizarYLeer),
+        Err(obrain_api::Error::Bloqueado)
+    ));
+    assert_eq!(brain.gate_position().unwrap(), Posicion::SoloLocalizar);
+
+    // Bloqueada, cerrar sí: de «sólo localizar» a apagada.
+    brain.set_gate_position(Posicion::Apagada).unwrap();
+    assert_eq!(brain.gate_position().unwrap(), Posicion::Apagada);
+}
+
+#[test]
+fn un_ajuste_que_no_se_entiende_deja_la_puerta_apagada() {
+    let p = Prueba::nueva("ajuste-raro");
+    let brain = preparar_con_la_puerta_de_fabrica(&p);
+    let recibo = id(brain.store(), &p, "Normal/recibo.txt");
+    for raro in ["abierta", "LOCALIZAR_Y_LEER", " localizar_y_leer", ""] {
+        obrain_api::seguridad::poner_ajuste(brain.store().conn(), Posicion::CLAVE, raro).unwrap();
+        assert_eq!(
+            brain.gate_position().unwrap(),
+            Posicion::Apagada,
+            "{raro:?}"
+        );
+        assert_eq!(que_contesta(&p, &recibo), [false, false, false], "{raro:?}");
+    }
 }

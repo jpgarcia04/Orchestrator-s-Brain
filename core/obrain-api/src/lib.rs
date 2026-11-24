@@ -1161,6 +1161,32 @@ impl Brain {
         Ok(e)
     }
 
+    /// En qué posición está la puerta de Aetheris. Ver [`puerta::Posicion`].
+    pub fn gate_position(&self) -> Result<puerta::Posicion> {
+        puerta::posicion(&self.store)
+    }
+
+    /// **Mueve el interruptor de la puerta de Aetheris** (ADR-0038, B2 y
+    /// ajuste 5). Sólo la ventana llama a esto: la puerta abre la base para
+    /// leer y no tiene con qué escribirlo.
+    ///
+    /// Abrir más —de apagada a cualquier otra, de «sólo localizar» a «leer»—
+    /// deja salir más, así que con PIN pide la ventana desbloqueada, como
+    /// marcar una carpeta. Cerrar nunca se bloquea: quien quiera cortar la
+    /// puerta tiene que poder hacerlo siempre. Esto es la guarda de la
+    /// ventana para escribir el ajuste; lo que sale por la puerta no depende
+    /// del PIN (ajuste 3).
+    pub fn set_gate_position(&mut self, nueva: puerta::Posicion) -> Result<()> {
+        let actual = puerta::posicion(&self.store)?;
+        if nueva > actual && self.tiene_pin()? && !self.desbloqueada() {
+            return Err(Error::Bloqueado);
+        }
+        if nueva != actual {
+            puerta::poner_posicion(&self.store, nueva)?;
+        }
+        Ok(())
+    }
+
     /// Desbloquea con el PIN. Tras tres fallos, espera creciente.
     pub fn unlock(&self, pin: &str) -> Result<()> {
         seguridad::comprobar_pin(self.store.conn(), pin, Self::ahora_ms())?;
