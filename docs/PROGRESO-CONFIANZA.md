@@ -27,16 +27,15 @@ carpetas temporales y nunca la de verdad.
   documentos quedan indexados). Niveles: bóveda las credenciales inventadas y
   el archivo «IGNORA LAS REGLAS…»; normal la póliza de Seguros Aurora, que en
   Linux salió sensible antes del ADR-0040 y ahora concuerda con él. Las 8
-  pruebas de `test_puerta_real.py` pasan, y la batería con el modelo local no
-  logró ninguna llamada provocada por un documento (detalle en Aetheris,
+  pruebas de `test_puerta_real.py` pasan, y la batería, con el modelo local y
+  con `claude-opus-5-5`, no logró ninguna llamada provocada por un documento (detalle en Aetheris,
   `docs/ataques/2026-11-24.md`). Con la biblioteca de T3, Brain da los mismos
   niveles que la puerta simulada.
 
 Para compilar en Windows hizo falta el `perl` de Strawberry delante en el
 `PATH` (el de Git Bash no trae los módulos que pide OpenSSL vendored), y la
 ventana hecha con `cargo build` necesita `--features tauri/custom-protocol`;
-sin eso busca la interfaz en `localhost`. Falta la pasada de la batería con
-Claude y decidir si se conecta.
+sin eso busca la interfaz en `localhost`. Falta decidir si se conecta.
 
 ## Punto 3, relaciones: versiones y sesiones se reconcilian — 2026-11-24
 

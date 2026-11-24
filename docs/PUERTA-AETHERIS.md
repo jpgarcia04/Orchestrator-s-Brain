@@ -8,7 +8,7 @@ versión del contrato.
 
 **Todavía no se conecta:** el modo puerta ya se probó en Windows (2026-11-24, ver
 [PROGRESO-CONFIANZA](PROGRESO-CONFIANZA.md)) y la batería de Aetheris pasó contra ella con el modelo
-local; falta su pasada con Claude.
+local y con Claude; falta decidir si se conecta.
 
 ## Cómo se lanza
 
