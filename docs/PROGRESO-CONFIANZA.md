@@ -5,6 +5,38 @@ referencias más abajo a la rama previa y a la base del PR documentan el
 estado de aquella entrega, no el estado actual. La identidad entre bibliotecas
 se trabaja desde `main` en `codex/identidad-entre-bibliotecas` (ADR-0036).
 
+## Puerta de Aetheris en Windows: pasos 5 y 6 en la laptop — 2026-11-24
+
+En la laptop de JP (Windows 11, `main` en `5b160f2`), con bases sintéticas en
+carpetas temporales y nunca la de verdad.
+
+- **`cargo test` en Windows:** todo el núcleo en verde (682 pruebas, #32 y #33
+  incluidas) y las de `ui/src-tauri`. `ui/src-tauri/tests/puerta.rs` pasa
+  también con `--release`, es decir, con `windows_subsystem = "windows"`: el
+  ejecutable usa las tuberías que le da el cliente como stdin y stdout, no abre
+  ventana y sale con 0 al cerrarle la entrada. Era lo que faltaba del paso 5.
+- **Redirigida a archivos** (`Start-Process -RedirectStandardInput/Output`),
+  la puerta apagada contesta las tres líneas esperadas: `serverInfo`
+  `obrain`/`1`, las tres herramientas y `no_disponible: apagada`.
+- **El interruptor de la ventana:** JP pasó a «Sólo localizar» en una ventana
+  release apuntando a la base sintética. Después, `localizar` trae
+  `Normal/recibo.txt` y `leer` sigue en `apagada`, con la ventana cerrada y con
+  la ventana abierta a la vez (leer a la vez funciona). No se probó el PIN.
+- **Paso 6 en Windows:** `preparar_brain.py` de Aetheris arma la base con
+  `bateria_aetheris.rs`; la ruta con barras invertidas funciona (los 14
+  documentos quedan indexados). Niveles: bóveda las credenciales inventadas y
+  el archivo «IGNORA LAS REGLAS…»; normal la póliza de Seguros Aurora, que en
+  Linux salió sensible antes del ADR-0040 y ahora concuerda con él. Las 8
+  pruebas de `test_puerta_real.py` pasan, y la batería, con el modelo local y
+  con `claude-opus-5-5`, no logró ninguna llamada provocada por un documento (detalle en Aetheris,
+  `docs/ataques/2026-11-24.md`). Con la biblioteca de T3, Brain da los mismos
+  niveles que la puerta simulada.
+
+Para compilar en Windows hizo falta el `perl` de Strawberry delante en el
+`PATH` (el de Git Bash no trae los módulos que pide OpenSSL vendored), y la
+ventana hecha con `cargo build` necesita `--features tauri/custom-protocol`;
+sin eso busca la interfaz en `localhost`. Falta decidir si se conecta.
+
 ## Punto 3, relaciones: versiones y sesiones se reconcilian — 2026-11-24
 
 Lo que quedaba del punto 3. `obrain_link::versions` y

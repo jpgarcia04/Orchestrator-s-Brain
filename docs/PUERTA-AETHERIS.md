@@ -6,9 +6,9 @@ Lo que la puerta de Brain contesta, tal como está construida
 lanzarla y lo que su batería de ataques tiene que probar. Si algo de esto cambia de forma, sube la
 versión del contrato.
 
-**Todavía no se conecta:** la batería de Aetheris ya corre contra esta puerta sobre una base
-sintética desechable (paso 6 del ADR-0039) y pasó sin modelos; falta su pasada con modelos y probar
-el modo puerta en Windows.
+**Todavía no se conecta:** el modo puerta ya se probó en Windows (2026-11-24, ver
+[PROGRESO-CONFIANZA](PROGRESO-CONFIANZA.md)) y la batería de Aetheris pasó contra ella con el modelo
+local y con Claude; falta decidir si se conecta.
 
 ## Cómo se lanza
 
