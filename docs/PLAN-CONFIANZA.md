@@ -17,8 +17,9 @@ Jarvis, empezando por una bóveda local fiable. No fusionar DevHQ/PassGuardian.
 3. **Relaciones y recuperación correcta.** Reconciliar duplicados, versiones
    y sesiones preservando hechos del usuario. BM25/kNN: filtrar elegibilidad
    antes de cortar, recuperar documentos distintos, incluir papelera y colección
-   en la matriz de pruebas. *(2026-11-24: lo de BM25/kNN está hecho y
-   `duplicate_of` se reconcilia desde octubre; quedan versiones y sesiones.)*
+   en la matriz de pruebas. *(2026-11-24: lo de BM25/kNN está hecho,
+   `duplicate_of` se reconcilia desde octubre y `version_of` y
+   `occurred_during` desde el 2026-11-24.)*
 4. **Persistencia, recuperación y rendimiento.** Migraciones secuenciadas,
    rechazo de futuro, errores de inicialización, mudanzas consistentes con WAL,
    backups/restauraciones aislados; después medición, rehash incremental,

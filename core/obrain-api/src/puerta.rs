@@ -20,8 +20,9 @@
 //!   [`NoSale::FueraDeLaPuerta`], **lo mismo** para uno sensible, de bóveda, sin
 //!   clasificar, en la papelera o inventado (ajuste 2). La ficha no trae
 //!   identificadores de aserción ni nada corregible, ni las relaciones
-//!   inferidas (`version_of`, `occurred_during`), que todavía no se
-//!   reconcilian (ADR-0039, condición 2), ni el nombre de un relacionado que
+//!   inferidas (`version_of`, `occurred_during`): la versión `1` del contrato
+//!   las deja fuera (ADR-0039, condición 2), y meterlas ahora que se
+//!   reconcilian sube esa versión. Tampoco el nombre de un relacionado que
 //!   no pueda salir.
 //!
 //! Cada respuesta lleva [`AVISO`], el mismo para cualquier consulta: un aviso

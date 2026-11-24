@@ -16,7 +16,10 @@
 //! que contamina el grafo. Por eso los grupos demasiado grandes se descartan.
 
 use crate::{Edge, FileView, LinkReport, write_edge};
-use obrain_core::{Facet, Method, NewAssertion, Result, Store, Value};
+use obrain_core::{EntityId, Facet, Method, NewAssertion, Result, Store, TimePoint, Value};
+use std::collections::HashSet;
+
+const SOURCE: &str = "heuristic:mtime-session";
 
 /// Hueco máximo entre dos archivos consecutivos para seguir en la misma sesión.
 pub const GAP_MS: i64 = 45 * 60 * 1000; // 45 minutos
@@ -25,12 +28,36 @@ pub const MIN_FILES: usize = 3;
 /// Por encima de esto es una operación masiva, no una sesión humana.
 pub const MAX_FILES: usize = 150;
 
+/// Agrupa por `mtime`, escribe las pertenencias que el agrupamiento sostiene
+/// hoy y **retracta las que dejó de sostener**: un archivo editado días
+/// después ya no es de aquella tarde, uno que pasó a la papelera no está, y
+/// una sesión que se queda con menos de [`MIN_FILES`] o pasa de [`MAX_FILES`]
+/// deja de serlo. Sólo se retracta lo que afirmó este enlazador, con fecha;
+/// la corrección del usuario y otras procedencias no se tocan, y un archivo
+/// con identidad pendiente espera a una pasada concluyente (como
+/// `duplicates.rs`).
+///
+/// El concentrador no se borra ni se retracta: la sesión ocurrió y es
+/// historia que el sistema autoró. Sin aristas no aparece en ninguna vista
+/// —todas llegan a una sesión por `occurred_during`—, y si los mismos
+/// archivos la vuelven a formar se reutiliza, porque se busca por su inicio.
 pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport) -> Result<()> {
-    let mut ordered: Vec<&FileView> = files.iter().filter(|f| f.modified_ms > 0).collect();
+    let tp = TimePoint::at(at);
+    let pending: HashSet<EntityId> = store
+        .query(None, Some("identity_pending_path"), tp)?
+        .into_iter()
+        .map(|a| a.subject)
+        .collect();
+    let mut wanted: HashSet<(EntityId, EntityId)> = HashSet::new();
+
+    let mut ordered: Vec<&FileView> = files
+        .iter()
+        .filter(|f| f.modified_ms > 0 && !pending.contains(&f.entity))
+        .collect();
     ordered.sort_by_key(|f| f.modified_ms);
 
     let mut group: Vec<&FileView> = Vec::new();
-    let flush = |group: &mut Vec<&FileView>, report: &mut LinkReport| -> Result<()> {
+    let mut flush = |group: &mut Vec<&FileView>, report: &mut LinkReport| -> Result<()> {
         if group.len() >= MIN_FILES && group.len() <= MAX_FILES {
             let from = group[0].modified_ms;
             let to = group[group.len() - 1].modified_ms;
@@ -84,21 +111,7 @@ pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport)
 
             // Hub: N aristas contra la sesión, no N² entre archivos.
             for f in group.iter() {
-                if write_edge(
-                    store,
-                    report,
-                    Edge {
-                        subject: &f.entity,
-                        predicate: "occurred_during",
-                        object: Value::Entity(session.clone()),
-                        method: Method::Inferred,
-                        confidence: 0.7,
-                        source: "heuristic:mtime-session",
-                    },
-                    at,
-                )? {
-                    report.occurred_during += 1;
-                }
+                wanted.insert((f.entity.clone(), session.clone()));
             }
         }
         group.clear();
@@ -114,6 +127,41 @@ pub fn link(store: &Store, files: &[FileView], at: i64, report: &mut LinkReport)
         group.push(f);
     }
     flush(&mut group, report)?;
+
+    for a in store.query(None, Some("occurred_during"), tp)? {
+        if a.method != Method::Inferred || a.source != SOURCE {
+            continue;
+        }
+        let Some(object) = a.object.as_entity() else {
+            continue;
+        };
+        if pending.contains(&a.subject) {
+            continue;
+        }
+        if !wanted.contains(&(a.subject.clone(), object.clone())) {
+            store.retract(&a.id, at)?;
+        }
+    }
+
+    let mut wanted: Vec<_> = wanted.into_iter().collect();
+    wanted.sort();
+    for (subject, session) in wanted {
+        if write_edge(
+            store,
+            report,
+            Edge {
+                subject: &subject,
+                predicate: "occurred_during",
+                object: Value::Entity(session),
+                method: Method::Inferred,
+                confidence: 0.7,
+                source: SOURCE,
+            },
+            at,
+        )? {
+            report.occurred_during += 1;
+        }
+    }
     Ok(())
 }
 
@@ -256,5 +304,147 @@ mod tests {
         );
         assert!(a.confidence < 1.0);
         assert_eq!(a.source, "heuristic:mtime-session");
+    }
+
+    fn sesiones_de(s: &Store, f: &FileView, at: i64) -> Vec<obrain_core::Assertion> {
+        s.query(Some(&f.entity), Some("occurred_during"), TimePoint::at(at))
+            .unwrap()
+    }
+
+    /// Editar un archivo días después lo saca de aquella tarde, y la sesión
+    /// que se queda con menos de `MIN_FILES` deja de serlo. La historia
+    /// conserva lo que el sistema creyó.
+    #[test]
+    fn editar_un_archivo_despues_lo_saca_de_la_sesion() {
+        let s = Store::open_in_memory().unwrap();
+        let base = 1_700_000_000_000i64;
+        let mut files = vec![
+            fv(&s, "a", base),
+            fv(&s, "b", base + 5 * MIN),
+            fv(&s, "c", base + 12 * MIN),
+        ];
+        super::link(&s, &files, 9_000, &mut LinkReport::default()).unwrap();
+        assert_eq!(sesiones_de(&s, &files[2], 9_001).len(), 1);
+
+        files[2].modified_ms = base + 3 * 24 * 60 * MIN;
+        super::link(&s, &files, 10_000, &mut LinkReport::default()).unwrap();
+        for f in &files {
+            assert!(
+                sesiones_de(&s, f, 10_001).is_empty(),
+                "dos archivos sueltos ya no son una sesión"
+            );
+            assert_eq!(sesiones_de(&s, f, 9_500).len(), 1, "la historia sí");
+        }
+    }
+
+    /// Un archivo que sale de la lista (papelera) deja su sesión; el resto,
+    /// si sigue siendo sesión, conserva la suya, y volver lo reafirma contra
+    /// el mismo concentrador.
+    #[test]
+    fn quitar_y_reponer_un_archivo_conserva_el_concentrador() {
+        let s = Store::open_in_memory().unwrap();
+        let base = 1_700_000_000_000i64;
+        let files = vec![
+            fv(&s, "a", base),
+            fv(&s, "b", base + 5 * MIN),
+            fv(&s, "c", base + 12 * MIN),
+            fv(&s, "d", base + 20 * MIN),
+        ];
+        super::link(&s, &files, 9_000, &mut LinkReport::default()).unwrap();
+        let hub = sesiones_de(&s, &files[0], 9_001)[0].object.clone();
+
+        super::link(&s, &files[..3], 10_000, &mut LinkReport::default()).unwrap();
+        assert!(sesiones_de(&s, &files[3], 10_001).is_empty());
+        for f in &files[..3] {
+            let a = sesiones_de(&s, f, 10_001);
+            assert_eq!(a.len(), 1);
+            assert_eq!(a[0].asserted_at, 9_000, "no se reescribe lo que sigue");
+        }
+
+        let mut r = LinkReport::default();
+        super::link(&s, &files, 11_000, &mut r).unwrap();
+        assert_eq!(r.hubs_created, 0);
+        let a = sesiones_de(&s, &files[3], 11_001);
+        assert_eq!(a.len(), 1);
+        assert_eq!(a[0].object, hub);
+    }
+
+    /// Si cambia el primer archivo, la sesión empieza en otro instante y es
+    /// otro concentrador: los que se quedan pasan al nuevo y ninguno cuelga
+    /// de dos.
+    #[test]
+    fn cambiar_el_inicio_mueve_a_todos_a_una_sola_sesion() {
+        let s = Store::open_in_memory().unwrap();
+        let base = 1_700_000_000_000i64;
+        let mut files = vec![
+            fv(&s, "a", base),
+            fv(&s, "b", base + 5 * MIN),
+            fv(&s, "c", base + 12 * MIN),
+            fv(&s, "d", base + 20 * MIN),
+        ];
+        super::link(&s, &files, 9_000, &mut LinkReport::default()).unwrap();
+        files[0].modified_ms = base + 3 * 24 * 60 * MIN;
+        super::link(&s, &files, 10_000, &mut LinkReport::default()).unwrap();
+        assert!(sesiones_de(&s, &files[0], 10_001).is_empty());
+        let nueva = sesiones_de(&s, &files[1], 10_001);
+        assert_eq!(nueva.len(), 1);
+        for f in &files[2..] {
+            let a = sesiones_de(&s, f, 10_001);
+            assert_eq!(a.len(), 1, "un archivo, una sesión");
+            assert_eq!(a[0].object, nueva[0].object);
+        }
+    }
+
+    /// La corrección del usuario, otra procedencia y una identidad pendiente
+    /// no los retracta este enlazador.
+    #[test]
+    fn usuario_otras_procedencias_e_identidad_pendiente_se_conservan() {
+        let s = Store::open_in_memory().unwrap();
+        let base = 1_700_000_000_000i64;
+        let files = vec![
+            fv(&s, "a", base),
+            fv(&s, "b", base + 5 * MIN),
+            fv(&s, "c", base + 12 * MIN),
+        ];
+        super::link(&s, &files, 9_000, &mut LinkReport::default()).unwrap();
+        let hub = sesiones_de(&s, &files[0], 9_001)[0].object.clone();
+        let suelto = fv(&s, "suelto", base + 10 * 24 * 60 * MIN);
+        for (sujeto, metodo, fuente) in [
+            (&suelto.entity, Method::User, "user@ui"),
+            (&files[0].entity, Method::Imported, "import:test"),
+        ] {
+            s.assert(
+                NewAssertion::new(
+                    sujeto.clone(),
+                    "occurred_during",
+                    hub.clone(),
+                    metodo,
+                    9_500,
+                )
+                .source(fuente),
+            )
+            .unwrap();
+        }
+        s.assert(
+            NewAssertion::new(
+                files[1].entity.clone(),
+                "identity_pending_path",
+                r"C:\d\b",
+                Method::Deterministic,
+                9_500,
+            )
+            .source("scan@m1"),
+        )
+        .unwrap();
+
+        // Sin `b` (pendiente, fuera de la lista) quedan dos: ya no es sesión.
+        let lista = vec![files[0].clone(), files[2].clone(), suelto.clone()];
+        super::link(&s, &lista, 10_000, &mut LinkReport::default()).unwrap();
+        assert_eq!(sesiones_de(&s, &suelto, 10_001).len(), 1, "la del usuario");
+        let a = sesiones_de(&s, &files[0], 10_001);
+        assert_eq!(a.len(), 1);
+        assert_eq!(a[0].source, "import:test");
+        assert_eq!(sesiones_de(&s, &files[1], 10_001).len(), 1, "pendiente");
+        assert!(sesiones_de(&s, &files[2], 10_001).is_empty());
     }
 }
