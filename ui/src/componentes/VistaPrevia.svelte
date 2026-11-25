@@ -33,6 +33,7 @@
   import {
     abrir,
     confirmar as confirmarAsercion,
+    corregir,
     corregirVencimiento,
     desdeBytes,
     entidad,
@@ -220,6 +221,45 @@
    * fecha— ni en lo que está en la papelera.
    */
   const puedeAnadirFecha = $derived(!!ficha && !vence && !bloqueado && !ficha.trashed && ficha.path !== null);
+
+  /**
+   * Marcar un archivo suelto como sensible, o decir que no lo es (I5: lo que
+   * dices gana, también para bajar). Una carpeta se marca desde su cabecera;
+   * aquí, sólo este documento. No con lo bloqueado —no se corrige lo que no
+   * se ve— ni con lo de bóveda: bajar un secreto no se hace con un clic.
+   */
+  const puedeCambiarSensibilidad = $derived(
+    !!ficha && !bloqueado && !ficha.trashed && ficha.path !== null && ficha.sensitivity !== "vault",
+  );
+  /** Dónde va el botón, para que salga una sola vez: la fila que ya explica su nivel. */
+  const filaSensibilidad = $derived.by((): "carpeta" | "dentro" | "hecho" | "sola" | null => {
+    if (!ficha) return null;
+    if (ficha.protection) return "carpeta";
+    if (ficha.by_part) return "dentro";
+    if (hechos.some((c) => c.predicate === "sensitivity_level")) return "hecho";
+    return puedeCambiarSensibilidad ? "sola" : null;
+  });
+  let confirmandoNormal = $state(false);
+  // Otro documento, otra pregunta: la confirmación no se arrastra.
+  $effect(() => {
+    void id;
+    confirmandoNormal = false;
+  });
+  let guardandoNivel = $state(false);
+
+  async function ponerSensibilidad(nivel: "normal" | "sensitive"): Promise<void> {
+    guardandoNivel = true;
+    try {
+      await corregir(id, "sensitivity_level", { kind: "text", value: nivel });
+      confirmandoNormal = false;
+      recarga++;
+      app.version++; // las listas también lo tapan o lo destapan
+    } catch (e) {
+      app.avisar(`No se pudo guardar — ${e}`);
+    } finally {
+      guardandoNivel = false;
+    }
+  }
 
   /**
    * El tramo que explica una afirmación —la fecha de caducidad, o lo que hizo
@@ -510,6 +550,34 @@
   }
 </script>
 
+{#snippet cambiarSensibilidad()}
+  {#if puedeCambiarSensibilidad}
+    {#if ficha?.sensitivity === "normal"}
+      <span class="acciones-hecho">
+        <button
+          class="enlace"
+          disabled={guardandoNivel}
+          onclick={() => ponerSensibilidad("sensitive")}
+          title="Sólo este documento: borroso hasta que lo pidas y fuera de cualquier modelo, también del de Aetheris."
+        >marcar como sensible</button>
+      </span>
+    {:else if confirmandoNormal}
+      <span class="cambio">
+        <span class="porque">Dejará de estar protegido. Si la puerta de Aetheris lo deja, su modelo local podrá leerlo.</span>
+        <span class="acciones-hecho">
+          <button class="enlace" disabled={guardandoNivel} onclick={() => ponerSensibilidad("normal")}>sí, no es sensible</button>
+          <button class="enlace tenue" disabled={guardandoNivel} onclick={() => (confirmandoNormal = false)}>cancelar</button>
+        </span>
+      </span>
+    {:else}
+      <span class="acciones-hecho">
+        <button class="enlace" onclick={() => (confirmandoNormal = true)} title="Sólo este documento; la carpeta sigue como está.">no es sensible</button>
+      </span>
+    {/if}
+  {/if}
+{/snippet}
+
+
 <aside class="previa entra" aria-label="Vista previa">
   <div class="barra">
     <span class="rotulo">Vista previa</span>
@@ -638,7 +706,7 @@
         </section>
       {/if}
 
-      {#if hechos.length > 0 || leido || ficha.protection || ficha.by_part || puedeAnadirFecha}
+      {#if hechos.length > 0 || leido || ficha.protection || ficha.by_part || puedeAnadirFecha || filaSensibilidad}
         <Apartado id="sabido" titulo="Lo que sé de este documento">
           {#if leido}
             <div class="hecho"><span class="clave">Leído</span><span>{leido}</span></div>
@@ -652,6 +720,7 @@
                 <button class="por-carpeta hov-fondo" onclick={() => app.abrirCarpeta(p.folder, id)} title="Abrir la carpeta que lo protege">
                   <ShieldCheck size={13} /> por la carpeta «{nombreBonito(p.label)}», que marcaste tú
                 </button>
+                {#if filaSensibilidad === "carpeta"}{@render cambiarSensibilidad()}{/if}
               </span>
             </div>
           {/if}
@@ -665,6 +734,7 @@
                 <button class="por-carpeta hov-fondo" onclick={() => app.ver(d.part)} title="Ver el documento que lleva dentro">
                   <ShieldCheck size={13} /> porque contiene «{tituloDe(d.label).titulo}», {porQueLoEs(d)}
                 </button>
+                {#if filaSensibilidad === "dentro"}{@render cambiarSensibilidad()}{/if}
               </span>
             </div>
           {/if}
@@ -693,6 +763,7 @@
                     {/if}
                   </span>
                 {/if}
+                {#if c.predicate === "sensitivity_level" && filaSensibilidad === "hecho"}{@render cambiarSensibilidad()}{/if}
                 {#if porques.has(c.assertion)}
                   <span class="porque">{c.predicate === "expires_on" ? porqueVence(c) : c.predicate === "sensitivity_level" ? porqueSensible(c) : (c.evidence ?? c.source)}</span>
                 {/if}
@@ -709,6 +780,12 @@
               </span>
             </div>
           {/each}
+          {#if filaSensibilidad === "sola"}
+            <div class="hecho">
+              <span class="clave">Sensibilidad</span>
+              <span class="valor">Normal{@render cambiarSensibilidad()}</span>
+            </div>
+          {/if}
           {#if puedeAnadirFecha}
             <!-- ADR-0026: donde el detector no vio ninguna fecha, se la dices tú. -->
             <div class="hecho sin-fecha">

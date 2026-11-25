@@ -223,6 +223,11 @@ seguridad de la base sin su clave de recuperación no se abre en otro equipo.
   nombre —ya sin los `%20` de las descargas: *«Por su nombre, «Pasaporte
   escaneado copia.txt»…»*— o su carpeta. El NIE no se guarda en ningún log: el tramo se vuelve a
   buscar al enseñarlo.
+- **Un archivo suelto:** en la ficha de un documento, «Lo que sé de este documento» →
+  Sensibilidad: «marcar como sensible» si es normal, o «no es sensible» (con confirmación) si lo
+  protegió el clasificador, su carpeta o lo que lleva dentro. Gana lo que digas (I5) y sólo vale
+  para ese archivo; una carpeta marcada **después** vuelve a cubrirlo. No con lo bloqueado por el
+  PIN, ni con lo de bóveda.
 - **Carpeta sensible:** dentro de una carpeta, el escudo de arriba a la derecha
   («Marcar como sensible») hace sensible todo lo que tiene dentro, también lo
   que llegue después. Para quitar la marca, dos clics. La vista «Sensibles»
