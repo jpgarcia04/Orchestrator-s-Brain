@@ -1,8 +1,8 @@
 # ADR-0041 — Abrir, revelar y mostrar un documento a pedido de Aetheris
 
-- **Estado:** Propuesta, pendiente de JP (pedida desde el proyecto Ecosistema el 2026-11-25).
+- **Estado:** Aceptada por JP el 2026-11-25 (pedida desde el proyecto Ecosistema).
 - **Fecha:** 2026-11-25
-- **Cambia:** nada aceptado. Añade tres modos de arranque al lado de `--puerta`
+- **Cambia:** nada. Añade tres modos de arranque al lado de `--puerta`
   ([ADR-0038](0038-la-puerta-de-aetheris.md), [ADR-0039](0039-la-puerta-de-aetheris-se-adelanta.md)).
   La puerta, sus herramientas y `SoloNormal` siguen igual.
 - **Toca:** `ui/src-tauri/src/main.rs` (los argumentos de arranque y la instancia única) y
