@@ -49,7 +49,9 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use obrain_api::desde_aetheris::{self, Accion};
 use obrain_api::puerta::Posicion;
+use obrain_api::puerta_mcp::base_de_la_puerta;
 use obrain_api::respaldo::{
     self, InformeEnsayo, InformeRestauracion, Manifiesto, OpcionesRestauracion, PlanRestauracion,
 };
@@ -418,6 +420,72 @@ fn revelar(
     operar_archivo(&cerebro, id, expected_hash, |ruta| {
         app.opener().reveal_item_in_dir(ruta).map_err(texto)
     })
+}
+
+/// Los argumentos de arranque sin el programa. Uno que no es texto no es de
+/// ningún pedido: se cambia por uno vacío, que ningún modo reconoce.
+fn argumentos_de_texto() -> Vec<String> {
+    std::env::args_os()
+        .skip(1)
+        .map(|a| a.into_string().unwrap_or_default())
+        .collect()
+}
+
+/// `--abrir` y `--revelar` (ADR-0041): la ruta la decide el núcleo con las
+/// reglas de la puerta, se usa aquí y no sale. Lo único que se escribe es el
+/// motivo fijo de un rechazo. Devuelve el código de salida: 0 hecho, 1 no.
+fn atender_sin_ventana(accion: Accion, id: &str) -> i32 {
+    let ruta = match desde_aetheris::ruta(&base_de_la_puerta(), id) {
+        Ok(r) => r,
+        Err(motivo) => {
+            println!("{motivo}");
+            return 1;
+        }
+    };
+    let hecho = match accion {
+        Accion::Abrir => tauri_plugin_opener::open_path(&ruta, None::<&str>),
+        Accion::Revelar => tauri_plugin_opener::reveal_item_in_dir(&ruta),
+        Accion::Mostrar => unreachable!("--mostrar abre la ventana"),
+    };
+    match hecho {
+        Ok(()) => 0,
+        Err(_) => {
+            println!("no_se_pudo_abrir");
+            1
+        }
+    }
+}
+
+/// El documento que Aetheris pidió mostrar y la ventana aún no ha ido a ver.
+struct MostrarPedido(Mutex<Option<String>>);
+
+/// Un `--mostrar` que llegó con la ventana ya abierta: se guarda y se avisa a
+/// la ventana, que lo pide con [`mostrar_pedido`].
+fn pedir_mostrar(app: &AppHandle, id: String) {
+    if let Some(estado) = app.try_state::<MostrarPedido>() {
+        if let Ok(mut p) = estado.0.lock() {
+            *p = Some(id);
+        }
+        let _ = app.emit("mostrar", ());
+    }
+}
+
+fn traer_al_frente(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+/// El documento que hay que mostrar, si Aetheris pidió uno y la puerta lo
+/// serviría (ADR-0041). Se pide una vez: después queda vacío. Lo que la puerta
+/// no serviría no se muestra, y la ventana no dice por qué.
+#[tauri::command]
+fn mostrar_pedido(estado: State<'_, MostrarPedido>) -> Option<String> {
+    let id = estado.0.lock().ok()?.take()?;
+    desde_aetheris::ruta(&base_de_la_puerta(), &id).ok()?;
+    Some(id)
 }
 
 /// La corrección de I5. Escribe una aserción del usuario, que gana para
@@ -1455,7 +1523,32 @@ fn main() {
         std::process::exit(obrain_api::puerta_mcp::main());
     }
 
+    // Los pedidos de Aetheris (ADR-0041). `--abrir` y `--revelar` tampoco
+    // tocan Tauri: abren la base para leer, como la puerta, deciden con sus
+    // reglas y terminan. `--mostrar` sigue abajo, con la ventana.
+    let mut mostrar = None;
+    if let Some(pedido) = desde_aetheris::pedido(&argumentos_de_texto()) {
+        match pedido {
+            Err(motivo) => {
+                println!("{motivo}");
+                std::process::exit(2);
+            }
+            Ok((Accion::Mostrar, id)) => mostrar = Some(id),
+            Ok((accion, id)) => std::process::exit(atender_sin_ventana(accion, &id)),
+        }
+    }
+
     tauri::Builder::default()
+        // La primera, como pide el plugin: un segundo arranque se lo cuenta a
+        // éste y termina antes de abrir nada.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if let Some(Ok((Accion::Mostrar, id))) =
+                desde_aetheris::pedido(argv.get(1..).unwrap_or_default())
+            {
+                pedir_mostrar(app, id);
+            }
+            traer_al_frente(app);
+        }))
         // Sin permisos para el webview a propósito: las dos salidas se invocan
         // desde `abrir` y `revelar`, que son Rust y consultan el log.
         .plugin(tauri_plugin_opener::init())
@@ -1463,7 +1556,7 @@ fn main() {
         // Tampoco aquí hay permisos para el webview: buscar e instalar van por
         // `actualizacion_buscar` y `actualizacion_instalar`, que son Rust.
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .setup(|app| {
+        .setup(move |app| {
             let db = default_db_path();
             if let Some(dir) = db.parent() {
                 std::fs::create_dir_all(dir).ok();
@@ -1502,6 +1595,7 @@ fn main() {
             app.manage(Vigilante(Mutex::new(vigia)));
             app.manage(Pendiente(AtomicBool::new(false)));
             app.manage(ActualizacionHallada(Mutex::new(None)));
+            app.manage(MostrarPedido(Mutex::new(mostrar.take())));
             app.manage(EstadoRespaldo {
                 seleccionada: Mutex::new(None),
                 restaurando: AtomicBool::new(false),
@@ -1536,6 +1630,7 @@ fn main() {
             previsualizar,
             abrir,
             revelar,
+            mostrar_pedido,
             corregir,
             confirmar,
             estado,

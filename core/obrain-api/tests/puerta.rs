@@ -688,3 +688,43 @@ fn la_puerta_por_stdio_dice_ocupada_si_una_escritura_quedo_a_medias() {
         "{todo}"
     );
 }
+
+/// ADR-0041: `--abrir` y `--revelar` sólo reciben la ruta de lo que la puerta
+/// podría servir, y para todo lo demás el mismo motivo, sin decir qué es.
+#[test]
+fn abrir_desde_aetheris_solo_da_la_ruta_de_lo_que_la_puerta_serviria() {
+    use obrain_api::desde_aetheris::ruta;
+    let p = Prueba::nueva("abrir");
+    let mut brain = preparar_con_la_puerta_de_fabrica(&p);
+    let recibo = id(brain.store(), &p, "Normal/recibo.txt");
+    let pasaporte = id(brain.store(), &p, "Identidad/pasaporte.txt");
+    let copia = id(brain.store(), &p, "Tramites/copia.txt");
+
+    // De fábrica, apagada: ni lo normal.
+    assert_eq!(ruta(&p.db(), recibo.as_str()), Err("apagada"));
+
+    // «Sólo localizar» basta: abrir es un acto de JP, no una lectura.
+    brain.set_gate_position(Posicion::SoloLocalizar).unwrap();
+    assert_eq!(
+        ruta(&p.db(), recibo.as_str()),
+        Ok(p.ruta("Normal/recibo.txt"))
+    );
+    brain.set_gate_position(Posicion::LocalizarYLeer).unwrap();
+    assert_eq!(
+        ruta(&p.db(), recibo.as_str()),
+        Ok(p.ruta("Normal/recibo.txt"))
+    );
+
+    for (que, cual) in [
+        ("de bóveda", pasaporte.as_str()),
+        ("copia sin marcar de algo de bóveda", copia.as_str()),
+        ("inventado", "01JD0000000000000000000000"),
+        ("con forma de ruta", "../Identidad/pasaporte.txt"),
+    ] {
+        assert_eq!(ruta(&p.db(), cual), Err("fuera_de_la_puerta"), "{que}");
+    }
+
+    // Con la ventana todavía abierta (la puerta lee igual).
+    brain.set_gate_position(Posicion::Apagada).unwrap();
+    assert_eq!(ruta(&p.db(), recibo.as_str()), Err("apagada"));
+}

@@ -661,6 +661,17 @@ export const revelar = (id: string, expectedHash?: string | null) => invoke<void
 export const corregir = (subject: string, predicate: string, object: { kind: "text" | "entity"; value: string }) =>
   invoke<string>("corregir", { subject, predicate, object });
 
+/**
+ * El documento que Aetheris pidió mostrar (`obrain-app --mostrar <id>`,
+ * ADR-0041), si la puerta lo serviría. Se entrega una vez.
+ */
+export const mostrarPedido = () => invoke<string | null>("mostrar_pedido");
+
+/** Aetheris pidió mostrar un documento con la ventana ya abierta. */
+export async function alPedirMostrar(f: () => void | Promise<void>): Promise<void> {
+  await listen("mostrar", () => void f());
+}
+
 export const confirmar = (subject: string, assertion: string) => invoke<string>("confirmar", { subject, assertion });
 
 export const estado = () => invoke<Estado>("estado");
