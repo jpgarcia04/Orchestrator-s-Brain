@@ -203,3 +203,87 @@ fn el_modo_puerta_no_admite_mas_argumentos() {
     assert!(r.is_empty());
     assert!(!db.exists());
 }
+
+/// `obrain-app --abrir`, `--revelar` (ADR-0041) como los lanza Aetheris: sin
+/// ventana y sin entrada. Devuelve el código y lo que escribió.
+fn pedir(raiz: &Path, db: &Path, argumentos: &[&str]) -> (Option<i32>, String) {
+    let casa = raiz.join("casa");
+    std::fs::create_dir_all(&casa).unwrap();
+    let mut hijo = Hijo(
+        Command::new(env!("CARGO_BIN_EXE_obrain-app"))
+            .args(argumentos)
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("HOME", &casa)
+            .env("XDG_DATA_HOME", casa.join("datos"))
+            .env("XDG_CONFIG_HOME", casa.join("config"))
+            .env("XDG_CACHE_HOME", casa.join("cache"))
+            .env("XDG_RUNTIME_DIR", casa.join("runtime"))
+            .env("OBRAIN_DB", db)
+            .envs(std::env::var_os("LD_LIBRARY_PATH").map(|v| ("LD_LIBRARY_PATH", v)))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let mut salida = String::new();
+    hijo.0
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_string(&mut salida)
+        .unwrap();
+    let limite = Instant::now() + Duration::from_secs(60);
+    let codigo = loop {
+        if let Some(estado) = hijo.0.try_wait().unwrap() {
+            break estado.code();
+        }
+        assert!(Instant::now() < limite, "el pedido no terminó");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    (codigo, salida.trim().to_string())
+}
+
+const INVENTADO: &str = "01JD0000000000000000000000";
+
+#[test]
+fn abrir_y_revelar_sin_ventana_dicen_el_motivo_fijo_y_no_abren_nada() {
+    let t = temporal("abrir");
+    let db = base(&t.0, Posicion::Apagada);
+    for modo in ["--abrir", "--revelar"] {
+        assert_eq!(
+            pedir(&t.0, &db, &[modo, INVENTADO]),
+            (Some(1), "apagada".to_string()),
+            "{modo}"
+        );
+    }
+    let t = temporal("abrir-inventado");
+    let db = base(&t.0, Posicion::SoloLocalizar);
+    for modo in ["--abrir", "--revelar"] {
+        assert_eq!(
+            pedir(&t.0, &db, &[modo, INVENTADO]),
+            (Some(1), "fuera_de_la_puerta".to_string()),
+            "{modo}"
+        );
+    }
+}
+
+#[test]
+fn un_pedido_mal_formado_no_abre_la_base() {
+    let t = temporal("pedido-mal");
+    let db = t.0.join("no-existe.obrain");
+    for args in [
+        &["--abrir"][..],
+        &["--abrir", INVENTADO, "otro"],
+        &["--revelar", "../Identidad/pasaporte.txt"],
+        &["--mostrar", "no-es-un-id"],
+    ] {
+        assert_eq!(
+            pedir(&t.0, &db, args),
+            (Some(2), "argumentos".to_string()),
+            "{args:?}"
+        );
+    }
+    assert!(!db.exists());
+}

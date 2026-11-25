@@ -15,6 +15,8 @@ import {
   anadirBiblioteca,
   retirarBiblioteca as pedirRetirarBiblioteca,
   alRestaurar,
+  alPedirMostrar,
+  mostrarPedido,
   reanudarReindexado,
   borrarColeccion as pedirBorrarColeccion,
   coleccion as pedirColeccion,
@@ -220,8 +222,20 @@ class App {
       await this.refrescar();
     });
     await this.refrescar();
+    await alPedirMostrar(() => this.irAlPedido());
+    await this.irAlPedido();
     // Sin esperar: la bóveda ya está a la vista y la consulta no la frena.
     void this.buscarVersionNueva();
+  }
+
+  /** Abre el documento que pidió Aetheris (ADR-0041), si hay uno y se puede ver. */
+  async irAlPedido(): Promise<void> {
+    try {
+      const id = await mostrarPedido();
+      if (id) this.ver(id);
+    } catch {
+      // Sin pedido o sin bóveda abierta: la ventana sigue como estaba.
+    }
   }
 
   /**

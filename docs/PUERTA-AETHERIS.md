@@ -110,11 +110,36 @@ Ni recursos, ni prompts, ni muestreo, ni escritura, ni PIN, ni puerto, ni red. L
 bóveda y lo que está sin clasificar no se consultan, haya PIN o no, esté la ventana desbloqueada o
 no. Los nombres de carpetas y colecciones de lo normal sí salen.
 
+## Abrir, revelar y mostrar a pedido de Aetheris
+
+[ADR-0041](adr/0041-abrir-desde-aetheris-sin-ventana.md). Tres modos de arranque más, fuera del
+protocolo MCP, para que ningún modelo pueda pedirlos. Los lanza la ventana de Aetheris cuando JP
+pulsa un botón de la tarjeta de un documento:
+
+| Orden | Qué hace | Salida |
+|---|---|---|
+| `obrain-app --abrir <id>` | Lo abre con el programa que el sistema tenga asociado, sin ventana de Brain. | `0` hecho; `1` y una línea con el motivo; `2` y `argumentos` si el pedido está mal formado. |
+| `obrain-app --revelar <id>` | Abre su carpeta en el explorador con el archivo elegido, sin ventana de Brain. | Igual. |
+| `obrain-app --mostrar <id>` | Abre la ventana de Brain en su ficha, o lleva a ella la que ya está abierta (instancia única). | La ventana. |
+
+- `<id>` es el `id` que dio `localizar`, `leer` o `documento`: un ULID de 26 caracteres. Lo que no
+  tiene esa forma no abre la base.
+- Sólo lo que la puerta serviría (`SoloNormal`, una ruta vigente dentro de una biblioteca). Para
+  todo lo demás, `fuera_de_la_puerta`, sin decir qué es. Con la puerta apagada, `apagada`; «sólo
+  localizar» basta, porque abrir es un acto de JP y la ruta no vuelve a Aetheris.
+- La base se abre como la abre la puerta, para leer; los motivos de la apertura (`base_cerrada`,
+  `ocupada`, `version_distinta`) son los mismos. Si el sistema no puede abrir el archivo,
+  `no_se_pudo_abrir`.
+- Nunca se escribe la ruta ni nada del contenido. Los avisos de abrir (si está en la nube se
+  descarga; el programa puede escribir en él) los pone el botón de Aetheris.
+
 ## Dónde está
 
 - `core/obrain-api/src/puerta.rs`: las tres herramientas y el ajuste.
 - `core/obrain-api/src/puerta_mcp.rs`: este protocolo.
-- `ui/src-tauri/src/main.rs`: `--puerta`, antes de Tauri.
+- `core/obrain-api/src/desde_aetheris.rs`: los pedidos de abrir, revelar y mostrar.
+- `ui/src-tauri/src/main.rs`: `--puerta`, `--abrir` y `--revelar`, antes de Tauri; `--mostrar`, con la
+  ventana.
 - Pruebas: `core/obrain-api/tests/puerta.rs` y `ui/src-tauri/tests/puerta.rs` (el ejecutable de
   verdad, sin pantalla).
 - La base de la batería de Aetheris: `core/obrain-api/tests/bateria_aetheris.rs`, que sólo corre

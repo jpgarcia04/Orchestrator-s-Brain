@@ -1,6 +1,7 @@
 # ADR-0041 — Abrir, revelar y mostrar un documento a pedido de Aetheris
 
-- **Estado:** Aceptada por JP el 2026-11-25 (pedida desde el proyecto Ecosistema).
+- **Estado:** Aceptada por JP el 2026-11-25 (pedida desde el proyecto Ecosistema). Construida el
+  mismo día; ver [PUERTA-AETHERIS](../PUERTA-AETHERIS.md#abrir-revelar-y-mostrar-a-pedido-de-aetheris).
 - **Fecha:** 2026-11-25
 - **Cambia:** nada. Añade tres modos de arranque al lado de `--puerta`
   ([ADR-0038](0038-la-puerta-de-aetheris.md), [ADR-0039](0039-la-puerta-de-aetheris-se-adelanta.md)).

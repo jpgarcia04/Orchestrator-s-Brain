@@ -30,6 +30,10 @@ tauri-plugin-opener = "2"
 # la ventana: el webview no tiene permisos del plugin, así que no puede abrir
 # diálogos ni pasar rutas; sólo pide «añade una carpeta» y elige la persona.
 tauri-plugin-dialog = "2"
+# Una sola ventana de Brain (ADR-0041): `obrain-app --mostrar <id>`, lanzado
+# por Aetheris con Brain ya abierto, no abre otra ventana: le pasa el pedido a
+# la que está y termina. También vale para un segundo doble clic.
+tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 # La configuración del actualizador (`plugins` en tauri.conf.json) se incrusta
 # como JSON al compilar, y el código generado por Tauri lo nombra.

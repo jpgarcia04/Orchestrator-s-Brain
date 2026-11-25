@@ -519,6 +519,39 @@ pub fn leer(
     }))
 }
 
+/// **Abrir desde Aetheris** (ADR-0041): la ruta completa de un documento que
+/// la puerta podría servir, para que `obrain-app --abrir` o `--revelar` lo
+/// abran. La ruta no sale de ese proceso: la usa y termina.
+///
+/// Las mismas reglas que [`documento`] para decidir qué es «servible»
+/// (`SoloNormal`, una ruta vigente dentro de una biblioteca) y la misma
+/// respuesta para todo lo demás, sin decir cuál de los casos es. Del ajuste
+/// basta con que no esté apagada: abrir es un acto de JP, no una lectura de un
+/// modelo, así que «sólo localizar» también deja.
+pub fn ruta_para_abrir(
+    store: &Store,
+    id: &str,
+    at: TimePoint,
+) -> crate::Result<Result<String, NoSale>> {
+    if let Err(no) = posicion(store)?.deja(Herramienta::Localizar) {
+        return Ok(Err(no));
+    }
+    let e = EntityId(id.to_string());
+    if !puede_salir(store, &e, at)? {
+        return Ok(Err(NoSale::FueraDeLaPuerta));
+    }
+    let Some(ruta) = store
+        .resolve(&e, "path_observed_at", at)?
+        .and_then(|a| a.object.as_text().map(str::to_string))
+    else {
+        return Ok(Err(NoSale::FueraDeLaPuerta));
+    };
+    if ubicar(&bibliotecas(store, at)?, &ruta).is_none() {
+        return Ok(Err(NoSale::FueraDeLaPuerta));
+    }
+    Ok(Ok(ruta))
+}
+
 /// **`documento`**: la ficha de un documento normal, o
 /// [`NoSale::FueraDeLaPuerta`] para todo lo demás, sin decir qué es. Ver el
 /// módulo.

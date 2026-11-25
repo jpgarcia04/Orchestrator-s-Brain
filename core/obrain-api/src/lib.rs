@@ -38,6 +38,7 @@
 
 pub mod colecciones;
 pub mod dentro;
+pub mod desde_aetheris;
 pub mod entity;
 mod identity;
 pub mod indexar;
