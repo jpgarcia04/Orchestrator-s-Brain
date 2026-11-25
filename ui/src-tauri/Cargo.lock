@@ -3192,7 +3192,7 @@ dependencies = [
 
 [[package]]
 name = "obrain-api"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -3216,7 +3216,7 @@ dependencies = [
 
 [[package]]
 name = "obrain-app"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "obrain-api",
  "obrain-core",
@@ -3232,7 +3232,7 @@ dependencies = [
 
 [[package]]
 name = "obrain-core"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "obrain-keys",
  "rusqlite",
@@ -3243,7 +3243,7 @@ dependencies = [
 
 [[package]]
 name = "obrain-embed"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "obrain-core",
  "obrain-extract",
@@ -3255,7 +3255,7 @@ dependencies = [
 
 [[package]]
 name = "obrain-expiry"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "obrain-core",
  "regex",
@@ -3263,7 +3263,7 @@ dependencies = [
 
 [[package]]
 name = "obrain-extract"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "blake3",
  "ego-tree",
@@ -3279,7 +3279,7 @@ dependencies = [
 
 [[package]]
 name = "obrain-guard"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "obrain-core",
  "obrain-extract",
@@ -3287,7 +3287,7 @@ dependencies = [
 
 [[package]]
 name = "obrain-keys"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -3302,7 +3302,7 @@ dependencies = [
 
 [[package]]
 name = "obrain-link"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "blake3",
  "obrain-core",
@@ -3313,7 +3313,7 @@ dependencies = [
 
 [[package]]
 name = "obrain-ocr"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "windows",
  "windows-future",
@@ -3321,7 +3321,7 @@ dependencies = [
 
 [[package]]
 name = "obrain-scan"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "blake3",
  "obrain-core",
