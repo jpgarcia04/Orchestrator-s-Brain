@@ -98,9 +98,8 @@
 
 <nav class="lateral" aria-label="Navegación">
   <div class="marca">
-    <svg viewBox="0 0 20 20" aria-hidden="true">
-      <path d="M10 2.5c.6 3.8 3.7 6.9 7.5 7.5-3.8.6-6.9 3.7-7.5 7.5-.6-3.8-3.7-6.9-7.5-7.5 3.8-.6 6.9-3.7 7.5-7.5z" />
-    </svg>
+    <!-- El logo: un hemisferio de olas y otro de las mismas olas hechas estrellas. -->
+    <svg viewBox="80 92 360 330" aria-hidden="true"><defs><clipPath id="marca-lh"><path d="M246,110 C206,96 150,112 124,150 C96,176 92,214 100,246 C88,288 104,336 136,362 C160,398 210,418 246,404 Z"/></clipPath><clipPath id="marca-rh"><path d="M266,110 C306,96 362,112 388,150 C416,176 420,214 412,246 C424,288 408,336 376,362 C352,398 302,418 266,404 Z"/></clipPath></defs><g clip-path="url(#marca-lh)" fill="none" stroke-width="30" stroke-linecap="round"><path d="M80,136 L87,140 L94,143 L102,146 L109,149 L117,150 L125,150 L133,149 L141,146 L148,143 L155,140 L162,136 L170,132 L177,129 L184,126 L192,124 L200,122 L208,122 L216,123 L223,126 L231,129 L238,132 L245,136 L252,139 L259,143" stroke="#36d6f5"/><path d="M80,204 L87,207 L95,210 L103,211 L111,211 L119,210 L126,208 L134,205 L141,202 L148,198 L155,194 L162,191 L170,188 L177,185 L185,184 L193,184 L201,185 L209,187 L216,190 L224,193 L231,197 L238,200 L245,204 L252,207 L260,210" stroke="#6099f6"/><path d="M80,271 L88,272 L96,273 L104,272 L112,270 L119,268 L126,264 L133,261 L140,257 L148,253 L155,250 L162,247 L170,246 L178,245 L186,246 L194,248 L201,250 L209,254 L216,257 L223,261 L230,265 L237,268 L245,271 L253,272 L261,273" stroke="#8b5cf6"/><path d="M80,334 L88,334 L96,333 L103,330 L111,327 L118,323 L125,320 L132,316 L139,312 L147,310 L155,308 L162,307 L170,307 L178,308 L186,311 L193,314 L200,318 L207,321 L215,325 L222,328 L229,331 L237,333 L245,334 L253,334 L261,333" stroke="#b65be7"/><path d="M80,395 L88,393 L95,390 L102,386 L109,382 L116,379 L124,375 L131,372 L139,370 L147,368 L155,368 L162,369 L170,371 L178,374 L185,378 L192,382 L199,385 L206,389 L213,392 L221,394 L229,396 L237,396 L245,395 L253,393 L260,390" stroke="#e05ad8"/></g><g clip-path="url(#marca-rh)"><circle cx="278" cy="149" r="14" fill="#3ed8f5" opacity="0.97"/><circle cx="307" cy="146" r="12" fill="#52dcf6" opacity="0.90"/><circle cx="334" cy="133" r="10" fill="#64dff7" opacity="0.84"/><circle cx="362" cy="123" r="8" fill="#77e3f8" opacity="0.78"/><circle cx="392" cy="127" r="6" fill="#8ae7f9" opacity="0.71"/><circle cx="418" cy="140" r="4" fill="#9cebfa" opacity="0.64"/><circle cx="279" cy="211" r="14" fill="#679ef6" opacity="0.97"/><circle cx="307" cy="201" r="12" fill="#76a7f7" opacity="0.90"/><circle cx="334" cy="188" r="10" fill="#84b0f8" opacity="0.84"/><circle cx="364" cy="184" r="8" fill="#94baf9" opacity="0.77"/><circle cx="392" cy="194" r="6" fill="#a3c4fa" opacity="0.71"/><circle cx="419" cy="207" r="4" fill="#b1cdfb" opacity="0.64"/><circle cx="280" cy="269" r="14" fill="#9063f6" opacity="0.97"/><circle cx="307" cy="257" r="12" fill="#9b72f7" opacity="0.91"/><circle cx="334" cy="246" r="10" fill="#a581f8" opacity="0.84"/><circle cx="364" cy="249" r="8" fill="#b191f9" opacity="0.77"/><circle cx="391" cy="262" r="6" fill="#bba0fa" opacity="0.71"/><circle cx="419" cy="272" r="4" fill="#c6affb" opacity="0.64"/><circle cx="279" cy="326" r="14" fill="#b962e8" opacity="0.97"/><circle cx="305" cy="312" r="12" fill="#c070ea" opacity="0.91"/><circle cx="334" cy="307" r="10" fill="#c780ec" opacity="0.84"/><circle cx="363" cy="316" r="8" fill="#ce90ef" opacity="0.77"/><circle cx="390" cy="329" r="6" fill="#d49ff1" opacity="0.71"/><circle cx="419" cy="334" r="4" fill="#dbaff3" opacity="0.64"/><circle cx="277" cy="381" r="14" fill="#e160d9" opacity="0.97"/><circle cx="305" cy="369" r="12" fill="#e46fdd" opacity="0.91"/><circle cx="334" cy="371" r="10" fill="#e780e1" opacity="0.84"/><circle cx="361" cy="384" r="8" fill="#ea8fe4" opacity="0.78"/><circle cx="389" cy="395" r="6" fill="#ed9ee8" opacity="0.71"/><circle cx="419" cy="392" r="4" fill="#f0aeec" opacity="0.64"/></g></svg>
     <span>Orchestrator's Brain</span>
   </div>
 
@@ -282,9 +281,9 @@
     padding: 0 8px;
   }
   .marca svg {
-    width: 20px;
-    height: 20px;
-    fill: var(--calido);
+    flex: none;
+    width: 24px;
+    height: 22px;
   }
   .marca span {
     font-family: var(--serif);

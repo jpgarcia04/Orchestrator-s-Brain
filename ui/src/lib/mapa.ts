@@ -45,7 +45,7 @@ import {
 import type { Arista, Cielo, Lente, Nodo, Region } from "./nucleo";
 import { nombreBonito, tituloDe } from "./nombres";
 
-const FONDO = 0x05070c;
+const FONDO = 0x08050d;
 
 /** Frío: dormido. Cálido: tocado hace nada. §1 — el mapa te enseña dónde está
  *  viva tu vida ahora mismo, y eso es un dato, no una paleta. */

@@ -6,35 +6,41 @@
  * para quien trabaja con luz. Se cambia desde la barra lateral y se recuerda en
  * este equipo. El mapa es de noche en los dos: es un cielo.
  *
+ * Noche es una «noche ciruela» con cian, sacada del logo (2026-11-25): un
+ * negro con un punto morado y el cian de la ola para actuar y seleccionar. El
+ * magenta del logo no entra en la interfaz: aquí el color sólo dice algo. El
+ * ámbar, el verde y el coral no cambian, porque significan, y tampoco los
+ * colores de las estrellas del mapa, que codifican recencia (`lib/mapa.ts`).
+ *
  * Todas las parejas de texto y fondo cumplen 4.5:1.
  */
 
 :root,
 :root[data-tema="noche"] {
   color-scheme: dark;
-  --fondo: #0b0f16;
-  --lateral: #0e131c;
-  --panel: #10161f;
-  --tarjeta: #141b26;
-  --chip: rgba(150, 170, 200, 0.09);
-  --linea: rgba(150, 170, 200, 0.14);
-  --tinta: #e7ecf3;
-  --tenue: #9aa6b8;
-  --acento: #93b6e2;
+  --fondo: #0f0a14;
+  --lateral: #130d1a;
+  --panel: #171020;
+  --tarjeta: #1e1529;
+  --chip: rgba(214, 170, 220, 0.08);
+  --linea: rgba(214, 170, 220, 0.13);
+  --tinta: #f1eaf2;
+  --tenue: #ab9fae;
+  --acento: #62d3ee;
   --calido: #f2c27b;
   --calido-fondo: rgba(242, 194, 123, 0.14);
   --peligro: #f0a094;
   --peligro-fondo: rgba(240, 160, 148, 0.14);
   --bien: #86d0a6;
-  --sel: rgba(147, 182, 226, 0.15);
+  --sel: rgba(98, 211, 238, 0.13);
   --papel: #e8e3d7;
   --papel-tinta: #2b2f38;
   --papel-linea: rgba(43, 47, 56, 0.17);
-  --mapa: #070a11;
+  --mapa: #0a0610;
   --sombra: rgba(0, 0, 0, 0.6);
-  --velo: rgba(11, 15, 22, 0.6);
-  --prim: #93b6e2;
-  --prim-tinta: #0b0f16;
+  --velo: rgba(15, 10, 20, 0.6);
+  --prim: #62d3ee;
+  --prim-tinta: #0f0a14;
   --brillo-hover: brightness(1.2);
   --tipo-pdf: #f0a094;
   --tipo-img: #86cdb2;
@@ -54,20 +60,20 @@
   --linea: rgba(30, 36, 48, 0.12);
   --tinta: #1a1e26;
   --tenue: #575f6d;
-  --acento: #2c4d86;
+  --acento: #0a6178;
   --calido: #8a520b;
   --calido-fondo: rgba(196, 128, 32, 0.15);
   --peligro: #a33d2d;
   --peligro-fondo: rgba(168, 64, 47, 0.12);
   --bien: #2b7550;
-  --sel: rgba(44, 77, 134, 0.1);
+  --sel: rgba(10, 97, 120, 0.1);
   --papel: #ffffff;
   --papel-tinta: #2a2f38;
   --papel-linea: rgba(30, 36, 48, 0.14);
   --mapa: #0a0f1c;
   --sombra: rgba(30, 36, 48, 0.18);
   --velo: rgba(243, 241, 236, 0.66);
-  --prim: #2c4d86;
+  --prim: #0a6178;
   --prim-tinta: #ffffff;
   --brillo-hover: brightness(0.965);
   --tipo-pdf: #a33d2d;
