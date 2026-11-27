@@ -112,7 +112,8 @@ no. Los nombres de carpetas y colecciones de lo normal sí salen.
 
 ## Abrir, revelar y mostrar a pedido de Aetheris
 
-[ADR-0041](adr/0041-abrir-desde-aetheris-sin-ventana.md). Tres modos de arranque más, fuera del
+[ADR-0041](adr/0041-abrir-desde-aetheris-sin-ventana.md) y
+[ADR-0042](adr/0042-abrir-solo-documentos.md). Tres modos de arranque más, fuera del
 protocolo MCP, para que ningún modelo pueda pedirlos. Los lanza la ventana de Aetheris cuando JP
 pulsa un botón de la tarjeta de un documento:
 
@@ -127,6 +128,12 @@ pulsa un botón de la tarjeta de un documento:
 - Sólo lo que la puerta serviría (`SoloNormal`, una ruta vigente dentro de una biblioteca). Para
   todo lo demás, `fuera_de_la_puerta`, sin decir qué es. Con la puerta apagada, `apagada`; «sólo
   localizar» basta, porque abrir es un acto de JP y la ruta no vuelve a Aetheris.
+- `--abrir` solo abre **documentos** ([ADR-0042](adr/0042-abrir-solo-documentos.md)): un archivo
+  normal (ni carpeta ni enlace) cuya extensión, tras el último punto y sin distinguir mayúsculas,
+  esté en la lista permitida (`pdf`, `txt`, `md`, `csv`, `doc`, `docx`, `odt`, `rtf`, `xls`, `xlsx`,
+  `ods`, `pptx`, `odp`, `jpg`, `jpeg`, `png`, `gif`, `webp`, `bmp`, `tif`, `tiff`, `heic`) y cuyo
+  nombre no tenga `:` ni caracteres de control. Lo demás contesta `no_es_documento` y no abre nada;
+  `--revelar` sí lo enseña.
 - La base se abre como la abre la puerta, para leer; los motivos de la apertura (`base_cerrada`,
   `ocupada`, `version_distinta`) son los mismos. Si el sistema no puede abrir el archivo,
   `no_se_pudo_abrir`.

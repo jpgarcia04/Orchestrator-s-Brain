@@ -693,7 +693,12 @@ fn la_puerta_por_stdio_dice_ocupada_si_una_escritura_quedo_a_medias() {
 /// podría servir, y para todo lo demás el mismo motivo, sin decir qué es.
 #[test]
 fn abrir_desde_aetheris_solo_da_la_ruta_de_lo_que_la_puerta_serviria() {
-    use obrain_api::desde_aetheris::ruta;
+    use obrain_api::desde_aetheris::{self, Accion};
+    let ruta = |db: &std::path::Path, id: &str| {
+        let r = desde_aetheris::ruta(Accion::Abrir, db, id);
+        assert_eq!(r, desde_aetheris::ruta(Accion::Revelar, db, id), "{id}");
+        r
+    };
     let p = Prueba::nueva("abrir");
     let mut brain = preparar_con_la_puerta_de_fabrica(&p);
     let recibo = id(brain.store(), &p, "Normal/recibo.txt");
@@ -727,4 +732,47 @@ fn abrir_desde_aetheris_solo_da_la_ruta_de_lo_que_la_puerta_serviria() {
     // Con la ventana todavía abierta (la puerta lee igual).
     brain.set_gate_position(Posicion::Apagada).unwrap();
     assert_eq!(ruta(&p.db(), recibo.as_str()), Err("apagada"));
+}
+
+/// ADR-0042: `--abrir` sólo abre documentos de la lista; algo que la puerta
+/// serviría pero no lo es (una página HTML) se revela, pero no se abre, y el
+/// motivo no trae la ruta.
+#[test]
+fn abrir_desde_aetheris_no_abre_lo_que_no_es_un_documento() {
+    use obrain_api::desde_aetheris::{Accion, NO_ES_DOCUMENTO, ruta};
+    let p = Prueba::nueva("abrir-no-documento");
+    p.archivo(
+        "Normal/pagina.html",
+        "<p>Página sintética de la academia, con azafrán.</p>",
+    );
+    let mut brain = preparar_con_la_puerta_de_fabrica(&p);
+    brain.set_gate_position(Posicion::SoloLocalizar).unwrap();
+    let recibo = id(brain.store(), &p, "Normal/recibo.txt");
+    let pagina = id(brain.store(), &p, "Normal/pagina.html");
+
+    assert_eq!(
+        ruta(Accion::Abrir, &p.db(), recibo.as_str()),
+        Ok(p.ruta("Normal/recibo.txt"))
+    );
+    assert_eq!(
+        ruta(Accion::Revelar, &p.db(), pagina.as_str()),
+        Ok(p.ruta("Normal/pagina.html"))
+    );
+    assert_eq!(
+        ruta(Accion::Mostrar, &p.db(), pagina.as_str()),
+        Ok(p.ruta("Normal/pagina.html"))
+    );
+    assert_eq!(
+        ruta(Accion::Abrir, &p.db(), pagina.as_str()),
+        Err(NO_ES_DOCUMENTO)
+    );
+
+    // Un documento de la lista que ya no es un archivo normal (hoy, una
+    // carpeta en su sitio) tampoco se abre.
+    std::fs::remove_file(p.biblioteca().join("Normal/recibo.txt")).unwrap();
+    std::fs::create_dir(p.biblioteca().join("Normal/recibo.txt")).unwrap();
+    assert_eq!(
+        ruta(Accion::Abrir, &p.db(), recibo.as_str()),
+        Err(NO_ES_DOCUMENTO)
+    );
 }

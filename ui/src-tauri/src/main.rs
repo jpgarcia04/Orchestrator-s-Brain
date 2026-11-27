@@ -432,10 +432,11 @@ fn argumentos_de_texto() -> Vec<String> {
 }
 
 /// `--abrir` y `--revelar` (ADR-0041): la ruta la decide el núcleo con las
-/// reglas de la puerta, se usa aquí y no sale. Lo único que se escribe es el
+/// reglas de la puerta y, para abrir, sólo si es un documento (ADR-0042); se
+/// usa aquí y no sale. Lo único que se escribe es el
 /// motivo fijo de un rechazo. Devuelve el código de salida: 0 hecho, 1 no.
 fn atender_sin_ventana(accion: Accion, id: &str) -> i32 {
-    let ruta = match desde_aetheris::ruta(&base_de_la_puerta(), id) {
+    let ruta = match desde_aetheris::ruta(accion, &base_de_la_puerta(), id) {
         Ok(r) => r,
         Err(motivo) => {
             println!("{motivo}");
@@ -484,7 +485,7 @@ fn traer_al_frente(app: &AppHandle) {
 #[tauri::command]
 fn mostrar_pedido(estado: State<'_, MostrarPedido>) -> Option<String> {
     let id = estado.0.lock().ok()?.take()?;
-    desde_aetheris::ruta(&base_de_la_puerta(), &id).ok()?;
+    desde_aetheris::ruta(Accion::Mostrar, &base_de_la_puerta(), &id).ok()?;
     Some(id)
 }
 

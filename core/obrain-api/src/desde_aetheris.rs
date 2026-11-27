@@ -65,10 +65,65 @@ pub fn es_id(id: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b.is_ascii_uppercase() && !b"ILOU".contains(&b)))
 }
 
-/// La ruta del documento `id` de la base `db`, si la puerta podría servirlo,
-/// o el motivo fijo por el que no: `apagada`, `fuera_de_la_puerta`, los de
-/// la apertura (`base_cerrada`, `ocupada`, `version_distinta`) o `fallo`.
-pub fn ruta(db: &Path, id: &str) -> Result<String, &'static str> {
+/// El motivo fijo de un `--abrir` sobre algo que la puerta serviría pero que
+/// no es un documento de [`DOCUMENTOS`] (ADR-0042). Sólo sale después de que
+/// el `id` pasó la puerta, así que no dice nada que `--revelar` no diga ya.
+pub const NO_ES_DOCUMENTO: &str = "no_es_documento";
+
+/// **Lo único que `--abrir` abre** (ADR-0042): una lista permitida, nunca una
+/// de prohibidas, en minúsculas. Abrir con el programa asociado ejecuta un
+/// `.exe`, un `.lnk`, un `.bat` o un `.url`; también un `.html` o un `.svg`
+/// llevan código al navegador. Lo que no está aquí se enseña con `--revelar`
+/// o se abre desde la ventana de Brain.
+pub const DOCUMENTOS: &[&str] = &[
+    "pdf", "txt", "md", "csv", "doc", "docx", "odt", "rtf", "xls", "xlsx", "ods", "pptx", "odp",
+    "jpg", "jpeg", "png", "gif", "webp", "bmp", "tif", "tiff", "heic",
+];
+
+/// ¿Es `ruta` el nombre de un documento que `--abrir` puede abrir? Se juzga
+/// por el texto del último componente, como lo juzga Windows al elegir el
+/// programa. La extensión es la que va tras el último punto, sin distinguir
+/// mayúsculas: `factura.PDF.exe` es un `.exe`. Un punto o un espacio final,
+/// que Windows quita (`doc.pdf.`), dejan una extensión que no está en la
+/// lista. Además se rechaza un `:`, que en NTFS nombra un flujo alternativo
+/// (`programa.exe:x.pdf` es un flujo de un ejecutable), y cualquier carácter
+/// de control.
+pub fn es_documento(ruta: &str) -> bool {
+    let nombre = ruta.rsplit(['/', '\\']).next().unwrap_or("");
+    if nombre.contains(':') || nombre.chars().any(char::is_control) {
+        return false;
+    }
+    match nombre.rsplit_once('.') {
+        Some((base, ext)) if !base.is_empty() => {
+            DOCUMENTOS.contains(&ext.to_ascii_lowercase().as_str())
+        }
+        _ => false,
+    }
+}
+
+/// ¿Es lo que hay en `ruta` un archivo normal? Ni carpeta, ni enlace
+/// simbólico (que abriría su destino, con otro nombre), ni nada que no esté.
+/// Mira el disco con `symlink_metadata`, que no sigue el enlace.
+fn es_archivo_normal(ruta: &str) -> bool {
+    std::fs::symlink_metadata(ruta).is_ok_and(|m| m.file_type().is_file())
+}
+
+/// La ruta del documento `id` de la base `db` para `accion`, si la puerta
+/// podría servirlo, o el motivo fijo por el que no: `apagada`,
+/// `fuera_de_la_puerta`, los de la apertura (`base_cerrada`, `ocupada`,
+/// `version_distinta`), `fallo` y, sólo para [`Accion::Abrir`],
+/// [`NO_ES_DOCUMENTO`] (ADR-0042). Pide la acción para que nadie pueda pedir
+/// la ruta de «revelar» y abrirla.
+pub fn ruta(accion: Accion, db: &Path, id: &str) -> Result<String, &'static str> {
+    let ruta = ruta_servible(db, id)?;
+    if accion == Accion::Abrir && !(es_documento(&ruta) && es_archivo_normal(&ruta)) {
+        return Err(NO_ES_DOCUMENTO);
+    }
+    Ok(ruta)
+}
+
+/// La ruta de lo que la puerta podría servir, sin mirar la acción.
+fn ruta_servible(db: &Path, id: &str) -> Result<String, &'static str> {
     if !es_id(id) {
         return Err(NoSale::FueraDeLaPuerta.motivo());
     }
@@ -146,7 +201,86 @@ mod tests {
     #[test]
     fn sin_base_no_hay_ruta_y_lo_mal_formado_ni_la_busca() {
         let db = Path::new("/no/existe/brain.obrain");
-        assert_eq!(ruta(db, "nada"), Err("fuera_de_la_puerta"));
-        assert!(ruta(db, ID).is_err());
+        for accion in [Accion::Abrir, Accion::Revelar, Accion::Mostrar] {
+            assert_eq!(ruta(accion, db, "nada"), Err("fuera_de_la_puerta"));
+            assert!(ruta(accion, db, ID).is_err());
+        }
+    }
+
+    #[test]
+    fn abrir_solo_abre_documentos_de_la_lista() {
+        for si in [
+            "factura.pdf",
+            "FACTURA.PDF",
+            "notas.md",
+            "foto.JPG",
+            "C:\\Users\\ana\\Documentos\\informe.Docx",
+            "/home/ana/hoja.v2.xlsx",
+        ] {
+            assert!(es_documento(si), "{si}");
+        }
+        for no in [
+            "factura.PDF.exe",
+            "doc.pdf.lnk",
+            "doc.pdf.",
+            "doc.pdf ",
+            "doc.pdf:flujo",
+            "doc.pdf::$DATA",
+            "C:\\docs\\doc.pdf:x",
+            "sin_extension",
+            ".pdf",
+            "C:\\docs\\carpeta.pdf\\",
+            "/home/ana/carpeta/",
+            "",
+            "acceso.url",
+            "acceso.lnk",
+            "programa.exe",
+            "script.bat",
+            "script.cmd",
+            "script.ps1",
+            "script.vbs",
+            "script.js",
+            "app.hta",
+            "instalar.msi",
+            "pantalla.scr",
+            "registro.reg",
+            "app.jar",
+            "pagina.html",
+            "pagina.htm",
+            "dibujo.svg",
+            "macro.docm",
+            "doc.pdf\nexe",
+            "doc\n.pdf",
+            "programa.exe:x.pdf",
+            "C:\\docs\\programa.exe:x.pdf",
+        ] {
+            assert!(!es_documento(no), "{no:?}");
+        }
+    }
+
+    #[test]
+    fn abrir_solo_abre_un_archivo_normal() {
+        let dir = std::env::temp_dir().join(format!(
+            "obrain-abrir-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(dir.join("carpeta.pdf")).unwrap();
+        let archivo = dir.join("factura.pdf");
+        std::fs::write(&archivo, b"%PDF-1.7 inventado").unwrap();
+        let texto = |p: &Path| p.to_str().unwrap().to_string();
+        assert!(es_archivo_normal(&texto(&archivo)));
+        assert!(!es_archivo_normal(&texto(&dir.join("carpeta.pdf"))));
+        assert!(!es_archivo_normal(&texto(&dir.join("no-esta.pdf"))));
+        #[cfg(unix)]
+        {
+            let enlace = dir.join("enlace.pdf");
+            std::os::unix::fs::symlink(&archivo, &enlace).unwrap();
+            assert!(!es_archivo_normal(&texto(&enlace)));
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
